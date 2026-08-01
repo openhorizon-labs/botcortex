@@ -2,28 +2,26 @@ import { Button } from "@/components/ui/button";
 
 export function FinalCta() {
   return (
-    <section className="relative overflow-hidden border-b border-border/60">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -bottom-32 left-1/2 size-[30rem] -translate-x-1/2 rounded-full bg-signal/10 blur-[110px]"
-      />
-      <div className="relative mx-auto w-full max-w-6xl px-5 py-24 text-center lg:py-28">
-        <h2 className="text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
+    <section className="mx-auto w-full max-w-[1368px] px-6 lg:px-10">
+      <div className="border-t border-border py-24 text-center lg:py-32">
+        <h2 className="text-[2rem] font-normal tracking-tight sm:text-[2.75rem]">
           Teach your robot its first task tonight.
         </h2>
-        <p className="mx-auto mt-5 max-w-xl text-pretty text-lg leading-relaxed text-muted-foreground">
+        <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted-foreground">
           Install the free runtime, add your API key, and type the job you&rsquo;ve been
           putting off.
         </p>
-        <Button
-          asChild
-          size="lg"
-          className="mt-9 h-12 bg-signal px-7 text-base text-signal-foreground hover:bg-signal/90"
-        >
-          <a href="https://github.com/openhorizon-labs/botcortex-runtime">
-            Install BotCortex
-          </a>
-        </Button>
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
+          <Button
+            asChild
+            className="h-11 rounded-lg bg-foreground px-5 text-sm font-medium text-background hover:bg-foreground/90"
+          >
+            <a href="https://github.com/openhorizon-labs/botcortex-runtime">Get started</a>
+          </Button>
+          <Button asChild variant="outline" className="h-11 rounded-lg border-border px-5 text-sm">
+            <a href="mailto:hello@openhorizon.so">Talk to us</a>
+          </Button>
+        </div>
       </div>
     </section>
   );

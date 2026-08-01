@@ -34,11 +34,14 @@ const TIERS = [
 
 export function Pricing() {
   return (
-    <section id="pricing" className="scroll-mt-16 border-b border-border/60">
-      <div className="mx-auto w-full max-w-6xl px-5 py-20 lg:py-24">
-        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+    <section id="pricing" className="scroll-mt-16">
+      <div className="mx-auto w-full max-w-[1368px] px-6 pb-24 lg:px-10">
+        <h2 className="text-[26px] font-medium tracking-tight sm:text-[32px]">
           Priced per robot. Never per attempt.
         </h2>
+        <p className="mt-3 max-w-2xl text-base text-muted-foreground">
+          The old way is an integrator quote: $19,000–$80,000 per task. This is the new way.
+        </p>
 
         <div className="mt-12 grid gap-4 md:grid-cols-2">
           {TIERS.map((t, i) => (
@@ -46,7 +49,7 @@ export function Pricing() {
               key={t.name}
               delay={i * 70}
               className={cn(
-                "rounded-lg border p-7 lg:p-8",
+                "rounded-3xl border p-7 lg:p-8",
                 t.featured
                   ? "border-signal/40 bg-signal/[0.04]"
                   : "border-border bg-surface-1",
