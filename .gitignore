@@ -10,7 +10,8 @@ build/
 
 # Node / UI
 node_modules/
-ui/dist/
+ui/.next/
+ui/out/
 
 # Local state
 .env
