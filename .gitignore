@@ -1,17 +1,9 @@
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-dist/
-build/
-*.egg-info/
-.pytest_cache/
-.ruff_cache/
-
-# Node / UI
+# Node / Next.js
 node_modules/
-ui/.next/
-ui/out/
+app/.next/
+app/out/
+site/.next/
+site/out/
 
 # Local state
 .env

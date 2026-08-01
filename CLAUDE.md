@@ -1,15 +1,15 @@
-# BotCortex — session bootstrap
+# BotCortex Web — session bootstrap
 
-- **Load the `runtime-architecture` skill before writing product code** — it is the
-  blueprint and holds every locked decision. Company skills live in
-  github.com/openhorizon-labs/skills, symlinked into `~/.claude/skills/`.
-- **Safety is non-negotiable:** dry-run is the default; never cause real motion without
-  an operator present, an explicit `--execute`, and the user's go-ahead in the current
-  session. Load the `thor-openarm` skill before touching hardware.
-- Before every commit: `make test`, then the mock smoke test
-  `uv run botcortex --mock "wave right arm"`.
-- `ui/` is Next.js + Bun with `output: "export"` — `bun run build` → `ui/out/`, served
-  by the robot's FastAPI server locally. **Sai deploys to Vercel himself from GitHub
-  (Root Directory = `ui/`); sessions push commits, never deploy.**
+- This repo is **web only**: `app/` = chat web app (Next.js + Bun, `output: "export"`),
+  `site/` = marketing site (later). The Python runtime lives in the separate
+  `botcortex-runtime` repo; cloud services in `botcortex-api` (later).
+- **Load the `runtime-architecture` skill** before product work — it holds the UI
+  decisions (chat authors, ReactFlow plan-view only, WebSocket transport, STOP as its
+  own REST endpoint) and the whole blueprint.
+- Next.js here is v16+ — conventions may differ from training data; check
+  `app/node_modules/next/dist/docs/` before non-trivial Next work.
+- Build check before committing: `cd app && bun run build`.
+- **Sai deploys via Vercel himself (Root Directory = `app/`); sessions push to GitHub,
+  never deploy.**
 - Never leave this repo dirty at session end; commit conventions follow the
   `sync-company-skills` skill.
