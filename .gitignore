@@ -1,11 +1,11 @@
-# Node / Next.js
+# Next.js / Node
 node_modules/
-app/.next/
-app/out/
-site/.next/
-site/out/
+.next/
+out/
+next-env.d.ts
 
 # Local state
 .env
+.env*.local
 *.local
 .DS_Store
