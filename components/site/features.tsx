@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const STRIP = [
   { icon: TeachIso, title: "Teach", body: "A chat window served from the robot — type the task, review the plan, run." },
-  { icon: RememberIso, title: "Remember", body: "Every attempt logged on-device; failures become lessons the agent recalls." },
+  { icon: RememberIso, title: "Remember", body: "On-device episodic memory: every attempt logged, every failure a lesson the agent recalls." },
   { icon: RunLocalIso, title: "Run local", body: "Skills execute as deterministic code on the robot, online or not." },
   { icon: OwnItIso, title: "Own it", body: "Your skills, your data, your API key. Open source, BYO everything." },
 ] as const;
@@ -173,7 +173,7 @@ const CARDS = [
     id: "remember",
     chip: "Remember",
     headline: "Every failure makes the next attempt smarter.",
-    body: "Every attempt is logged on the robot — what ran, what broke, what the lesson was — and recalled the next time you teach. Feeding failures back like this improves manipulation success by up to 35%.",
+    body: "Every attempt is written to on-device episodic memory — what ran, what broke, what the lesson was — and recalled the next time you teach. Feeding failures back like this improves manipulation success by up to 35%.",
     link: { href: "https://arxiv.org/abs/2508.21378", label: "Read the research" },
     visual: MemoryVisual,
   },

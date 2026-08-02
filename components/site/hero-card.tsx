@@ -133,7 +133,8 @@ export function HeroCard() {
           <p className="mt-3 max-w-md text-base leading-relaxed text-muted-foreground">
             Describe the task in plain English. The agent plans it step by step, shows
             you the plan before anything moves, and saves the skill on the robot — where
-            it runs at control rate, with or without internet.
+            it runs at control rate, with or without internet. Every run is logged to
+            episodic memory, so your robot gets better at your tasks.
           </p>
         </div>
       </div>

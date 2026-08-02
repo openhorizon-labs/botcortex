@@ -15,7 +15,8 @@ export function Hero() {
           </h1>
           <p className="mt-6 max-w-xl text-base leading-6 text-foreground/80">
             The open-source LLM harness and runtime for real robots — the agent writes
-            each skill once, and it runs on-device forever.
+            each skill once, episodic memory sharpens it with every attempt, and it
+            runs on-device forever.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-2.5">
             <Button

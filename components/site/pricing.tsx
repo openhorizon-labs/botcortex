@@ -10,7 +10,7 @@ const TIERS = [
     note: "open source, forever",
     features: [
       "Full runtime, SDK, and chat app on one robot",
-      "Local skill storage and failure memory — no account needed",
+      "Skills and episodic memory stored locally — no account needed",
       "Bring your own API key; we never resell inference",
     ],
     cta: "Install the runtime",
