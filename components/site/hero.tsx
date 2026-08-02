@@ -1,10 +1,13 @@
 import { Button } from "@/components/ui/button";
 import { CopyCommand } from "@/components/kit/copy-command";
+import { GridHover } from "@/components/kit/grid-hover";
 import { HeroCard } from "@/components/site/hero-card";
 
 export function Hero() {
   return (
-    <section className="mx-auto w-full max-w-[1368px] px-6 lg:px-10">
+    <section className="relative overflow-hidden">
+      <GridHover className="h-[560px]" />
+      <div className="relative z-10 mx-auto w-full max-w-[1368px] px-6 lg:px-10">
       <div className="flex flex-col justify-between gap-10 pt-16 pb-14 lg:flex-row lg:items-end lg:pt-24 lg:pb-16">
         <div className="max-w-3xl">
           <h1 className="text-[2.75rem] font-normal leading-[1.05] tracking-[-0.01em] text-foreground sm:text-[3.5rem] lg:text-[4rem]">
@@ -41,6 +44,7 @@ export function Hero() {
       </div>
 
       <HeroCard />
+      </div>
     </section>
   );
 }
