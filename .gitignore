@@ -9,3 +9,4 @@ next-env.d.ts
 .env*.local
 *.local
 .DS_Store
+.claude/worktrees/
