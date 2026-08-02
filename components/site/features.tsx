@@ -1,52 +1,15 @@
 import { ArrowRight } from "lucide-react";
+import { TeachIso, RememberIso, RunLocalIso, OwnItIso } from "@/components/kit/iso-icons";
 import { RunnerBadge, type Runner } from "@/components/kit/runner-badge";
 import { cn } from "@/lib/utils";
-
-/* ---------- line-art icons (ours, stroke-only like the ref's) ---------- */
-
-function IconChat({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" className={className} aria-hidden>
-      <path d="M8 14a6 6 0 0 1 6-6h20a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H20l-8 7v-7h-4a6 6 0 0 1-6-6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" transform="translate(4 0)" />
-      <path d="M18 16h16M18 22h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" transform="translate(4 0)" />
-    </svg>
-  );
-}
-function IconMemory({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" className={className} aria-hidden>
-      <rect x="10" y="10" width="28" height="28" rx="6" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M18 24a6 6 0 0 1 12 0c0 4-4 4-4 7M24 35v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M16 4v6M24 4v6M32 4v6M16 38v6M24 38v6M32 38v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconChip({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" className={className} aria-hidden>
-      <rect x="12" y="12" width="24" height="24" rx="5" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="20" y="20" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M24 4v8M24 36v8M4 24h8M36 24h8M10 10l6 6M38 10l-6 6M10 38l6-6M38 38l-6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconKey({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" className={className} aria-hidden>
-      <circle cx="18" cy="18" r="9" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="18" cy="18" r="3" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M24.5 24.5 40 40M34 34l5-5M29 29l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 /* ---------- the 4-column strip ---------- */
 
 const STRIP = [
-  { icon: IconChat, title: "Teach", body: "A chat window served from the robot — type the task, review the plan, run." },
-  { icon: IconMemory, title: "Remember", body: "Every attempt logged on-device; failures become lessons the agent recalls." },
-  { icon: IconChip, title: "Run local", body: "Skills execute as deterministic code on the robot, online or not." },
-  { icon: IconKey, title: "Own it", body: "Your skills, your data, your API key. Open source, BYO everything." },
+  { icon: TeachIso, title: "Teach", body: "A chat window served from the robot — type the task, review the plan, run." },
+  { icon: RememberIso, title: "Remember", body: "Every attempt logged on-device; failures become lessons the agent recalls." },
+  { icon: RunLocalIso, title: "Run local", body: "Skills execute as deterministic code on the robot, online or not." },
+  { icon: OwnItIso, title: "Own it", body: "Your skills, your data, your API key. Open source, BYO everything." },
 ] as const;
 
 export function FeatureStrip() {
@@ -54,9 +17,11 @@ export function FeatureStrip() {
     <section id="how" className="mx-auto w-full max-w-[1368px] scroll-mt-16 px-6 py-20 lg:px-10 lg:py-28">
       <div className="grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
         {STRIP.map((s) => (
-          <div key={s.title}>
-            <s.icon className="h-16 w-16 text-foreground/70" />
-            <h3 className="mt-6 text-[22px] font-medium tracking-tight">{s.title}</h3>
+          <div key={s.title} className="group">
+            <div className="flex h-[130px] w-[150px] items-center">
+              <s.icon className="h-[130px] w-[150px]" />
+            </div>
+            <h3 className="mt-4 text-[22px] font-medium tracking-tight">{s.title}</h3>
             <p className="mt-2 max-w-xs text-base leading-relaxed text-muted-foreground">
               {s.body}
             </p>
