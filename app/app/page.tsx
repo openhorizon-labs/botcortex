@@ -82,9 +82,9 @@ import {
 } from "@/components/ui/collapsible";
 import { RobotProvider, useRobot } from "@/components/app/robot-provider";
 import { ConnectRobotDialog } from "@/components/app/connect-robot-dialog";
-import { AuthDialog } from "@/components/app/auth-dialog";
 import { LiveDot } from "@/components/kit/live-dot";
-import { signOut, useSession } from "@/lib/auth-client";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { authClient, useSession } from "@/lib/auth-client";
 
 const SKILLS = ["wave_right_arm", "pick_and_place", "fold_towel"];
 
@@ -108,7 +108,6 @@ function AppInner() {
   const [dryRun, setDryRun] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
   const { data: session } = useSession();
 
   const { status, robot, skills, activity, lastChat, sendChat, runSkill, stop } =
@@ -274,23 +273,51 @@ function AppInner() {
                 <Settings /> Settings
               </SidebarMenuButton>
             </SidebarMenuItem>
-            {session ? (
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => signOut()} title="Sign out">
-                  <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-medium text-background">
-                    {(session.user.name || session.user.email)[0]?.toUpperCase()}
-                  </span>
-                  <span className="truncate">{session.user.email}</span>
-                  <LogOut className="ml-auto size-3.5 text-muted-foreground" />
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ) : (
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => setAuthOpen(true)}>
+            <SidebarMenuItem>
+              {session ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton
+                      size="lg"
+                      className="data-[state=open]:bg-surface-3"
+                    >
+                      <Avatar className="size-7 rounded-lg">
+                        <AvatarFallback className="rounded-lg bg-foreground text-xs font-medium text-background">
+                          {(session.user.name || session.user.email)[0]?.toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="grid flex-1 text-left leading-tight">
+                        <span className="truncate text-sm font-medium">
+                          {session.user.name || "Owner"}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {session.user.email}
+                        </span>
+                      </div>
+                      <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="top" align="start" className="w-56">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      Signed in as {session.user.email}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={async () => {
+                        await authClient.signOut();
+                        window.location.href = "/signin";
+                      }}
+                    >
+                      <LogOut className="size-4" /> Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <SidebarMenuButton onClick={() => (window.location.href = "/signin")}>
                   <LogIn /> Sign in
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
+              )}
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
         <SidebarRail />
@@ -540,7 +567,6 @@ function AppInner() {
       </CommandDialog>
 
       <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
-      <AuthDialog open={authOpen} onOpenChange={setAuthOpen} />
       </SidebarProvider>
     </TooltipProvider>
   );
