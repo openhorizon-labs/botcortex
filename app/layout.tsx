@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { SITE_URL } from "@/lib/site";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -12,10 +13,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const SITE = "https://botcortex.dev";
-
 export const metadata: Metadata = {
-  metadataBase: new URL(SITE),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "BotCortex — teach your robot by typing",
     template: "%s — BotCortex",
@@ -39,7 +38,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "BotCortex",
-    url: SITE,
+    url: SITE_URL,
     title: "BotCortex — teach your robot by typing",
     description:
       "The LLM harness and runtime for real robots. Skills run on-device; episodic memory makes them better with every attempt.",
@@ -75,13 +74,13 @@ const JSONLD = {
       name: "OpenHorizon Labs",
       url: "https://openhorizon.so",
       email: "contact@openhorizon.so",
-      logo: `${SITE}/icon.svg`,
+      logo: `${SITE_URL}/icon.svg`,
       sameAs: ["https://github.com/openhorizon-labs"],
     },
     {
       "@type": "SoftwareApplication",
       name: "BotCortex",
-      url: SITE,
+      url: SITE_URL,
       applicationCategory: "DeveloperApplication",
       operatingSystem: "Linux",
       description:
