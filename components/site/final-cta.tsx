@@ -4,7 +4,7 @@ import { GridHover } from "@/components/kit/grid-hover";
 export function FinalCta() {
   return (
     <section className="relative overflow-hidden">
-      <GridHover className="h-full" rows={10} />
+      <GridHover className="h-full" />
       <div className="relative z-10 mx-auto w-full max-w-[1368px] px-6 lg:px-10">
       <div className="border-t border-border py-24 text-center lg:py-32">
         <h2 className="text-[2rem] font-normal tracking-tight sm:text-[2.75rem]">
