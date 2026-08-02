@@ -14,8 +14,8 @@ export function Hero() {
             Teach your robot by typing.
           </h1>
           <p className="mt-6 max-w-xl text-base leading-6 text-foreground/80">
-            Open source, installed on the robot itself. Type a task in plain English —
-            an AI writes the skill once, and it runs locally forever.
+            The open-source LLM harness and runtime for real robots — the agent writes
+            each skill once, and it runs on-device forever.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-2.5">
             <Button
