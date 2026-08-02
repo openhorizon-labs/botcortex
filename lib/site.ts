@@ -1,7 +1,8 @@
-/** The canonical site origin, derived from the host we're deployed on.
- *  Vercel injects VERCEL_PROJECT_PRODUCTION_URL (prod domain, no protocol)
- *  at build time; custom domains flow through automatically. */
-const host =
-  process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || "";
+/** The canonical site origin. Set NEXT_PUBLIC_PRODUCTION_URL in the deploy
+ *  environment (with or without protocol); falls back to Vercel's deployment
+ *  URL, then localhost for local builds. */
+const raw =
+  process.env.NEXT_PUBLIC_PRODUCTION_URL || process.env.VERCEL_URL || "";
+const host = raw.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
 export const SITE_URL = host ? `https://${host}` : "http://localhost:3000";
