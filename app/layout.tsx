@@ -35,6 +35,8 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "OpenHorizon Labs", url: "https://openhorizon.so" }],
   creator: "OpenHorizon Labs",
+  publisher: "OpenHorizon Labs",
+  category: "technology",
   openGraph: {
     type: "website",
     siteName: "BotCortex",
@@ -66,16 +68,25 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
+const ORG_ID = "https://openhorizon.so/#organization";
+
 const JSONLD = {
   "@context": "https://schema.org",
   "@graph": [
     {
       "@type": "Organization",
+      "@id": ORG_ID,
       name: "OpenHorizon Labs",
       url: "https://openhorizon.so",
       email: "contact@openhorizon.so",
       logo: `${SITE_URL}/icon.svg`,
-      sameAs: ["https://github.com/openhorizon-labs"],
+      sameAs: ["https://openhorizon.so", "https://github.com/openhorizon-labs"],
+    },
+    {
+      "@type": "WebSite",
+      name: "BotCortex",
+      url: SITE_URL,
+      publisher: { "@id": ORG_ID },
     },
     {
       "@type": "SoftwareApplication",
@@ -86,7 +97,8 @@ const JSONLD = {
       description:
         "The LLM harness and runtime for real robots — teach tasks by typing; skills execute on-device with episodic memory.",
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-      publisher: { "@type": "Organization", name: "OpenHorizon Labs" },
+      publisher: { "@id": ORG_ID },
+      creator: { "@id": ORG_ID },
     },
   ],
 };
