@@ -30,7 +30,6 @@ const COLUMNS = [
       { label: "About OpenHorizon Labs", href: "https://openhorizon.so" },
       { label: "Blog", href: "#" },
       { label: "Safety", href: "#" },
-      { label: "Book a demo", href: "/demo" },
       { label: "Contact", href: "mailto:hello@openhorizon.so" },
     ],
   },
@@ -38,10 +37,16 @@ const COLUMNS = [
 
 export function Footer() {
   return (
-    <footer className="border-t border-border bg-surface-1">
-      <div className="mx-auto w-full max-w-[1368px] px-6 lg:px-10">
-        <div className="grid gap-x-8 gap-y-12 py-16 md:grid-cols-[1.5fr_repeat(3,1fr)]">
-          <div>
+    <footer className="group/footer relative overflow-hidden border-t border-border bg-surface-1">
+      {/* the mark lives inside the same section — faded, cropped by the corner,
+          spinning (like the nav logo) when the footer is hovered */}
+      <div aria-hidden className="pointer-events-none absolute -right-16 -bottom-24 hidden lg:block">
+        <Logo className="size-[19rem] text-foreground/[0.05] motion-safe:group-hover/footer:rotate-[720deg]" />
+      </div>
+
+      <div className="relative mx-auto w-full max-w-[1368px] px-6 lg:px-10">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-9 py-10 md:grid-cols-[1.5fr_repeat(3,1fr)] lg:py-14">
+          <div className="col-span-2 md:col-span-1">
             <Link href="/" className="group flex items-center gap-2.5">
               <Logo className="size-6 text-foreground" />
               <span className="text-[15px] font-semibold tracking-tight">BotCortex</span>
@@ -50,7 +55,7 @@ export function Footer() {
               The robot&rsquo;s motor cortex — teach a skill once, episodic memory keeps
               making it better. Built by OpenHorizon Labs.
             </p>
-            <p className="mt-5 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+            <p className="mt-4 flex items-center gap-2 font-mono text-xs text-muted-foreground">
               <LiveDot />
               v0 · building in the open
             </p>
@@ -61,7 +66,7 @@ export function Footer() {
               <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
                 {col.heading}
               </h3>
-              <ul className="mt-4 space-y-2.5">
+              <ul className="mt-3.5 space-y-2.5">
                 {col.links.map((l) => (
                   <li key={l.label}>
                     <Link
@@ -77,7 +82,7 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-border py-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 border-t border-border py-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-mono text-xs text-muted-foreground">
             © 2026 OpenHorizon Labs · Apache-2.0
           </p>
@@ -85,11 +90,6 @@ export function Footer() {
             Local execution, cloud intelligence.
           </p>
         </div>
-      </div>
-
-      {/* the mark, faded and cropped at the page's bottom edge — spins like the nav logo */}
-      <div aria-hidden className="group flex justify-center overflow-hidden">
-        <Logo className="size-[15rem] translate-y-[24%] text-foreground/[0.05] sm:size-[20rem]" />
       </div>
     </footer>
   );
