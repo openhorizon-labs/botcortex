@@ -78,6 +78,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { RobotProvider, useRobot } from "@/components/app/robot-provider";
+import { ConnectRobotDialog } from "@/components/app/connect-robot-dialog";
+import { LiveDot } from "@/components/kit/live-dot";
 
 const SKILLS = ["wave_right_arm", "pick_and_place", "fold_towel"];
 
@@ -95,11 +98,32 @@ const SUGGESTED = [
   { icon: Bot, label: "Fold the towel with both arms" },
 ];
 
-export default function Page() {
+function AppInner() {
   const [input, setInput] = useState("");
   const [suggestedOpen, setSuggestedOpen] = useState(true);
   const [dryRun, setDryRun] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+
+  const { status, robot, skills, activity, lastChat, sendChat, runSkill, stop } =
+    useRobot();
+  const connected = status === "connected";
+  const skillList = skills ?? SKILLS;
+
+  function handleSend() {
+    const text = input.trim();
+    if (!text) return;
+    if (!connected) {
+      setConnectOpen(true);
+      return;
+    }
+    if (sendChat(text, dryRun)) setInput("");
+  }
+
+  function handleRunSkill(name: string) {
+    if (connected) runSkill(name, dryRun);
+    else setInput(`Run ${name}`);
+  }
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -137,10 +161,11 @@ export default function Page() {
                     Robots
                   </DropdownMenuLabel>
                   <DropdownMenuItem>
-                    <Bot className="size-4" /> OpenArm v1 · Thor
+                    <Bot className="size-4" />{" "}
+                    {robot ? `${robot.name} · ${robot.platform}` : "OpenArm v1 · Thor"}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setConnectOpen(true)}>
                     <Plus className="size-4" /> Connect a robot
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -214,13 +239,13 @@ export default function Page() {
             </Tooltip>
             <SidebarGroupContent>
               <SidebarMenu>
-                {SKILLS.map((s) => (
+                {skillList.map((s) => (
                   <SidebarMenuItem key={s}>
                     <SidebarMenuButton>{s}</SidebarMenuButton>
                     <SidebarMenuAction
                       showOnHover
                       aria-label={`Run ${s}`}
-                      onClick={() => setInput(`Run ${s}`)}
+                      onClick={() => handleRunSkill(s)}
                     >
                       <Play />
                     </SidebarMenuAction>
@@ -252,25 +277,45 @@ export default function Page() {
         <header className="flex h-12 shrink-0 items-center justify-between px-3">
           <SidebarTrigger className="text-muted-foreground" />
           <div className="flex items-center gap-3">
-            <Badge
-              variant="outline"
-              className="h-6 gap-1.5 rounded-full px-2.5 text-xs font-normal text-muted-foreground"
-            >
-              <span className="size-1.5 rounded-full bg-muted-foreground" />
-              no robot connected
-            </Badge>
+            <button onClick={() => setConnectOpen(true)} aria-label="Connection">
+              <Badge
+                variant="outline"
+                className="h-6 gap-1.5 rounded-full px-2.5 text-xs font-normal text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {connected ? (
+                  <>
+                    <LiveDot />
+                    {robot?.name ?? "robot"} · {activity}
+                  </>
+                ) : status === "connecting" ? (
+                  <>
+                    <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />
+                    connecting…
+                  </>
+                ) : (
+                  <>
+                    <span className="size-1.5 rounded-full bg-muted-foreground" />
+                    no robot connected
+                  </>
+                )}
+              </Badge>
+            </button>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="destructive"
                   size="sm"
+                  disabled={!connected}
+                  onClick={() => stop()}
                   className="h-7 bg-destructive px-3 text-xs font-semibold tracking-wide text-white hover:bg-destructive/90"
                 >
                   STOP
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                Emergency stop — aborts motion between interpolation steps
+                {connected
+                  ? "Emergency stop — aborts motion between interpolation steps"
+                  : "Connect a robot first — STOP goes straight to its REST endpoint"}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -286,6 +331,12 @@ export default function Page() {
             <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
               placeholder='Teach it: "sort the red parts into the left bin"'
               className="min-h-9 resize-none border-0 bg-transparent px-4 pt-3.5 text-[15px] shadow-none focus-visible:ring-0"
               rows={1}
@@ -337,7 +388,7 @@ export default function Page() {
               <Button
                 size="icon"
                 disabled={!input.trim()}
-                onClick={() => setInput("")}
+                onClick={handleSend}
                 className="size-7 rounded-full"
                 aria-label="Send"
               >
@@ -345,6 +396,13 @@ export default function Page() {
               </Button>
             </div>
           </div>
+
+          {lastChat && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm">
+              <Bot className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span>{lastChat}</span>
+            </div>
+          )}
 
           {/* Suggested tasks */}
           <Collapsible
@@ -404,11 +462,11 @@ export default function Page() {
         <CommandList>
           <CommandEmpty>Nothing found.</CommandEmpty>
           <CommandGroup heading="Skills">
-            {SKILLS.map((s) => (
+            {skillList.map((s) => (
               <CommandItem
                 key={s}
                 onSelect={() => {
-                  setInput(`Run ${s}`);
+                  handleRunSkill(s);
                   setCmdOpen(false);
                 }}
               >
@@ -445,14 +503,29 @@ export default function Page() {
             >
               <ShieldCheck /> Toggle dry run
             </CommandItem>
-            <CommandItem onSelect={() => setCmdOpen(false)}>
+            <CommandItem
+              onSelect={() => {
+                setCmdOpen(false);
+                setConnectOpen(true);
+              }}
+            >
               <Plus /> Connect a robot
             </CommandItem>
           </CommandGroup>
         </CommandList>
         </Command>
       </CommandDialog>
+
+      <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
       </SidebarProvider>
     </TooltipProvider>
+  );
+}
+
+export default function Page() {
+  return (
+    <RobotProvider>
+      <AppInner />
+    </RobotProvider>
   );
 }
