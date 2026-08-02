@@ -29,7 +29,7 @@ const COLUMNS = [
       { label: "About OpenHorizon Labs", href: "https://openhorizon.so" },
       { label: "Blog", href: "#" },
       { label: "Safety", href: "#" },
-      { label: "Contact", href: "mailto:hello@openhorizon.so" },
+      { label: "Contact", href: "mailto:contact@openhorizon.so" },
     ],
   },
 ];

@@ -23,7 +23,7 @@ export function SignupCard() {
         className="mt-8 rounded-2xl border border-border bg-background p-5"
         onSubmit={(e) => {
           e.preventDefault();
-          window.location.href = `mailto:hello@openhorizon.so?subject=${encodeURIComponent(
+          window.location.href = `mailto:contact@openhorizon.so?subject=${encodeURIComponent(
             "BotCortex waitlist",
           )}&body=${encodeURIComponent(
             `Put me on the waitlist.\n\nEmail: ${email}\nRobot: ${robot || "—"}`,

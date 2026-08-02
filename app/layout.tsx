@@ -12,10 +12,84 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE = "https://botcortex.dev";
+
 export const metadata: Metadata = {
-  title: "BotCortex — teach your robot by typing",
+  metadataBase: new URL(SITE),
+  title: {
+    default: "BotCortex — teach your robot by typing",
+    template: "%s — BotCortex",
+  },
   description:
-    "Software installed on your robot: type a task in plain English, an AI writes the skill once, and it runs locally forever — no cloud in the control loop. By OpenHorizon Labs.",
+    "The LLM harness and runtime for real robots. Type a task in plain English — an AI writes the skill once, episodic memory sharpens it with every attempt, and it runs on-device forever.",
+  applicationName: "BotCortex",
+  keywords: [
+    "robot programming",
+    "LLM agents",
+    "robotics runtime",
+    "LLM harness for robots",
+    "teach robots natural language",
+    "episodic memory robotics",
+    "LeRobot",
+    "robot skills",
+    "on-device robotics AI",
+  ],
+  authors: [{ name: "OpenHorizon Labs", url: "https://openhorizon.so" }],
+  creator: "OpenHorizon Labs",
+  openGraph: {
+    type: "website",
+    siteName: "BotCortex",
+    url: SITE,
+    title: "BotCortex — teach your robot by typing",
+    description:
+      "The LLM harness and runtime for real robots. Skills run on-device; episodic memory makes them better with every attempt.",
+    images: [
+      {
+        url: "/og/og-home.png",
+        width: 1200,
+        height: 630,
+        alt: "BotCortex — teach your robot by typing",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "BotCortex — teach your robot by typing",
+    description:
+      "The LLM harness and runtime for real robots. Skills run on-device; episodic memory makes them better with every attempt.",
+    images: ["/og/og-home.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large" },
+  },
+  alternates: { canonical: "/" },
+};
+
+const JSONLD = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      name: "OpenHorizon Labs",
+      url: "https://openhorizon.so",
+      email: "contact@openhorizon.so",
+      logo: `${SITE}/icon.svg`,
+      sameAs: ["https://github.com/openhorizon-labs"],
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "BotCortex",
+      url: SITE,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Linux",
+      description:
+        "The LLM harness and runtime for real robots — teach tasks by typing; skills execute on-device with episodic memory.",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      publisher: { "@type": "Organization", name: "OpenHorizon Labs" },
+    },
+  ],
 };
 
 export default function RootLayout({
@@ -30,6 +104,10 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(JSONLD) }}
+        />
       </body>
     </html>
   );

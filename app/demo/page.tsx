@@ -5,9 +5,22 @@ import { Footer } from "@/components/site/footer";
 import { DemoForm } from "@/components/site/demo-form";
 
 export const metadata: Metadata = {
-  title: "Book a demo — BotCortex",
+  title: "Book a demo",
   description:
-    "See BotCortex teach a real robot a new task, live: type it, review the plan, watch it run and remember.",
+    "See BotCortex teach a real robot a new task, live: type it, review the plan, watch it run and remember. 30 minutes, on a real robot — not slides.",
+  alternates: { canonical: "/demo" },
+  openGraph: {
+    title: "See BotCortex on a real robot",
+    description: "30 minutes, live — not slides.",
+    url: "/demo",
+    images: [{ url: "/og/og-demo.png", width: 1200, height: 630, alt: "Book a BotCortex demo" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "See BotCortex on a real robot",
+    description: "30 minutes, live — not slides.",
+    images: ["/og/og-demo.png"],
+  },
 };
 
 const BULLETS = [
@@ -41,7 +54,7 @@ export default function Page() {
                 ))}
               </ul>
               <p className="mt-8 border-t border-border pt-5 font-mono text-xs text-muted-foreground">
-                Prefer email? hello@openhorizon.so
+                Prefer email? contact@openhorizon.so
               </p>
             </div>
             <DemoForm />
