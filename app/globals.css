@@ -104,13 +104,14 @@
   --runner-vla: oklch(0.55 0.17 300);
   --runner-memory: oklch(0.6 0.14 62);
   --runner-human: oklch(0.55 0.01 70);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
+  /* Sidebar rail = the off-white half of the /app two-tone; grays match ours. */
+  --sidebar: oklch(0.978 0 0);
+  --sidebar-foreground: oklch(0.21 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-accent-foreground: oklch(0.21 0 0);
+  --sidebar-border: oklch(0.905 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 }
 
