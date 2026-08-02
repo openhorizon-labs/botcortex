@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Static export: the robot's FastAPI server serves `out/` on the LAN;
-  // Vercel hosts the same build. No server runtime required anywhere.
-  output: "export",
+  // Normal Vercel deployment (static export dropped Aug 2, Sai's call) —
+  // the hosted app is the front door; robots and botcortex-api sit behind it.
 };
 
 export default nextConfig;
