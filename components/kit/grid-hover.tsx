@@ -66,7 +66,11 @@ export function GridHover({
       const cx = Math.floor(px / period);
       const cy = Math.floor(py / period);
       if (cx < 0 || cy < 0 || cx >= cols) return;
-      cells.set(cy * cols + cx, 1);
+      const k = cy * cols + cx;
+      const v = cells.get(k) ?? 0;
+      // first stroke inks to 1; painting over builds up toward the cap — darker,
+      // and (since decay is linear) longer-lasting, like thicker paint
+      cells.set(k, v < 1 ? 1 : Math.min(2.5, v + 0.3));
     };
 
     const tick = (now: number) => {
@@ -82,8 +86,9 @@ export function GridHover({
           continue;
         }
         cells.set(k, nv);
-        // hold near-full briefly, then fade — paint that dries, not a blink
-        ctx.globalAlpha = Math.min(1, nv * 1.5) * maxAlpha;
+        // hold near-full briefly, then fade — paint that dries, not a blink;
+        // intensity above 1 (over-painting) renders darker
+        ctx.globalAlpha = Math.min(1, nv * 1.5) * maxAlpha + Math.max(0, nv - 1) * 0.07;
         ctx.fillRect((k % cols) * period, Math.floor(k / cols) * period, cell, cell);
       }
       ctx.globalAlpha = 1;
