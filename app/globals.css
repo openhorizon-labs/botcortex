@@ -161,27 +161,6 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-/* The blueprint humanoid's right arm: a short wave burst every cycle. */
-@keyframes robot-wave {
-  0%,
-  70%,
-  100% {
-    transform: rotate(0deg);
-  }
-  76% {
-    transform: rotate(-16deg);
-  }
-  82% {
-    transform: rotate(7deg);
-  }
-  88% {
-    transform: rotate(-16deg);
-  }
-  94% {
-    transform: rotate(0deg);
-  }
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;

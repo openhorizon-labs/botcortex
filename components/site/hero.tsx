@@ -2,7 +2,6 @@ import { Button } from "@/components/ui/button";
 import { CopyCommand } from "@/components/kit/copy-command";
 import { GridHover } from "@/components/kit/grid-hover";
 import { HeroCard } from "@/components/site/hero-card";
-import { HumanoidBlueprint } from "@/components/site/humanoid";
 
 export function Hero() {
   return (
@@ -31,18 +30,15 @@ export function Hero() {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-start gap-4 lg:items-end">
-          <HumanoidBlueprint className="hidden h-[300px] w-[300px] lg:block" />
-          <div className="flex items-start gap-3">
-            <span className="mt-1 h-10 w-px bg-border" />
-            <div>
-              <p className="text-xl font-medium tracking-tight text-foreground">12–20 ms</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                Control loop, on-device.
-                <br />
-                The cloud never drives.
-              </p>
-            </div>
+        <div className="flex items-start gap-3 lg:pb-1">
+          <span className="mt-1 h-10 w-px bg-border" />
+          <div>
+            <p className="text-xl font-medium tracking-tight text-foreground">12–20 ms</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Control loop, on-device.
+              <br />
+              The cloud never drives.
+            </p>
           </div>
         </div>
       </div>
