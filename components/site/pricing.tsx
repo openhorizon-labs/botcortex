@@ -26,8 +26,8 @@ const TIERS = [
       "Fleet dashboard, remote access, and shared fleet learning",
       "Private skill repos for your team",
     ],
-    cta: "Talk to us",
-    href: "mailto:hello@openhorizon.so",
+    cta: "Book a demo",
+    href: "/demo",
     featured: true,
   },
 ];

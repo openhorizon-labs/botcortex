@@ -62,7 +62,7 @@ export function HeroCard() {
           <div className="mb-4 flex items-center justify-between">
             <span className="font-mono text-xs text-muted-foreground">robot.local</span>
             <span className="flex items-center gap-3">
-              <span className="font-mono text-[11px] text-muted-foreground">
+              <span className="hidden font-mono text-[11px] text-muted-foreground sm:inline">
                 connected · offline ok
               </span>
               <span className="rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-bold tracking-wide text-white">

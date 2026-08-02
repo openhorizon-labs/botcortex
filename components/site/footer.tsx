@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { LiveDot } from "@/components/kit/live-dot";
-import { PixelMark } from "@/components/kit/pixel-mark";
 import { Logo } from "@/components/site/logo";
 
 const COLUMNS = [
@@ -10,8 +9,9 @@ const COLUMNS = [
       { label: "Runtime", href: "https://github.com/openhorizon-labs/botcortex-runtime" },
       { label: "Chat app", href: "/app" },
       { label: "Skill hub", href: "#" },
-      { label: "Pricing", href: "#pricing" },
-      { label: "Changelog", href: "#" },
+      { label: "Pricing", href: "/#pricing" },
+      { label: "Book a demo", href: "/demo" },
+      { label: "Get started", href: "/signup" },
     ],
   },
   {
@@ -30,6 +30,7 @@ const COLUMNS = [
       { label: "About OpenHorizon Labs", href: "https://openhorizon.so" },
       { label: "Blog", href: "#" },
       { label: "Safety", href: "#" },
+      { label: "Book a demo", href: "/demo" },
       { label: "Contact", href: "mailto:hello@openhorizon.so" },
     ],
   },
@@ -86,12 +87,9 @@ export function Footer() {
         </div>
       </div>
 
-      {/* ghost wordmark over the paintable pixel mark, cropped at the page's bottom edge */}
-      <div aria-hidden className="relative overflow-hidden">
-        <PixelMark />
-        <p className="pointer-events-none relative translate-y-[22%] text-center text-[19vw] leading-none font-semibold tracking-tight text-foreground/[0.04] select-none md:text-[12.5rem]">
-          BotCortex
-        </p>
+      {/* the mark, faded and cropped at the page's bottom edge — spins like the nav logo */}
+      <div aria-hidden className="group flex justify-center overflow-hidden">
+        <Logo className="size-[15rem] translate-y-[24%] text-foreground/[0.05] sm:size-[20rem]" />
       </div>
     </footer>
   );

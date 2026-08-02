@@ -46,20 +46,26 @@ export function Nav() {
         </div>
 
         <div className="ml-auto flex items-center gap-2.5">
+          <Link
+            href="/app"
+            className="mr-1 hidden text-[15px] text-foreground/80 transition-colors duration-150 ease-standard hover:text-foreground md:inline"
+          >
+            Open the app
+          </Link>
           <Button
             asChild
             variant="outline"
             size="sm"
             className="hidden h-9 rounded-lg border-border px-3.5 text-sm sm:inline-flex"
           >
-            <Link href="/app">Open the app</Link>
+            <Link href="/demo">Book a demo</Link>
           </Button>
           <Button
             asChild
             size="sm"
             className="h-9 rounded-lg bg-foreground px-3.5 text-sm text-background hover:bg-foreground/90"
           >
-            <a href="https://github.com/openhorizon-labs/botcortex-runtime">Get started</a>
+            <Link href="/signup">Get started</Link>
           </Button>
         </div>
       </nav>

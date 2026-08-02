@@ -19,10 +19,10 @@ export function FinalCta() {
             asChild
             className="h-11 rounded-lg bg-foreground px-5 text-sm font-medium text-background hover:bg-foreground/90"
           >
-            <a href="https://github.com/openhorizon-labs/botcortex-runtime">Get started</a>
+            <a href="/signup">Get started</a>
           </Button>
           <Button asChild variant="outline" className="h-11 rounded-lg border-border px-5 text-sm">
-            <a href="mailto:hello@openhorizon.so">Talk to us</a>
+            <a href="/demo">Book a demo</a>
           </Button>
         </div>
       </div>
