@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Logo } from "@/components/site/logo";
-import { SignupCard } from "@/components/site/signup-card";
+import { Nav } from "@/components/site/nav";
 
 export const metadata: Metadata = {
   title: "Join the waitlist",
@@ -25,16 +23,15 @@ export const metadata: Metadata = {
 export default function Page() {
   return (
     <main className="flex min-h-screen flex-col">
-      <header className="flex h-16 items-center px-6 lg:px-10">
-        <Link href="/" className="group flex items-center gap-2">
-          <Logo className="size-6 text-foreground" />
-          <span className="text-[17px] font-semibold tracking-tight">BotCortex</span>
-        </Link>
-      </header>
-
-      <div className="flex flex-1 items-center justify-center px-6 py-12">
-        <SignupCard />
-      </div>
+      <Nav />
+      {/* the Tally form full-page under our navbar; it scrolls itself */}
+      <iframe
+        src="https://tally.so/embed/81V755?transparentBackground=1"
+        className="w-full flex-1"
+        style={{ minHeight: "calc(100dvh - 4rem)" }}
+        frameBorder={0}
+        title="Join the BotCortex waitlist"
+      />
     </main>
   );
 }

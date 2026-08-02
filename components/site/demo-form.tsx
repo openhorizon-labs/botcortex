@@ -6,7 +6,7 @@ import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /** Replace with the real Cal.com event slug when it exists. */
-const CAL_LINK = "openhorizon/botcortex-demo";
+const CAL_LINK = "openhorizon-labs/demo-botcortex";
 
 const FIELD =
   "w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm outline-none transition-colors duration-150 ease-standard placeholder:text-muted-foreground/70 focus:border-foreground/40";
