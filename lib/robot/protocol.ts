@@ -24,6 +24,9 @@ export type ClientMessage =
   | { type: "run_skill"; name: string; dryRun: boolean }
   | { type: "ping" };
 
+/** Per-arm joint angles in degrees (gripper included), ~15 Hz. */
+export type JointState = Record<string, Record<string, number>>;
+
 /** Runtime → client */
 export type RobotMessage =
   | { type: "hello"; robot: RobotInfo; skills: string[] }
@@ -32,6 +35,7 @@ export type RobotMessage =
   | { type: "plan"; steps: PlanStep[] }
   | { type: "step"; id: string; state: "start" | "ok" | "fail"; error?: string }
   | { type: "skills"; skills: string[] }
+  | { type: "state"; arms: JointState }
   | { type: "pong" };
 
 export type ConnectionStatus =

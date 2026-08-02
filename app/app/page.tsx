@@ -1,11 +1,23 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
+
+/** three.js is browser-only; ssr:false keeps the landing/server clean. */
+const SimView = dynamic(() => import("@/components/app/sim-view"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      loading simulation…
+    </div>
+  ),
+});
 import {
   ArrowRight,
   ArrowUp,
   Blocks,
   Bot,
+  Box,
   Brain,
   CalendarClock,
   ChevronDown,
@@ -108,7 +120,20 @@ function AppInner() {
   const [dryRun, setDryRun] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [simOpen, setSimOpen] = useState(true);
   const { data: session } = useSession();
+
+  useEffect(() => {
+    const saved = localStorage.getItem("botcortex.simOpen");
+    if (saved !== null) setSimOpen(saved === "true");
+  }, []);
+
+  function toggleSim() {
+    setSimOpen((open) => {
+      localStorage.setItem("botcortex.simOpen", String(!open));
+      return !open;
+    });
+  }
 
   const { status, robot, skills, activity, lastChat, sendChat, runSkill, stop } =
     useRobot();
@@ -327,6 +352,26 @@ function AppInner() {
         <header className="flex h-12 shrink-0 items-center justify-between px-3">
           <SidebarTrigger className="text-muted-foreground" />
           <div className="flex items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleSim}
+                  className={cn(
+                    "size-7",
+                    simOpen ? "text-foreground" : "text-muted-foreground",
+                  )}
+                  aria-label="Toggle simulation view"
+                  aria-pressed={simOpen}
+                >
+                  <Box className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {simOpen ? "Hide" : "Show"} the simulation view
+              </TooltipContent>
+            </Tooltip>
             <button onClick={() => setConnectOpen(true)} aria-label="Connection">
               <Badge
                 variant="outline"
@@ -371,10 +416,21 @@ function AppInner() {
           </div>
         </header>
 
-        <div className="mx-auto flex w-full max-w-[768px] flex-1 flex-col px-4 pt-[22vh]">
-          <h1 className="text-center text-[30px] font-normal tracking-[-0.01em]">
-            What should the robot learn today?
-          </h1>
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-[768px] flex-1 flex-col px-4",
+            simOpen ? "pt-4" : "pt-[22vh]",
+          )}
+        >
+          {simOpen ? (
+            <div className="h-[380px] shrink-0 overflow-hidden rounded-[16px] border border-border bg-surface-2">
+              <SimView />
+            </div>
+          ) : (
+            <h1 className="text-center text-[30px] font-normal tracking-[-0.01em]">
+              What should the robot learn today?
+            </h1>
+          )}
 
           {/* Composer — off-white panel on the white card, radius 16. */}
           <div className="mt-7 rounded-[16px] border border-border bg-surface-2 transition-colors focus-within:border-border-strong">

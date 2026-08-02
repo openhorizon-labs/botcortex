@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   type ConnectionStatus,
+  type JointState,
   type RobotInfo,
   type RobotMessage,
   type ClientMessage,
@@ -32,6 +33,10 @@ type RobotContextValue = {
   /** Robot-side activity: idle / teaching / running. */
   activity: string;
   lastChat: string | null;
+  /** Latest joint state, written at ~15 Hz. A ref on purpose: the 3D scene
+   *  reads it per-frame; routing it through React state would re-render the
+   *  whole app at stream rate. */
+  jointStateRef: React.RefObject<JointState | null>;
   connect: (rawHost: string) => void;
   disconnect: () => void;
   sendChat: (text: string, dryRun: boolean) => boolean;
@@ -59,6 +64,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
   const intentionalCloseRef = useRef(false);
+  const jointStateRef = useRef<JointState | null>(null);
 
   const teardown = useCallback(() => {
     intentionalCloseRef.current = true;
@@ -108,6 +114,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           break;
         case "chat":
           setLastChat(msg.text);
+          break;
+        case "state":
+          jointStateRef.current = msg.arms;
           break;
       }
     };
@@ -240,6 +249,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         error,
         activity,
         lastChat,
+        jointStateRef,
         connect,
         disconnect,
         sendChat,
