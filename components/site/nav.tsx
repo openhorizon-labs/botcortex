@@ -21,7 +21,7 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-50 bg-background/85 backdrop-blur-xl">
       <nav className="mx-auto flex h-16 w-full max-w-[1368px] items-center px-6 lg:px-10">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/" className="group flex items-center gap-2">
           <Logo className="size-6 text-foreground" />
           <span className="text-[17px] font-semibold tracking-tight">BotCortex</span>
         </Link>

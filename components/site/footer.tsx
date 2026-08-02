@@ -40,7 +40,7 @@ export function Footer() {
       <div className="mx-auto w-full max-w-[1368px] px-6 lg:px-10">
         <div className="grid gap-x-8 gap-y-12 py-16 md:grid-cols-[1.5fr_repeat(3,1fr)]">
           <div>
-            <Link href="/" className="flex items-center gap-2.5">
+            <Link href="/" className="group flex items-center gap-2.5">
               <Logo className="size-6 text-foreground" />
               <span className="text-[15px] font-semibold tracking-tight">BotCortex</span>
             </Link>
