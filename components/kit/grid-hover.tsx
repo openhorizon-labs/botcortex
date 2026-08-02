@@ -4,66 +4,118 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Cursor-chasing grid glow. One overlay element: a radial spotlight whose
- * position lerps toward the cursor every frame (the "follow" feel), masked
- * through a fine grid of squares so it renders as small boxes lighting up
- * near the cursor and trailing off behind it. No per-cell DOM, no work when
- * the cursor is idle — the rAF loop stops once the glow catches up.
+ * Cursor paint: moving the cursor inks the grid cells it passes over, and each
+ * painted cell fades back to white over a few seconds — like heat dissipating.
  *
- * Listens on the PARENT section (events bubble), so the glow follows the
- * cursor even while it's over text — while this layer stays pointer-events-none
- * and never blocks a click. Skips entirely under prefers-reduced-motion.
+ * One <canvas>, no per-cell DOM. Mousemove paints cells along the interpolated
+ * cursor path (fast strokes leave an unbroken line, never dots); a rAF loop
+ * decays every painted cell independently and stops when the canvas is clean.
+ * Listens on the parent section (events bubble) so painting works even while
+ * the cursor is over text, while the canvas itself never blocks a click.
+ * Skipped under prefers-reduced-motion.
  */
 export function GridHover({
   cell = 18,
   gap = 2,
-  radius = 130,
+  fadeMs = 2800,
+  maxAlpha = 0.09,
   className,
 }: {
   cell?: number;
   gap?: number;
-  radius?: number;
+  fadeMs?: number;
+  maxAlpha?: number;
   className?: string;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const el = ref.current;
-    const parent = el?.parentElement;
-    if (!el || !parent) return;
+    const canvas = ref.current;
+    const parent = canvas?.parentElement;
+    if (!canvas || !parent) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    let targetX = -9999;
-    let targetY = -9999;
-    let x = targetX;
-    let y = targetY;
+    const period = cell + gap;
+    let w = 0;
+    let h = 0;
+    let cols = 1;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      w = canvas.clientWidth;
+      h = canvas.clientHeight;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cols = Math.max(1, Math.ceil(w / period));
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
+    const ink = getComputedStyle(canvas).color;
+    const cells = new Map<number, number>(); // cell index -> intensity 0..1
     let raf = 0;
+    let last = 0;
+    let prevX: number | null = null;
+    let prevY: number | null = null;
 
-    const tick = () => {
-      x += (targetX - x) * 0.16;
-      y += (targetY - y) * 0.16;
-      el.style.setProperty("--gx", `${x}px`);
-      el.style.setProperty("--gy", `${y}px`);
-      if (Math.abs(targetX - x) > 0.4 || Math.abs(targetY - y) > 0.4) {
-        raf = requestAnimationFrame(tick);
-      } else {
-        raf = 0;
+    const paint = (px: number, py: number) => {
+      const cx = Math.floor(px / period);
+      const cy = Math.floor(py / period);
+      if (cx < 0 || cy < 0 || cx >= cols) return;
+      cells.set(cy * cols + cx, 1);
+    };
+
+    const tick = (now: number) => {
+      const dt = now - last;
+      last = now;
+      ctx.clearRect(0, 0, w, h);
+      const decay = dt / fadeMs;
+      ctx.fillStyle = ink;
+      for (const [k, v] of cells) {
+        const nv = v - decay;
+        if (nv <= 0) {
+          cells.delete(k);
+          continue;
+        }
+        cells.set(k, nv);
+        // hold near-full briefly, then fade — paint that dries, not a blink
+        ctx.globalAlpha = Math.min(1, nv * 1.5) * maxAlpha;
+        ctx.fillRect((k % cols) * period, Math.floor(k / cols) * period, cell, cell);
       }
+      ctx.globalAlpha = 1;
+      raf = cells.size > 0 ? requestAnimationFrame(tick) : 0;
     };
 
     const move = (e: MouseEvent) => {
-      const r = parent.getBoundingClientRect();
-      targetX = e.clientX - r.left;
-      targetY = e.clientY - r.top;
-      if (x < -999) {
-        x = targetX;
-        y = targetY;
+      const r = canvas.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      if (x < 0 || y < 0 || x > r.width || y > r.height) {
+        prevX = prevY = null;
+        return;
       }
-      el.style.opacity = "1";
-      if (!raf) raf = requestAnimationFrame(tick);
+      if (prevX !== null && prevY !== null) {
+        const dist = Math.hypot(x - prevX, y - prevY);
+        const steps = Math.max(1, Math.ceil(dist / (period * 0.5)));
+        for (let i = 1; i <= steps; i++) {
+          paint(prevX + ((x - prevX) * i) / steps, prevY + ((y - prevY) * i) / steps);
+        }
+      } else {
+        paint(x, y);
+      }
+      prevX = x;
+      prevY = y;
+      if (!raf) {
+        last = performance.now();
+        raf = requestAnimationFrame(tick);
+      }
     };
     const leave = () => {
-      el.style.opacity = "0";
+      prevX = prevY = null;
     };
 
     parent.addEventListener("mousemove", move);
@@ -71,28 +123,19 @@ export function GridHover({
     return () => {
       parent.removeEventListener("mousemove", move);
       parent.removeEventListener("mouseleave", leave);
+      ro.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, []);
-
-  const period = cell + gap;
-  const squares = `repeating-linear-gradient(to right, black 0 ${cell}px, transparent ${cell}px ${period}px), repeating-linear-gradient(to bottom, black 0 ${cell}px, transparent ${cell}px ${period}px)`;
+  }, [cell, gap, fadeMs, maxAlpha]);
 
   return (
-    <div
+    <canvas
       ref={ref}
       aria-hidden
       className={cn(
-        "pointer-events-none absolute inset-x-0 top-0 opacity-0 transition-opacity duration-500 ease-standard",
+        "pointer-events-none absolute inset-x-0 top-0 w-full text-foreground",
         className,
       )}
-      style={{
-        backgroundImage: `radial-gradient(${radius}px circle at var(--gx, -999px) var(--gy, -999px), color-mix(in oklab, var(--color-foreground) 8%, transparent), transparent 72%)`,
-        maskImage: squares,
-        WebkitMaskImage: squares,
-        maskComposite: "intersect",
-        WebkitMaskComposite: "source-in",
-      }}
     />
   );
 }
