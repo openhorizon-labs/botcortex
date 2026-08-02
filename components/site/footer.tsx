@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LiveDot } from "@/components/kit/live-dot";
+import { PixelMark } from "@/components/kit/pixel-mark";
 import { Logo } from "@/components/site/logo";
 
 const COLUMNS = [
@@ -85,9 +86,10 @@ export function Footer() {
         </div>
       </div>
 
-      {/* ghost wordmark, cropped at the page's bottom edge */}
-      <div aria-hidden className="overflow-hidden">
-        <p className="pointer-events-none translate-y-[22%] text-center text-[19vw] leading-none font-semibold tracking-tight text-foreground/[0.04] select-none md:text-[12.5rem]">
+      {/* ghost wordmark over the paintable pixel mark, cropped at the page's bottom edge */}
+      <div aria-hidden className="relative overflow-hidden">
+        <PixelMark />
+        <p className="pointer-events-none relative translate-y-[22%] text-center text-[19vw] leading-none font-semibold tracking-tight text-foreground/[0.04] select-none md:text-[12.5rem]">
           BotCortex
         </p>
       </div>
