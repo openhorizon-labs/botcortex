@@ -171,4 +171,10 @@
   html {
     @apply font-sans;
   }
+  /* Anything clickable shows a pointer — disabled states opt back out. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
 }
