@@ -11,7 +11,7 @@ export function Logo({ className }: { className?: string }) {
       viewBox="0 0 200 200"
       aria-hidden
       className={cn(
-        "transition-transform duration-500 ease-standard motion-safe:group-hover:rotate-90",
+        "transition-transform duration-[900ms] ease-standard motion-safe:group-hover:rotate-[720deg]",
         className,
       )}
     >
