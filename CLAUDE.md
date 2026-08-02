@@ -12,6 +12,9 @@
   of re-rolling animations; colors come from tokens in `app/globals.css`, never raw
   Tailwind palette values. Red is reserved for STOP.
 - Build check before committing: `bun run build`.
+- **Keep `bun dev` running at all times during sessions** — Sai watches localhost:3000
+  live. Start it in the background at session start if it's not up; never kill it after
+  builds (dev and `bun run build` coexist fine).
 - **Sai deploys via Vercel himself (default root directory); sessions push to GitHub,
   never deploy.**
 - Never leave this repo dirty at session end; commit conventions follow the
