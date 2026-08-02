@@ -166,7 +166,7 @@ const CARDS = [
     chip: "Teach",
     headline: "Type the task. Review the plan. Run.",
     body: "BotCortex serves a chat window from the robot itself — no code editor, no API, no robot programmer. The agent writes the skill once, and you see every step it plans before anything moves.",
-    link: { href: "/app", label: "Open the chat app" },
+    link: { href: "/demo", label: "See it live" },
     visual: ChatVisual,
   },
   {
@@ -182,21 +182,15 @@ const CARDS = [
     chip: "Run local",
     headline: "No cloud in the control loop.",
     body: "A control loop needs 12–20 milliseconds; cloud round-trips can spike to seconds. Taught skills run as deterministic code on the robot — dry-run by default, joint limits clamped, STOP always on screen.",
-    link: {
-      href: "https://github.com/openhorizon-labs/botcortex-runtime",
-      label: "See the runtime",
-    },
+    link: { href: "/demo", label: "Book a demo" },
     visual: LocalVisual,
   },
   {
     id: "own-it",
     chip: "Own it",
     headline: "Your skills, your data, your API key.",
-    body: "Skills and failure logs live on your hardware and belong to you — not to a shared library in someone else's cloud. Bring your own model, VLA backend, and robot. Open source, free on a single machine.",
-    link: {
-      href: "https://github.com/openhorizon-labs/botcortex-runtime",
-      label: "Star on GitHub",
-    },
+    body: "Skills and failure logs live on your hardware and belong to you — not to a shared library in someone else's cloud. Bring your own model, your own VLA backend, your own robot — free on a single machine.",
+    link: { href: "https://github.com/openhorizon-labs", label: "Follow on GitHub" },
     visual: OwnVisual,
   },
 ];

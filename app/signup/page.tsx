@@ -4,8 +4,8 @@ import { Logo } from "@/components/site/logo";
 import { SignupCard } from "@/components/site/signup-card";
 
 export const metadata: Metadata = {
-  title: "Get started — BotCortex",
-  description: "Install the open-source runtime, or get early access to BotCortex Pro.",
+  title: "Join the waitlist — BotCortex",
+  description: "Teach your robot by typing. Join the BotCortex waitlist.",
 };
 
 export default function Page() {
@@ -21,15 +21,6 @@ export default function Page() {
       <div className="flex flex-1 items-center justify-center px-6 py-12">
         <SignupCard />
       </div>
-
-      <footer className="flex flex-col items-center gap-2 px-6 py-8 text-center">
-        <p className="font-mono text-xs text-muted-foreground">
-          © 2026 OpenHorizon Labs · Apache-2.0 ·{" "}
-          <Link href="/" className="hover:text-foreground">
-            botcortex home
-          </Link>
-        </p>
-      </footer>
     </main>
   );
 }

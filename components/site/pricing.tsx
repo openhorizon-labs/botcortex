@@ -7,15 +7,15 @@ const TIERS = [
   {
     name: "Free",
     price: "$0",
-    note: "open source, forever",
+    note: "everything included",
     features: [
-      "Full runtime, SDK, and chat app on one robot",
+      "The full runtime, chat app, and SDK on your robot",
       "Skills and episodic memory stored locally — no account needed",
       "Bring your own API key; we never resell inference",
     ],
-    cta: "Install the runtime",
-    href: "https://github.com/openhorizon-labs/botcortex-runtime",
-    featured: false,
+    cta: "Join the waitlist",
+    href: "/signup",
+    featured: true,
   },
   {
     name: "Pro",
@@ -26,9 +26,9 @@ const TIERS = [
       "Fleet dashboard, remote access, and shared fleet learning",
       "Private skill repos for your team",
     ],
-    cta: "Book a demo",
-    href: "/demo",
-    featured: true,
+    cta: "Join the waitlist",
+    href: "/signup",
+    featured: false,
   },
 ];
 
@@ -57,11 +57,9 @@ export function Pricing() {
             >
               <div className="flex items-baseline justify-between">
                 <h3 className="text-base font-medium">{t.name}</h3>
-                {t.featured && (
-                  <span className="rounded-full border border-signal/40 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-signal">
-                    deployed
-                  </span>
-                )}
+                <span className="rounded-full border border-border bg-surface-3 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {t.featured ? "available first" : "not launched"}
+                </span>
               </div>
 
               <div className="mt-5 flex items-baseline gap-2">

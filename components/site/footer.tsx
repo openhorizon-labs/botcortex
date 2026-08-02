@@ -6,12 +6,11 @@ const COLUMNS = [
   {
     heading: "Product",
     links: [
-      { label: "Runtime", href: "https://github.com/openhorizon-labs/botcortex-runtime" },
-      { label: "Chat app", href: "/app" },
+      { label: "Runtime", href: "https://github.com/openhorizon-labs" },
       { label: "Skill hub", href: "#" },
       { label: "Pricing", href: "/#pricing" },
       { label: "Book a demo", href: "/demo" },
-      { label: "Get started", href: "/signup" },
+      { label: "Join the waitlist", href: "/signup" },
     ],
   },
   {
@@ -84,7 +83,7 @@ export function Footer() {
 
         <div className="flex flex-col gap-2 border-t border-border py-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-mono text-xs text-muted-foreground">
-            © 2026 OpenHorizon Labs · Apache-2.0
+            © 2026 OpenHorizon Labs
           </p>
           <p className="font-mono text-xs text-muted-foreground">
             Local execution, cloud intelligence.
