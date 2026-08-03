@@ -7,9 +7,11 @@ import {
   Bot,
   ChevronDown,
   ChevronsUpDown,
+  Coins,
   Hand,
-  KeyRound,
+  Settings,
   Layers,
+  MessageSquare,
   LogIn,
   LogOut,
   PanelRight,
@@ -20,6 +22,7 @@ import {
   ShieldCheck,
   Shuffle,
   Trash2,
+  Wrench,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -74,7 +77,7 @@ import {
 } from "@/components/ui/collapsible";
 import { RobotProvider, useRobot } from "@/components/app/robot-provider";
 import { ConnectRobotDialog } from "@/components/app/connect-robot-dialog";
-import { RobotKeysDialog } from "@/components/app/robot-keys-dialog";
+import { SettingsDialog } from "@/components/app/settings-dialog";
 import { ChatPane } from "@/components/app/chat-pane";
 import { Composer } from "@/components/app/composer";
 import { StopControl } from "@/components/app/stop-control";
@@ -103,7 +106,7 @@ function AppInner() {
   const [dryRun, setDryRun] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [keysOpen, setKeysOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [simOpen, setSimOpen] = useState(false);
   const { data: session } = useSession();
 
@@ -112,6 +115,7 @@ function AppInner() {
   const {
     status, robot, skills, activity, messages, sendChat, runSkill, connect, host,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
+    credit,
   } = useRobot();
   const [paired, setPaired] = useState<PairedRobot[]>([]);
 
@@ -166,7 +170,10 @@ function AppInner() {
         className="bg-sidebar"
         style={{ "--sidebar-width": "248px" } as React.CSSProperties}
       >
-      <Sidebar variant="inset" collapsible="offcanvas">
+      {/* icon, not offcanvas: collapsing leaves a rail of icons rather than
+          sweeping the whole sidebar away. Every button below therefore needs an
+          icon AND a tooltip, or the rail shows blank rows. */}
+      <Sidebar variant="inset" collapsible="icon">
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -247,16 +254,22 @@ function AppInner() {
                       wipes it and starts fresh, instead of no-opping. */}
                   <SidebarMenuButton
                     onClick={() => void newConversation()}
+                    tooltip="New task"
                     className="cursor-pointer"
                   >
                     <SquarePen /> New task
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton onClick={() => setCmdOpen(true)}>
+                  <SidebarMenuButton
+                    onClick={() => setCmdOpen(true)}
+                    tooltip="Search"
+                    className="cursor-pointer"
+                  >
                     <Search /> Search
                   </SidebarMenuButton>
-                  <SidebarMenuBadge className="text-muted-foreground">
+                  {/* Hidden on the rail: a bare "⌘K" beside an icon reads as noise. */}
+                  <SidebarMenuBadge className="text-muted-foreground group-data-[collapsible=icon]:hidden">
                     ⌘K
                   </SidebarMenuBadge>
                 </SidebarMenuItem>
@@ -269,7 +282,7 @@ function AppInner() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {conversations.length === 0 ? (
-                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                     Nothing yet — describe a task below.
                   </p>
                 ) : (
@@ -278,15 +291,17 @@ function AppInner() {
                       <SidebarMenuButton
                         isActive={thread.id === conversationId}
                         onClick={() => void openConversation(thread.id)}
+                        tooltip={thread.title ?? "Untitled task"}
                         className="cursor-pointer data-[active=true]:border data-[active=true]:border-border data-[active=true]:bg-background"
                       >
+                        <MessageSquare />
                         <span className="truncate">{thread.title ?? "Untitled task"}</span>
                       </SidebarMenuButton>
                       <SidebarMenuAction
                         showOnHover
                         aria-label={`Delete ${thread.title ?? "task"}`}
                         onClick={() => void deleteConversation(thread.id)}
-                        className="cursor-pointer hover:text-destructive"
+                        className="cursor-pointer hover:text-destructive group-data-[collapsible=icon]:hidden"
                       >
                         <Trash2 />
                       </SidebarMenuAction>
@@ -310,7 +325,7 @@ function AppInner() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {skillList.length === 0 ? (
-                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                     {connected
                       ? "Nothing learned yet — describe a task below."
                       : "Connect a robot to see its skills."}
@@ -318,7 +333,10 @@ function AppInner() {
                 ) : (
                   skillList.map((s) => (
                     <SidebarMenuItem key={s}>
-                      <SidebarMenuButton>{s}</SidebarMenuButton>
+                      <SidebarMenuButton tooltip={s} className="cursor-pointer">
+                        <Wrench />
+                        <span className="truncate">{s}</span>
+                      </SidebarMenuButton>
                       <SidebarMenuAction
                         showOnHover
                         aria-label={`Run ${s}`}
@@ -337,11 +355,27 @@ function AppInner() {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
+              {/* Credit belongs where an owner can see it without going
+                  looking — it is what teaching spends. Opens the detail. */}
               <SidebarMenuButton
-                onClick={() => setKeysOpen(true)}
+                onClick={() => setSettingsOpen(true)}
+                tooltip={credit ? `${credit.display} credit remaining` : "Credit"}
                 className="cursor-pointer"
               >
-                <KeyRound /> Robot keys
+                <Coins />
+                <span className="flex-1 truncate">Credit</span>
+                <span className="font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+                  {credit?.display ?? "—"}
+                </span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setSettingsOpen(true)}
+                tooltip="Settings"
+                className="cursor-pointer"
+              >
+                <Settings /> Settings
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -350,7 +384,8 @@ function AppInner() {
                   <DropdownMenuTrigger asChild>
                     <SidebarMenuButton
                       size="lg"
-                      className="data-[state=open]:bg-surface-3"
+                      tooltip={session.user.email}
+                      className="cursor-pointer data-[state=open]:bg-surface-3"
                     >
                       <Avatar className="size-7 rounded-lg">
                         <AvatarFallback className="rounded-lg bg-foreground text-xs font-medium text-background">
@@ -531,11 +566,11 @@ function AppInner() {
             </CommandItem>
             <CommandItem
               onSelect={() => {
-                setKeysOpen(true);
+                setSettingsOpen(true);
                 setCmdOpen(false);
               }}
             >
-              <KeyRound /> Robot keys
+              <Settings /> Settings
             </CommandItem>
             <CommandItem
               onSelect={() => {
@@ -579,7 +614,7 @@ function AppInner() {
 
       <StopControl />
       <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
-      <RobotKeysDialog open={keysOpen} onOpenChange={setKeysOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </SidebarProvider>
     </TooltipProvider>
   );

@@ -14,13 +14,6 @@ import { Check, Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 interface RobotKey {
   id: string;
@@ -29,13 +22,6 @@ interface RobotKey {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
-}
-
-interface Credit {
-  balanceMicros: number;
-  spentMicros: number;
-  grantedMicros: number;
-  display: string;
 }
 
 function CopyField({ value }: { value: string }) {
@@ -62,15 +48,8 @@ function CopyField({ value }: { value: string }) {
   );
 }
 
-export function RobotKeysDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function RobotKeysPanel() {
   const [keys, setKeys] = useState<RobotKey[]>([]);
-  const [credit, setCredit] = useState<Credit | null>(null);
   const [loading, setLoading] = useState(true);
   const [minting, setMinting] = useState(false);
   const [name, setName] = useState("");
@@ -82,13 +61,9 @@ export function RobotKeysDialog({
     setLoading(true);
     setError(null);
     try {
-      const [keysRes, creditRes] = await Promise.all([
-        fetch("/api/keys"),
-        fetch("/api/credits"),
-      ]);
-      if (!keysRes.ok) throw new Error("Could not load your keys.");
-      setKeys((await keysRes.json()).keys);
-      if (creditRes.ok) setCredit(await creditRes.json());
+      const res = await fetch("/api/keys");
+      if (!res.ok) throw new Error("Could not load your keys.");
+      setKeys((await res.json()).keys);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -97,9 +72,8 @@ export function RobotKeysDialog({
   }, []);
 
   useEffect(() => {
-    if (open) void load();
-    else setFreshKey(null);
-  }, [open, load]);
+    void load();
+  }, [load]);
 
   async function mint() {
     setMinting(true);
@@ -130,22 +104,20 @@ export function RobotKeysDialog({
   const live = keys.filter((k) => !k.revokedAt);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Robot keys</DialogTitle>
-          <DialogDescription>
-            A key lets your robot use BotCortex credits to author new skills.
-            Skills it has already learned keep running without one.
-          </DialogDescription>
-        </DialogHeader>
-
-        {credit && (
-          <div className="flex items-baseline justify-between rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-            <span className="text-sm text-muted-foreground">Credit remaining</span>
-            <span className="font-mono text-sm font-medium">{credit.display}</span>
-          </div>
-        )}
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-medium">Robot access</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          A key your robot uses to reach BotCortex and spend your credit.
+          Running{" "}
+          <code className="rounded bg-surface-3 px-1 py-0.5 font-mono text-xs">
+            botcortex login
+          </code>{" "}
+          mints one for you — this is the manual route, and where you revoke.
+          Paired robots themselves are listed in the switcher at the top of the
+          sidebar.
+        </p>
+      </div>
 
         {freshKey && (
           <div className="space-y-2.5 rounded-lg border border-border bg-surface-2 p-3">
@@ -215,8 +187,7 @@ export function RobotKeysDialog({
               </div>
             ))
           )}
-        </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }

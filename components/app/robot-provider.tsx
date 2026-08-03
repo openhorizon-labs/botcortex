@@ -65,6 +65,14 @@ type RobotContextValue = {
   newConversation: () => Promise<void>;
   openConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
+  /** Remaining BotCortex credit, or null when signed out / unreachable. */
+  credit: Credit | null;
+};
+
+export type Credit = {
+  balanceMicros: number;
+  spentMicros: number;
+  display: string;
 };
 
 export type Conversation = {
@@ -93,6 +101,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stopped, setStopped] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [credit, setCredit] = useState<Credit | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   /** Read by persist(), which is built once and would otherwise capture the
    *  first render's (null) thread id forever. */
@@ -193,6 +202,26 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     ensureConversationRef.current = ensureConversation;
   }, [ensureConversation]);
+
+  const refreshCredit = useCallback(async () => {
+    try {
+      const res = await fetch("/api/credits");
+      if (res.ok) setCredit((await res.json()) as Credit);
+    } catch {
+      /* signed out or offline — the sidebar just omits the figure */
+    }
+  }, []);
+
+  /** Refreshed from the teach-finished event, not a timer: credit only moves
+   *  when the RUNTIME spends it, which is not when a message posts. */
+  const refreshCreditRef = useRef(refreshCredit);
+  useEffect(() => {
+    refreshCreditRef.current = refreshCredit;
+  }, [refreshCredit]);
+
+  useEffect(() => {
+    void refreshCredit();
+  }, [refreshCredit]);
 
   const refreshConversations = useCallback(async (): Promise<Conversation[]> => {
     try {
@@ -340,6 +369,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           break;
         case "status":
           setActivity(msg.state + (msg.detail ? ` — ${msg.detail}` : ""));
+          // Back to idle means a teach just finished spending.
+          if (msg.state === "idle") void refreshCreditRef.current();
           break;
         case "chat":
           setLastChat(msg.text);
@@ -531,6 +562,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         newConversation,
         openConversation,
         deleteConversation,
+        credit,
       }}
     >
       {children}
