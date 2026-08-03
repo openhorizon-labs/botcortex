@@ -97,9 +97,7 @@ export function SettingsDialog({
                   <p className="font-mono text-2xl">{credit?.display ?? "—"}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     remaining
-                    {credit
-                      ? ` · $${(credit.spentMicros / 1_000_000).toFixed(2)} used so far`
-                      : ""}
+                    {credit ? ` · ${credit.spentDisplay} used so far` : ""}
                   </p>
                 </div>
                 <p className="text-xs text-muted-foreground">
