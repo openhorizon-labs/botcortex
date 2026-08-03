@@ -325,25 +325,20 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     [refreshConversations, openConversation, newConversation],
   );
 
-  // Rehydrate on load: reopen the most recent thread. With none, stay on a
-  // blank one — the first message will create it.
+  // The URL decides which task is open. /app is a fresh one — it stays blank
+  // until something is said, and then gets an id and a URL of its own.
   //
-  // Skipped entirely if the owner has already typed. Rehydrating takes two
-  // round-trips, and someone who typed inside that window had their message
-  // filed into a NEW thread by ensureConversation and then wiped from the pane
+  // Loading a task is skipped if the owner has already typed. It takes a
+  // round-trip, and someone who typed inside that window had their message
+  // filed into a NEW task by ensureConversation and then wiped from the pane
   // by this load — it vanished from view and landed somewhere they were not
   // looking. Being quick to restore history is not worth losing what someone
   // just said.
   useEffect(() => {
     if (didLoadHistoryRef.current) return;
     didLoadHistoryRef.current = true;
-    void (async () => {
-      const rows = await refreshConversations();
-      if (rows[0] && !spokeRef.current && !conversationIdRef.current) {
-        await openConversation(rows[0].id);
-      }
-    })();
-  }, [refreshConversations, openConversation]);
+    void refreshConversations();
+  }, [refreshConversations]);
 
   const teardown = useCallback(() => {
     intentionalCloseRef.current = true;

@@ -22,12 +22,14 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
+import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { useRobot } from "@/components/app/robot-provider";
 import { ToolTrace } from "@/components/app/tool-trace";
+import { SkillText } from "@/components/app/skill-text";
 
 export function ChatPane() {
-  const { messages, toolCalls, activity, status } = useRobot();
+  const { messages, toolCalls, activity, status, skills } = useRobot();
   const connected = status === "connected";
   const busy = activity.startsWith("teaching") || activity.startsWith("running");
 
@@ -35,7 +37,11 @@ export function ChatPane() {
   // prompted them and the reply they produced. Traces are live-only, so a
   // rehydrated thread is simply all messages.
   const timeline = [
-    ...messages.map((m) => ({ at: m.at, key: m.id, node: <ChatBubble message={m} /> })),
+    ...messages.map((m) => ({
+      at: m.at,
+      key: m.id,
+      node: <ChatBubble message={m} skills={skills ?? []} />,
+    })),
     ...toolCalls.map((c) => ({ at: c.at, key: c.id, node: <ToolTrace call={c} /> })),
   ].sort((a, b) => a.at - b.at);
 
@@ -71,11 +77,35 @@ export function ChatPane() {
   );
 }
 
-function ChatBubble({ message }: { message: { from: "you" | "robot"; text: string } }) {
+function ChatBubble({
+  message,
+  skills,
+}: {
+  message: { from: "you" | "robot"; text: string };
+  skills: string[];
+}) {
+  const mine = message.from === "you";
+  // Anything naming a skill is a status line about a run, not prose — render
+  // it as one, with the skill picked out, instead of pushing snake_case
+  // through a markdown renderer that will italicise the underscores.
+  const mentionsSkill = skills.some((s) => s && message.text.includes(s));
+
   return (
-    <Message from={message.from === "you" ? "user" : "assistant"}>
-      <MessageContent>
-        <MessageResponse>{message.text}</MessageResponse>
+    <Message from={mine ? "user" : "assistant"}>
+      <MessageContent
+        className={cn(
+          mine &&
+            "rounded-2xl rounded-br-md border border-border bg-surface-2 px-3.5 py-2.5 leading-relaxed",
+          !mine && "leading-relaxed",
+        )}
+      >
+        {mentionsSkill ? (
+          <p className="text-[13px] text-muted-foreground">
+            <SkillText text={message.text} skills={skills} />
+          </p>
+        ) : (
+          <MessageResponse>{message.text}</MessageResponse>
+        )}
       </MessageContent>
     </Message>
   );
