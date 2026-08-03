@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import {
   ArrowRight,
-  ArrowUp,
   Blocks,
   Bot,
   Brain,
@@ -24,15 +23,11 @@ import {
   Settings,
   ShieldCheck,
   Shuffle,
-  SlashSquare,
   SquarePen,
-  Zap,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Command,
   CommandDialog,
@@ -84,6 +79,8 @@ import {
 import { RobotProvider, useRobot } from "@/components/app/robot-provider";
 import { ConnectRobotDialog } from "@/components/app/connect-robot-dialog";
 import { ChatPane } from "@/components/app/chat-pane";
+import { Composer } from "@/components/app/composer";
+import { StopControl } from "@/components/app/stop-control";
 import { SimPanel } from "@/components/app/sim-panel";
 import { LiveDot } from "@/components/kit/live-dot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -116,7 +113,9 @@ function AppInner() {
 
   const toggleSim = () => setSimOpen((open) => !open);
 
-  const { status, robot, skills, activity, sendChat, runSkill, stop } = useRobot();
+  const { status, robot, skills, activity, messages, sendChat, runSkill } =
+    useRobot();
+  const hasMessages = messages.length > 0;
   const connected = status === "connected";
   const skillList = skills ?? SKILLS;
 
@@ -158,11 +157,33 @@ function AppInner() {
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="font-medium">
-                    <span className="flex size-[18px] shrink-0 items-center justify-center rounded bg-foreground text-[10px] font-medium text-background">
+                  <SidebarMenuButton size="lg" className="font-medium">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-[11px] font-medium text-background">
                       B
                     </span>
-                    OpenArm v1
+                    <div className="grid flex-1 leading-tight">
+                      <span className="truncate text-sm">
+                        {robot?.name ?? "No robot"}
+                      </span>
+                      <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                        {connected ? (
+                          <>
+                            <LiveDot />
+                            {activity}
+                          </>
+                        ) : status === "connecting" ? (
+                          <>
+                            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />
+                            connecting…
+                          </>
+                        ) : (
+                          <>
+                            <span className="size-1.5 rounded-full bg-muted-foreground" />
+                            not connected
+                          </>
+                        )}
+                      </span>
+                    </div>
                     <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
@@ -349,167 +370,81 @@ function AppInner() {
                 <TooltipContent>Show the simulation</TooltipContent>
               </Tooltip>
             )}
-            <button onClick={() => setConnectOpen(true)} aria-label="Connection">
-              <Badge
-                variant="outline"
-                className="h-6 gap-1.5 rounded-full px-2.5 text-xs font-normal text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {connected ? (
-                  <>
-                    <LiveDot />
-                    {robot?.name ?? "robot"} · {activity}
-                  </>
-                ) : status === "connecting" ? (
-                  <>
-                    <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" />
-                    connecting…
-                  </>
-                ) : (
-                  <>
-                    <span className="size-1.5 rounded-full bg-muted-foreground" />
-                    no robot connected
-                  </>
-                )}
-              </Badge>
-            </button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={!connected}
-                  onClick={() => stop()}
-                  className="h-7 bg-destructive px-3 text-xs font-semibold tracking-wide text-white hover:bg-destructive/90"
-                >
-                  STOP
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {connected
-                  ? "Emergency stop — aborts motion between interpolation steps"
-                  : "Connect a robot first — STOP goes straight to its REST endpoint"}
-              </TooltipContent>
-            </Tooltip>
           </div>
         </header>
 
         <div className="mx-auto flex min-h-0 w-full max-w-[768px] flex-1 flex-col px-4 pb-3">
-          <ChatPane />
+          {hasMessages ? (
+            <>
+              <ChatPane />
+              <Composer
+                className="mt-3 shrink-0"
+                value={input}
+                onChange={setInput}
+                onSend={handleSend}
+                dryRun={dryRun}
+                onDryRunChange={setDryRun}
+              />
+              <p className="shrink-0 pt-3 text-center text-xs text-muted-foreground/70">
+                Skills run locally on the robot — the AI is only in the loop
+                while teaching.
+              </p>
+            </>
+          ) : (
+            /* Empty state: greeting + composer + suggestions as one block,
+               vertically centered — the sim.ai workspace shape. */
+            <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto py-8">
+              <h1 className="text-center text-[30px] font-normal tracking-[-0.01em]">
+                What should the robot learn today?
+              </h1>
+              <Composer
+                className="mt-7"
+                value={input}
+                onChange={setInput}
+                onSend={handleSend}
+                dryRun={dryRun}
+                onDryRunChange={setDryRun}
+              />
 
-          {/* Composer — off-white panel on the white card, radius 16. */}
-          <div className="mt-3 shrink-0 rounded-[16px] border border-border bg-surface-2 transition-colors focus-within:border-border-strong">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder='Teach it: "sort the red parts into the left bin"'
-              className="min-h-9 resize-none border-0 bg-transparent px-4 pt-3.5 text-[15px] shadow-none focus-visible:ring-0"
-              rows={1}
-            />
-            <div className="flex items-center justify-between px-2.5 pb-2 pt-1">
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground"
-                  aria-label="Add context"
-                >
-                  <Plus className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground"
-                  aria-label="Commands"
-                >
-                  <SlashSquare className="size-4" />
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setDryRun((d) => !d)}
-                      className={cn(
-                        "ml-1 flex h-6 items-center gap-1 rounded-full px-2.5 text-xs transition-colors",
-                        dryRun
-                          ? "border border-border bg-background text-muted-foreground hover:text-foreground"
-                          : "bg-primary text-primary-foreground",
-                      )}
-                      aria-pressed={!dryRun}
-                    >
-                      {dryRun ? (
-                        <ShieldCheck className="size-3" />
-                      ) : (
-                        <Zap className="size-3" />
-                      )}
-                      {dryRun ? "Dry run" : "Execute"}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Dry run previews every step without moving the arms. Real
-                    execution needs an operator present.
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <Button
-                size="icon"
-                disabled={!input.trim()}
-                onClick={handleSend}
-                className="size-7 rounded-full"
-                aria-label="Send"
+              <Collapsible
+                open={suggestedOpen}
+                onOpenChange={setSuggestedOpen}
+                className="mt-8"
               >
-                <ArrowUp className="size-4" />
-              </Button>
-            </div>
-          </div>
-
-          {/* Suggested tasks */}
-          <Collapsible
-            open={suggestedOpen}
-            onOpenChange={setSuggestedOpen}
-            className="mt-3 shrink-0"
-          >
-            <div className="flex items-center justify-between px-1">
-              <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-                  Suggested tasks
-                  <ChevronDown
-                    className={cn(
-                      "size-3.5 transition-transform",
-                      !suggestedOpen && "-rotate-90",
-                    )}
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <button className="flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-                Shuffle <Shuffle className="size-3.5" />
-              </button>
-            </div>
-            <CollapsibleContent>
-              <div className="mt-1 flex flex-col divide-y divide-border">
-                {SUGGESTED.map(({ icon: Icon, label }) => (
-                  <button
-                    key={label}
-                    onClick={() => setInput(label)}
-                    className="group flex h-9 items-center gap-2.5 rounded-md px-2 text-left text-sm transition-colors hover:bg-surface-2"
-                  >
-                    <Icon className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{label}</span>
-                    <ArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100" />
+                <div className="flex items-center justify-between px-1">
+                  <CollapsibleTrigger asChild>
+                    <button className="flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                      Suggested tasks
+                      <ChevronDown
+                        className={cn(
+                          "size-3.5 transition-transform",
+                          !suggestedOpen && "-rotate-90",
+                        )}
+                      />
+                    </button>
+                  </CollapsibleTrigger>
+                  <button className="flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                    Shuffle <Shuffle className="size-3.5" />
                   </button>
-                ))}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-
-          <p className="shrink-0 pt-3 text-center text-xs text-muted-foreground/70">
-            Skills run locally on the robot — the AI is only in the loop while
-            teaching.
-          </p>
+                </div>
+                <CollapsibleContent>
+                  <div className="mt-1 flex flex-col divide-y divide-border">
+                    {SUGGESTED.map(({ icon: Icon, label }) => (
+                      <button
+                        key={label}
+                        onClick={() => setInput(label)}
+                        className="group flex h-9 items-center gap-2.5 rounded-md px-2 text-left text-sm transition-colors hover:bg-surface-2"
+                      >
+                        <Icon className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{label}</span>
+                        <ArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100" />
+                      </button>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+          )}
         </div>
         </div>
         <SimPanel open={simOpen} onClose={toggleSim} />
@@ -581,6 +516,7 @@ function AppInner() {
         </Command>
       </CommandDialog>
 
+      <StopControl />
       <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
       </SidebarProvider>
     </TooltipProvider>
