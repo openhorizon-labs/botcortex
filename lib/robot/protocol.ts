@@ -49,6 +49,15 @@ export type RobotMessage =
   | { type: "plan"; steps: PlanStep[] }
   | { type: "step"; id: string; state: "start" | "ok" | "fail"; error?: string }
   | { type: "skills"; skills: string[] }
+  /** The agent reaching into the runtime — emitted as it happens, so an owner
+   *  can watch it read positions, write a skill, and run it. */
+  | {
+      type: "tool";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    }
+  | { type: "tool_result"; id: string; ok: boolean; result: string }
   | { type: "state"; arms: JointState }
   | { type: "pong" };
 

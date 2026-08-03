@@ -67,12 +67,25 @@ type RobotContextValue = {
   deleteConversation: (id: string) => Promise<void>;
   /** Remaining BotCortex credit, or null when signed out / unreachable. */
   credit: Credit | null;
+  /** What the agent is doing right now, oldest first. */
+  toolCalls: ToolCall[];
 };
 
 export type Credit = {
   balanceMicros: number;
   spentMicros: number;
   display: string;
+};
+
+/** One reach into the runtime, from call to result. Live-only: traces are not
+ *  persisted, so reopening an old thread shows its words but not its workings. */
+export type ToolCall = {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  ok?: boolean;
+  at: number;
 };
 
 export type Conversation = {
@@ -102,6 +115,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [stopped, setStopped] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   /** Read by persist(), which is built once and would otherwise capture the
    *  first render's (null) thread id forever. */
@@ -265,6 +279,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     async (id: string) => {
       selectThread(id);
       setMessages([]);
+      // Traces are live-only, so a reopened thread must not inherit the last
+      // one's — it would render as workings belonging to words that never
+      // produced them.
+      setToolCalls([]);
       await loadMessages(id);
     },
     [loadMessages, selectThread],
@@ -276,6 +294,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
    */
   const newConversation = useCallback(async () => {
     setMessages([]);
+    setToolCalls([]);
     // Nothing is created until something is said — so clicking "New task"
     // twice cannot leave two empty threads behind.
     selectThread(null);
@@ -364,11 +383,27 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         case "estop":
           setStopped(msg.stopped);
           break;
+        case "tool":
+          setToolCalls((prev) => [
+            ...prev,
+            { id: msg.id, name: msg.name, input: msg.input, at: Date.now() },
+          ]);
+          break;
+        case "tool_result":
+          setToolCalls((prev) =>
+            prev.map((call) =>
+              call.id === msg.id ? { ...call, result: msg.result, ok: msg.ok } : call,
+            ),
+          );
+          break;
         case "skills":
           setSkills(msg.skills);
           break;
         case "status":
           setActivity(msg.state + (msg.detail ? ` — ${msg.detail}` : ""));
+          // A new run starts a fresh trace; the last one's calls belong to the
+          // reply above it, not to this one.
+          if (msg.state !== "idle") setToolCalls([]);
           // Back to idle means a teach just finished spending.
           if (msg.state === "idle") void refreshCreditRef.current();
           break;
@@ -563,6 +598,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         openConversation,
         deleteConversation,
         credit,
+        toolCalls,
       }}
     >
       {children}

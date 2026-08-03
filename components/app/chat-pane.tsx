@@ -24,16 +24,25 @@ import {
 } from "@/components/ai-elements/message";
 import { Spinner } from "@/components/ui/spinner";
 import { useRobot } from "@/components/app/robot-provider";
+import { ToolTrace } from "@/components/app/tool-trace";
 
 export function ChatPane() {
-  const { messages, activity, status } = useRobot();
+  const { messages, toolCalls, activity, status } = useRobot();
   const connected = status === "connected";
   const busy = activity.startsWith("teaching") || activity.startsWith("running");
+
+  // Merged on timestamp so the agent's workings land between the words that
+  // prompted them and the reply they produced. Traces are live-only, so a
+  // rehydrated thread is simply all messages.
+  const timeline = [
+    ...messages.map((m) => ({ at: m.at, key: m.id, node: <ChatBubble message={m} /> })),
+    ...toolCalls.map((c) => ({ at: c.at, key: c.id, node: <ToolTrace call={c} /> })),
+  ].sort((a, b) => a.at - b.at);
 
   return (
     <Conversation className="min-h-0 flex-1">
       <ConversationContent className="gap-6 px-2 py-4">
-        {messages.length === 0 ? (
+        {timeline.length === 0 ? (
           <ConversationEmptyState
             icon={<Bot className="size-6 text-muted-foreground" />}
             title="What should the robot learn today?"
@@ -44,13 +53,7 @@ export function ChatPane() {
             }
           />
         ) : (
-          messages.map((message) => (
-            <Message from={message.from === "you" ? "user" : "assistant"} key={message.id}>
-              <MessageContent>
-                <MessageResponse>{message.text}</MessageResponse>
-              </MessageContent>
-            </Message>
-          ))
+          timeline.map((item) => <div key={item.key}>{item.node}</div>)
         )}
         {busy && (
           <Message from="assistant">
@@ -65,5 +68,15 @@ export function ChatPane() {
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
+  );
+}
+
+function ChatBubble({ message }: { message: { from: "you" | "robot"; text: string } }) {
+  return (
+    <Message from={message.from === "you" ? "user" : "assistant"}>
+      <MessageContent>
+        <MessageResponse>{message.text}</MessageResponse>
+      </MessageContent>
+    </Message>
   );
 }
