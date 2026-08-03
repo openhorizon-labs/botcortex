@@ -14,7 +14,8 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-FILE_BUDGET = 18000  # faces per link, split across its parts by size
+import os
+FILE_BUDGET = int(os.environ.get("FACE_BUDGET", "18000"))  # per link, split across parts by size
 MIN_FACES = 400      # never crush a small part into nothing
 FALLBACK_COLOUR = [0.55, 0.56, 0.58, 1.0]  # brushed aluminium, for untextured parts
 

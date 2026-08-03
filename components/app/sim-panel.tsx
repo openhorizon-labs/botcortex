@@ -8,7 +8,7 @@
  */
 
 import dynamic from "next/dynamic";
-import { PanelRightClose } from "lucide-react";
+import { PanelRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -51,7 +51,7 @@ export function SimPanel({
               className="size-7 text-muted-foreground"
               aria-label="Hide the simulation"
             >
-              <PanelRightClose className="size-4" />
+              <PanelRight className="size-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Hide the simulation</TooltipContent>

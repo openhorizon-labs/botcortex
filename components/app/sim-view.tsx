@@ -16,7 +16,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, Grid, OrbitControls } from "@react-three/drei";
+import { Grid, OrbitControls } from "@react-three/drei";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   Box3,
@@ -54,6 +55,11 @@ function ArmModel({ stateRef }: { stateRef: React.RefObject<JointState | null> }
     // has to wait for manager.onLoad instead.
     const manager = new LoadingManager();
     const gltf = new GLTFLoader(manager);
+    // Meshes are Draco-compressed (63 MB of COLLADA → 3 MB) with the decoder
+    // served from /public, never a CDN — this has to work offline.
+    const draco = new DRACOLoader(manager);
+    draco.setDecoderPath("/draco/");
+    gltf.setDRACOLoader(draco);
     const loader = new URDFLoader(manager);
     loader.packages = PACKAGES;
     loader.parseVisual = true;
@@ -94,7 +100,15 @@ function ArmModel({ stateRef }: { stateRef: React.RefObject<JointState | null> }
             // would show the inside of those shells — hence DoubleSide.
             // Colours/metalness now come from the GLB itself; don't override.
             const material = child.material as MeshStandardMaterial;
-            if (material) material.side = DoubleSide;
+            if (material) {
+              material.side = DoubleSide;
+              // There is no environment map (see the lighting note in the
+              // Canvas below), and metalness without one reflects pure black.
+              // Keep the GLB's colour, drop it to a near-dielectric response
+              // so the three lights alone shade it properly.
+              material.metalness = 0.05;
+              material.roughness = 0.65;
+            }
           }
         });
 
@@ -157,26 +171,35 @@ export default function SimView() {
         camera={{ position: [0.85, 0.75, 0.95], fov: 42 }}
         gl={{ antialias: true, alpha: true }}
       >
-        <ambientLight intensity={0.6} />
+        {/* A studio backdrop, several shades darker than the page, so the
+            robot's near-white covers actually have something to read against.
+            Without it the model blows out and reads as a line sketch. */}
+        <color attach="background" args={["#d9d9dd"]} />
+        <fog attach="fog" args={["#d9d9dd", 3.2, 7]} />
+
+        {/* Modest local lighting, deliberately no <Environment preset>: that
+            fetches an HDR from a CDN, which stalls or fails offline — wrong
+            for a robot control room that must work without internet. */}
+        <hemisphereLight args={["#ffffff", "#9a9aa2", 0.55]} />
         <directionalLight
           position={[2.5, 4, 2]}
-          intensity={1.6}
+          intensity={1.1}
           castShadow
           shadow-mapSize={[2048, 2048]}
           shadow-camera-near={0.1}
           shadow-camera-far={10}
         />
-        <directionalLight position={[-2, 2, -1.5]} intensity={0.4} />
-        <Environment preset="city" />
+        <directionalLight position={[-2.5, 2, -1.5]} intensity={0.35} />
+        <directionalLight position={[0, 1.5, -3]} intensity={0.25} />
         <ArmModel stateRef={jointStateRef} />
         <Grid
           args={[4, 4]}
           position={[0, 0, 0]}
-          cellColor="#d4d4d8"
-          sectionColor="#a1a1aa"
+          cellColor="#c2c2c8"
+          sectionColor="#9a9aa2"
           cellSize={0.1}
           sectionSize={0.5}
-          fadeDistance={4}
+          fadeDistance={4.5}
           infiniteGrid
         />
         <FrameOnLoad />
