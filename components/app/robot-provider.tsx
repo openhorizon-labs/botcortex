@@ -121,6 +121,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
    *  first render's (null) thread id forever. */
   const conversationIdRef = useRef<string | null>(null);
 
+  /** Set the instant anything is said, synchronously, so the rehydrate below
+   *  can tell whether it would be trampling a live conversation. */
+  const spokeRef = useRef(false);
+
   /** Persist one message. Fire-and-forget: the transcript is a record, and
    *  losing a line of it must never interrupt teaching a robot. */
   const persist = useCallback(async (msg: ChatMessage) => {
@@ -149,6 +153,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     (from: ChatMessage["from"], text: string) => {
       // crypto.randomUUID, not a timestamp+index: the id is the dedup key on
       // the server, so it has to survive a reload and a retried POST.
+      spokeRef.current = true;
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         from,
@@ -311,7 +316,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       const rows = await refreshConversations();
       if (conversationIdRef.current === id) {
         // Land somewhere real rather than on a thread that no longer exists.
-        if (rows[0]) await openConversation(rows[0].id);
+        if (rows[0] && !spokeRef.current && !conversationIdRef.current) {
+        await openConversation(rows[0].id);
+      }
         else await newConversation();
       }
     },
@@ -320,12 +327,21 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
 
   // Rehydrate on load: reopen the most recent thread. With none, stay on a
   // blank one — the first message will create it.
+  //
+  // Skipped entirely if the owner has already typed. Rehydrating takes two
+  // round-trips, and someone who typed inside that window had their message
+  // filed into a NEW thread by ensureConversation and then wiped from the pane
+  // by this load — it vanished from view and landed somewhere they were not
+  // looking. Being quick to restore history is not worth losing what someone
+  // just said.
   useEffect(() => {
     if (didLoadHistoryRef.current) return;
     didLoadHistoryRef.current = true;
     void (async () => {
       const rows = await refreshConversations();
-      if (rows[0]) await openConversation(rows[0].id);
+      if (rows[0] && !spokeRef.current && !conversationIdRef.current) {
+        await openConversation(rows[0].id);
+      }
     })();
   }, [refreshConversations, openConversation]);
 
