@@ -397,7 +397,7 @@ function AppInner() {
                     : pairing === "byo"
                       ? "This robot teaches on its own provider key — credit is not spent"
                       : credit
-                        ? `${credit.display} credit remaining`
+                        ? `${credit.spentDisplay} used of ${credit.grantedDisplay} · ${credit.display} left`
                         : "Credit"
                 }
                 className="cursor-default hover:bg-transparent active:translate-y-0"
@@ -405,12 +405,19 @@ function AppInner() {
                 <div>
                   <Coins />
                   <span className="flex-1 truncate">Credit</span>
+                  {/* used / total, not what is left. Consumption is the thing
+                      an owner is actually tracking, and a fraction moves
+                      visibly against a fixed denominator where a lone
+                      remaining figure just drifts down. The balance itself
+                      sits in the composer, beside the send button. */}
                   <span className="font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                     {pairing === "half"
                       ? "not paired"
                       : pairing === "byo"
                         ? "own key"
-                        : (credit?.display ?? "—")}
+                        : credit
+                          ? `${credit.usedDisplay} / ${credit.grantedDisplay}`
+                          : "—"}
                   </span>
                 </div>
               </SidebarMenuButton>

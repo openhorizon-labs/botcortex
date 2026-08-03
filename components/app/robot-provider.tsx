@@ -90,9 +90,13 @@ type RobotContextValue = {
 export type Credit = {
   balanceMicros: number;
   spentMicros: number;
-  /** Formatted by the api, which owns how money is written. */
+  grantedMicros: number;
+  /** Formatted by the api, which owns how money is written. Balances floor to
+   *  the cent and spend ceils, so neither ever flatters the account. */
   display: string;
   spentDisplay: string;
+  usedDisplay: string;
+  grantedDisplay: string;
 };
 
 /** One reach into the runtime, from call to result. Live-only: traces are not
