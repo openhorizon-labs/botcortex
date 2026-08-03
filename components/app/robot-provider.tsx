@@ -25,7 +25,15 @@ import {
 
 const STORAGE_KEY = "botcortex.robot";
 const RETRY_DELAY_MS = 3000;
+/** Retries for a robot that has ALREADY answered once — a Wi-Fi blip, a
+ *  runtime restart. Patience is right there: the robot is real and coming back. */
 const MAX_RETRIES = 5;
+/** Retries before the FIRST hello. Nothing has proved it is there, and five
+ *  attempts at three seconds left a new account watching "connecting…" for
+ *  nineteen seconds with no idea whether the product was working. Failing fast
+ *  is what surfaces the in-browser robot, which is the answer for anyone who
+ *  does not own hardware. */
+const MAX_RETRIES_BEFORE_FIRST_HELLO = 1;
 
 export type ChatMessage = {
   id: string;
@@ -151,6 +159,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
   const [pairing, setPairing] = useState<RobotContextValue["pairing"]>(null);
+  /** Whether this address has ever said hello — see the retry budgets above. */
+  const greetedRef = useRef(false);
   /** Set when the robot IS this tab. Mutually exclusive with wsRef. */
   const simRef = useRef<BrowserSimTransport | null>(null);
   const [simBooting, setSimBooting] = useState<string | null>(null);
@@ -498,6 +508,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const handleMessage = useCallback((msg: RobotMessage) => {
       switch (msg.type) {
         case "hello":
+          greetedRef.current = true;
           setRobot(msg.robot);
           setSkills(msg.skills);
           // A page loaded while the robot is already stopped must say so.
@@ -625,7 +636,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         setStatus("disconnected");
         return;
       }
-      if (retriesRef.current < MAX_RETRIES) {
+      const budget = greetedRef.current ? MAX_RETRIES : MAX_RETRIES_BEFORE_FIRST_HELLO;
+      if (retriesRef.current < budget) {
         retriesRef.current += 1;
         setStatus("connecting");
         setTimeout(() => {
@@ -648,6 +660,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
 
   const connect = useCallback(
     (rawHost: string) => {
+      greetedRef.current = false;
       const cleanHost = normalizeHost(rawHost);
       if (!cleanHost) return;
       if (mixedContentBlocked(cleanHost)) {

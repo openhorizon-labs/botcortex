@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, ShieldCheck, Zap } from "lucide-react";
+import { ArrowUp, ShieldCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -55,29 +55,30 @@ export function Composer({
       <div className="flex items-center justify-between px-2.5 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <ModelPicker value={model} onChange={onModelChange} />
+          {/* A STATE, not a switch.
+              This was a Dry run / Execute toggle whose tooltip promised that
+              dry run "previews every step without moving the arms". It did no
+              such thing: `dryRun` rides the wire (protocol.ts) and NO backend
+              reads it — not server.py, not the browser transport — so both
+              positions moved the arm, and a UX review confirmed it by teaching
+              in each. A safety control that lies is worse than none, and the
+              label would be the most dangerous string in the app the day
+              hardware lands.
+              Every v0 backend is a simulation twin (`--execute` still exits
+              with "real hardware lands at milestone 3"), so the honest thing
+              to show is what is true. The dryRun plumbing is deliberately left
+              in place for when the hardware path arrives and can honour it. */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                onClick={() => onDryRunChange(!dryRun)}
-                className={cn(
-                  "flex h-6 cursor-pointer items-center gap-1 rounded-full px-2.5 text-xs transition-colors",
-                  dryRun
-                    ? "border border-border bg-background text-muted-foreground hover:text-foreground"
-                    : "bg-primary text-primary-foreground",
-                )}
-                aria-pressed={!dryRun}
-              >
-                {dryRun ? (
-                  <ShieldCheck className="size-3" />
-                ) : (
-                  <Zap className="size-3" />
-                )}
-                {dryRun ? "Dry run" : "Execute"}
-              </button>
+              <span className="flex h-6 items-center gap-1 rounded-full border border-border bg-background px-2.5 text-xs text-muted-foreground">
+                <ShieldCheck className="size-3" />
+                Simulation
+              </span>
             </TooltipTrigger>
             <TooltipContent>
-              Dry run previews every step without moving the arms. Real
-              execution needs an operator present.
+              Every robot BotCortex drives today is a simulation twin — in this
+              tab, or MuJoCo on the machine running the runtime. Moving real
+              hardware will need an operator present, and is not wired yet.
             </TooltipContent>
           </Tooltip>
           <CreditReadout />

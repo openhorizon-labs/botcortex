@@ -28,6 +28,7 @@ export function ConnectRobotDialog({
   const { status, robot, host, error, connect, disconnect, connectBrowserSim, simBooting } =
     useRobot();
   const [mode, setMode] = useState<Mode>("local");
+  const [attempted, setAttempted] = useState(false);
   const [address, setAddress] = useState("");
   const [token, setToken] = useState("");
 
@@ -73,7 +74,10 @@ export function ConnectRobotDialog({
             {/* First, because it is the only option that works for someone who
                 does not own an arm — which is most people opening this. */}
             <button
-              onClick={() => void connectBrowserSim()}
+              onClick={() => {
+                setAttempted(true);
+                void connectBrowserSim();
+              }}
               disabled={connecting}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg border border-border bg-surface-2 p-3 text-left transition-colors",
@@ -94,7 +98,7 @@ export function ConnectRobotDialog({
                 <span className="block text-xs text-muted-foreground">
                   {simBooting
                     ? "First run downloads the robot runtime — about 14 MB."
-                    : "Runs the real runtime and real physics in this tab. Skills you teach it are saved to your account."}
+                    : "Runs the real runtime and real physics in this tab. Skills stay in this tab until you pair real hardware."}
                 </span>
               </span>
             </button>
@@ -133,7 +137,11 @@ export function ConnectRobotDialog({
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="192.168.1.42:9090 or thor.local:9090"
-                  onKeyDown={(e) => e.key === "Enter" && connect(address)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    setAttempted(true);
+                    connect(address);
+                  }}
                   autoFocus
                 />
                 <p className="text-xs text-muted-foreground">
@@ -157,7 +165,12 @@ export function ConnectRobotDialog({
               </div>
             )}
 
-            {error && !connecting && (
+            {/* Only errors from an attempt the USER made in this dialog. The
+                provider retries a remembered robot on every page load, so its
+                failure was sitting here in red before anyone had touched
+                anything — a first-timer's first impression of the product was
+                "Lost connection to the robot." */}
+            {error && !connecting && attempted && (
               <p className="text-xs text-destructive">{error}</p>
             )}
           </>
@@ -168,7 +181,10 @@ export function ConnectRobotDialog({
             <Button onClick={() => onOpenChange(false)}>Done</Button>
           ) : (
             <Button
-              onClick={() => connect(address)}
+              onClick={() => {
+                setAttempted(true);
+                connect(address);
+              }}
               disabled={mode === "token" || !address.trim() || connecting}
               className="gap-1.5"
             >
