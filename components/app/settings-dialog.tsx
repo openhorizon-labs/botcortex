@@ -45,16 +45,22 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="border-b border-border px-5 py-4">
+      {/* Bounded and flexible, not fixed. Without max-h the dialog grew with
+          its content and ran off both ends of a laptop viewport — and the
+          inner scroller never engaged, because a flex child will not shrink
+          below its content unless min-h-0 says it may. */}
+      <DialogContent className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4">
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription className="sr-only">
             Robot access, credit, and account settings
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-[22rem] flex-col sm:flex-row">
-          <nav className="shrink-0 border-b border-border p-2 sm:w-44 sm:border-b-0 sm:border-r">
+        {/* min-h-0 lets this shrink so the pane below it can scroll; the floor
+            is clamped to the viewport so a short window never forces overflow. */}
+        <div className="flex min-h-0 flex-1 flex-col sm:min-h-[min(22rem,60dvh)] sm:flex-row">
+          <nav className="shrink-0 overflow-x-auto border-b border-border p-2 sm:w-44 sm:overflow-x-visible sm:border-b-0 sm:border-r">
             <ul className="flex gap-1 sm:flex-col">
               {SECTIONS.map(({ id, label, icon: Icon }) => (
                 <li key={id} className="flex-1">
@@ -75,7 +81,7 @@ export function SettingsDialog({
             </ul>
           </nav>
 
-          <div className="min-w-0 flex-1 overflow-y-auto p-5">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-5">
             {section === "access" && <RobotKeysPanel />}
 
             {section === "credit" && (

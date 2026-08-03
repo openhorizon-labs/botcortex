@@ -34,7 +34,7 @@ function CopyField({ value }: { value: string }) {
       <Button
         variant="outline"
         size="icon"
-        className="cursor-pointer"
+        className="shrink-0 cursor-pointer"
         aria-label="Copy"
         onClick={() => {
           navigator.clipboard.writeText(value);
