@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
@@ -10,6 +10,13 @@ import { Input } from "@/components/ui/input";
 
 export function SignInForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  // Only ever an in-app path — an absolute URL here would make this an open
+  // redirect, and the value arrives from the query string.
+  const nextParam = params.get("next");
+  const destination = nextParam?.startsWith("/") && !nextParam.startsWith("//")
+    ? nextParam
+    : "/app";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +31,7 @@ export function SignInForm() {
       setError(result.error.message ?? "Sign-in failed — check your credentials.");
       return;
     }
-    router.push("/app");
+    router.push(destination);
   }
 
   return (

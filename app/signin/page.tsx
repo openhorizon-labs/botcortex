@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Nav } from "@/components/site/nav";
 import { SignInForm } from "./signin-form";
@@ -24,7 +25,10 @@ export default function Page() {
             </a>
             .
           </p>
-          <SignInForm />
+          {/* useSearchParams (the post-sign-in destination) needs a boundary. */}
+          <Suspense>
+            <SignInForm />
+          </Suspense>
         </div>
       </div>
     </main>

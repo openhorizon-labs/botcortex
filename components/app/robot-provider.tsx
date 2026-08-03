@@ -260,10 +260,28 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       if (saved) {
         try {
           const { host: savedHost } = JSON.parse(saved);
-          if (savedHost) connect(savedHost);
+          if (savedHost) {
+            connect(savedHost);
+            return;
+          }
         } catch {
           /* ignore corrupt entry */
         }
+      }
+
+      // Nothing remembered on this browser — ask the account which robots it
+      // has paired. This is what `botcortex login` buys: a fresh browser
+      // connects to your robot without you knowing its address.
+      try {
+        const res = await fetch("/api/robots");
+        if (cancelled || !res.ok) return;
+        const { robots } = (await res.json()) as {
+          robots: { address: string | null }[];
+        };
+        const reachable = robots.find((r) => r.address);
+        if (reachable?.address) connect(reachable.address);
+      } catch {
+        /* not signed in, or the api is unreachable — the Connect dialog remains */
       }
     })();
     return () => {
