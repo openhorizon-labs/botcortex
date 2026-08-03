@@ -12,6 +12,7 @@ import {
   CircleHelp,
   FolderCode,
   Hand,
+  KeyRound,
   Layers,
   LogIn,
   LogOut,
@@ -78,6 +79,7 @@ import {
 } from "@/components/ui/collapsible";
 import { RobotProvider, useRobot } from "@/components/app/robot-provider";
 import { ConnectRobotDialog } from "@/components/app/connect-robot-dialog";
+import { RobotKeysDialog } from "@/components/app/robot-keys-dialog";
 import { ChatPane } from "@/components/app/chat-pane";
 import { Composer } from "@/components/app/composer";
 import { StopControl } from "@/components/app/stop-control";
@@ -108,6 +110,7 @@ function AppInner() {
   const [dryRun, setDryRun] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
   const [simOpen, setSimOpen] = useState(false);
   const { data: session } = useSession();
 
@@ -292,6 +295,14 @@ function AppInner() {
             <SidebarMenuItem>
               <SidebarMenuButton>
                 <CircleHelp /> Help
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setKeysOpen(true)}
+                className="cursor-pointer"
+              >
+                <KeyRound /> Robot keys
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -518,6 +529,7 @@ function AppInner() {
 
       <StopControl />
       <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
+      <RobotKeysDialog open={keysOpen} onOpenChange={setKeysOpen} />
       </SidebarProvider>
     </TooltipProvider>
   );

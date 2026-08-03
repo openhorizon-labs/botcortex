@@ -7,9 +7,15 @@ const nextConfig: NextConfig = {
   // (Safari blocks cross-site cookies) and middleware can gate /app.
   async rewrites() {
     const api = process.env.API_URL ?? "http://localhost:8787";
+    // Every account route goes through here for the same reason: the session
+    // cookie is first-party to THIS origin, so a browser fetch straight to
+    // botcortex-api carries no credentials and lands on a 401.
     return [
       { source: "/api/auth/:path*", destination: `${api}/api/auth/:path*` },
       { source: "/api/me", destination: `${api}/api/me` },
+      { source: "/api/keys", destination: `${api}/api/keys` },
+      { source: "/api/keys/:id", destination: `${api}/api/keys/:id` },
+      { source: "/api/credits", destination: `${api}/api/credits` },
     ];
   },
 };
