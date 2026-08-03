@@ -20,7 +20,9 @@ export type PlanStep = {
 
 /** Client → runtime */
 export type ClientMessage =
-  | { type: "chat"; text: string; dryRun: boolean }
+  /** `model` names the brain for THIS task; absent means the robot's own
+   *  configured default. */
+  | { type: "chat"; text: string; dryRun: boolean; model?: string }
   | { type: "run_skill"; name: string; dryRun: boolean }
   /** Sent once per page load so a refresh gives a clean scene. The runtime
    *  ignores it while busy, and backends with a physical arm never honour it. */
@@ -49,6 +51,8 @@ export type RobotMessage =
   | { type: "plan"; steps: PlanStep[] }
   | { type: "step"; id: string; state: "start" | "ok" | "fail"; error?: string }
   | { type: "skills"; skills: string[] }
+  /** Which model a teach actually ran on — echoed back, never assumed. */
+  | { type: "model"; name: string; provider: string }
   /** The agent reaching into the runtime — emitted as it happens, so an owner
    *  can watch it read positions, write a skill, and run it. */
   | {

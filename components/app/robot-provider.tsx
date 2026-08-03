@@ -48,7 +48,7 @@ type RobotContextValue = {
   jointStateRef: React.RefObject<JointState | null>;
   connect: (rawHost: string) => void;
   disconnect: () => void;
-  sendChat: (text: string, dryRun: boolean) => boolean;
+  sendChat: (text: string, dryRun: boolean, model?: string | null) => boolean;
   runSkill: (name: string, dryRun: boolean) => boolean;
   stop: () => Promise<boolean>;
   /** True while the e-stop is latched — motion stays blocked until cleared. */
@@ -497,8 +497,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const sendChat = useCallback(
-    (text: string, dryRun: boolean) => {
-      const sent = send({ type: "chat", text, dryRun });
+    (text: string, dryRun: boolean, model?: string | null) => {
+      // The chosen model rides with the message: the runtime bills whatever it
+      // is handed, so the picker has to reach it rather than the robot's
+      // startup default.
+      const sent = send({ type: "chat", text, dryRun, model: model ?? undefined });
       if (sent) append("you", text);
       return sent;
     },

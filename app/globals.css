@@ -179,3 +179,14 @@
     cursor: pointer;
   }
 }
+/* The chat transcript scrolls but doesn't advertise it.
+   Applied to the element use-stick-to-bottom actually scrolls (the child of
+   [role="log"]), not the wrapper — and it hides the bar only. Reaching for
+   `overflow: hidden` here would "fix" the appearance by breaking the scroll. */
+[role="log"] > * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[role="log"] > *::-webkit-scrollbar {
+  display: none;
+}

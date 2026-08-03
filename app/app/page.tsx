@@ -104,6 +104,7 @@ function AppInner() {
   const [input, setInput] = useState("");
   const [suggestedOpen, setSuggestedOpen] = useState(true);
   const [dryRun, setDryRun] = useState(true);
+  const [model, setModel] = useState<string | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -145,7 +146,7 @@ function AppInner() {
       setConnectOpen(true);
       return;
     }
-    if (sendChat(text, dryRun)) setInput("");
+    if (sendChat(text, dryRun, model)) setInput("");
   }
 
   function handleRunSkill(name: string) {
@@ -473,6 +474,8 @@ function AppInner() {
                 onSend={handleSend}
                 dryRun={dryRun}
                 onDryRunChange={setDryRun}
+                model={model}
+                onModelChange={setModel}
               />
               <p className="shrink-0 pt-3 text-center text-xs text-muted-foreground/70">
                 Skills run locally on the robot — the AI is only in the loop
@@ -493,6 +496,8 @@ function AppInner() {
                 onSend={handleSend}
                 dryRun={dryRun}
                 onDryRunChange={setDryRun}
+                model={model}
+                onModelChange={setModel}
               />
 
               <Collapsible

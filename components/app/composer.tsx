@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowUp, Plus, ShieldCheck, SlashSquare, Zap } from "lucide-react";
+import { ArrowUp, ShieldCheck, Zap } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ModelPicker } from "@/components/app/model-picker";
 import {
   Tooltip,
   TooltipContent,
@@ -17,6 +18,8 @@ export function Composer({
   onSend,
   dryRun,
   onDryRunChange,
+  model,
+  onModelChange,
   className,
 }: {
   value: string;
@@ -24,6 +27,8 @@ export function Composer({
   onSend: () => void;
   dryRun: boolean;
   onDryRunChange: (dryRun: boolean) => void;
+  model: string | null;
+  onModelChange: (id: string) => void;
   className?: string;
 }) {
   return (
@@ -47,29 +52,14 @@ export function Composer({
         rows={1}
       />
       <div className="flex items-center justify-between px-2.5 pb-2 pt-1">
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            aria-label="Add context"
-          >
-            <Plus className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            aria-label="Commands"
-          >
-            <SlashSquare className="size-4" />
-          </Button>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <ModelPicker value={model} onChange={onModelChange} />
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={() => onDryRunChange(!dryRun)}
                 className={cn(
-                  "ml-1 flex h-6 items-center gap-1 rounded-full px-2.5 text-xs transition-colors",
+                  "flex h-6 cursor-pointer items-center gap-1 rounded-full px-2.5 text-xs transition-colors",
                   dryRun
                     ? "border border-border bg-background text-muted-foreground hover:text-foreground"
                     : "bg-primary text-primary-foreground",
