@@ -105,12 +105,9 @@ function AppInner() {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [suggestedOpen, setSuggestedOpen] = useState(true);
-  const [dryRun, setDryRun] = useState(true);
-  const [model, setModel] = useState<string | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [simOpen, setSimOpen] = useState(false);
   const { data: session } = useSession();
 
   const toggleSim = () => setSimOpen((open) => !open);
@@ -119,6 +116,9 @@ function AppInner() {
     status, robot, skills, activity, messages, sendChat, runSkill, connect, host,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
     credit,
+    // Session-scoped so the navigation the first message triggers doesn't
+    // reset them out from under the owner.
+    simOpen, setSimOpen, dryRun, setDryRun, model, setModel,
   } = useRobot();
   const [paired, setPaired] = useState<PairedRobot[]>([]);
 
@@ -161,16 +161,6 @@ function AppInner() {
     if (connected) runSkill(name, dryRun);
     else setInput(`Run ${name}`);
   }
-
-  // A dry run is a rehearsal you are meant to WATCH — showing the arm move is
-  // the whole point of it. Opens once as the teach begins, and only then, so
-  // closing the panel mid-teach sticks rather than being fought.
-  const teaching = activity.startsWith("teaching");
-  const wasTeachingRef = useRef(false);
-  useEffect(() => {
-    if (teaching && !wasTeachingRef.current && dryRun) setSimOpen(true);
-    wasTeachingRef.current = teaching;
-  }, [teaching, dryRun]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {

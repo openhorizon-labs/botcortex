@@ -70,6 +70,17 @@ type RobotContextValue = {
   credit: Credit | null;
   /** What the agent is doing right now, oldest first. */
   toolCalls: ToolCall[];
+
+  /* Session-scoped UI choices. They live here rather than in the page because
+     the first message navigates /app -> /app/tasks/<id>, which remounts the
+     page — local state would silently snap back, so an owner who switched off
+     dry run or picked a model would quietly lose it on their next send. */
+  simOpen: boolean;
+  setSimOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  dryRun: boolean;
+  setDryRun: React.Dispatch<React.SetStateAction<boolean>>;
+  model: string | null;
+  setModel: React.Dispatch<React.SetStateAction<string | null>>;
 };
 
 export type Credit = {
@@ -124,6 +135,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const [simOpen, setSimOpen] = useState(false);
+  const [dryRun, setDryRun] = useState(true);
+  const [model, setModel] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   /** Read by persist(), which is built once and would otherwise capture the
    *  first render's (null) thread id forever. */
@@ -183,6 +197,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   /** One history load per mount, so React's double-invoked dev effects don't
    *  rehydrate the transcript twice. */
   const didLoadHistoryRef = useRef(false);
+  /** Was the robot working on the last status? Drives the sim reveal. */
+  const workingRef = useRef(false);
 
   /** open() is built once with empty deps, so reaching append directly would
    *  capture the first render's copy forever. */
@@ -420,14 +436,22 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         case "skills":
           setSkills(msg.skills);
           break;
-        case "status":
+        case "status": {
           setActivity(msg.state + (msg.detail ? ` — ${msg.detail}` : ""));
+          // Anything that moves the arm is worth watching — authoring a skill
+          // or replaying a saved one. Only on the transition INTO working, so
+          // closing the panel mid-run sticks; and here rather than in the page
+          // so it survives the navigation the first message triggers.
+          const working = msg.state !== "idle";
+          if (working && !workingRef.current) setSimOpen(true);
+          workingRef.current = working;
           // A new run starts a fresh trace; the last one's calls belong to the
           // reply above it, not to this one.
-          if (msg.state !== "idle") setToolCalls([]);
+          if (working) setToolCalls([]);
           // Back to idle means a teach just finished spending.
-          if (msg.state === "idle") void refreshCreditRef.current();
+          else void refreshCreditRef.current();
           break;
+        }
         case "chat":
           setLastChat(msg.text);
           appendRef.current("robot", msg.text);
@@ -623,6 +647,12 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         deleteConversation,
         credit,
         toolCalls,
+        simOpen,
+        setSimOpen,
+        dryRun,
+        setDryRun,
+        model,
+        setModel,
       }}
     >
       {children}
