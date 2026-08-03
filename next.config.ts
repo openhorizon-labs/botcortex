@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
       { source: "/api/keys/:id", destination: `${api}/api/keys/:id` },
       { source: "/api/credits", destination: `${api}/api/credits` },
       { source: "/api/robots", destination: `${api}/api/robots` },
+      { source: "/api/messages", destination: `${api}/api/messages` },
       { source: "/api/device/pending", destination: `${api}/api/device/pending` },
     ];
   },

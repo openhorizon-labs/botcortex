@@ -56,6 +56,8 @@ type RobotContextValue = {
   /** Clears the e-stop file. Deliberately separate from stop() so the UI can
    *  make un-blocking a two-step, considered action. */
   resetStop: () => Promise<boolean>;
+  /** Wipes the persisted conversation and starts a fresh one. */
+  clearHistory: () => Promise<void>;
 };
 
 const RobotContext = createContext<RobotContextValue | null>(null);
@@ -77,12 +79,31 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stopped, setStopped] = useState(false);
 
-  const append = useCallback((from: ChatMessage["from"], text: string) => {
-    setMessages((prev) => [
-      ...prev,
-      { id: `${Date.now()}-${prev.length}`, from, text, at: Date.now() },
-    ]);
+  /** Persist one message. Fire-and-forget: the transcript is a record, and
+   *  losing a line of it must never interrupt teaching a robot. */
+  const persist = useCallback((msg: ChatMessage) => {
+    void fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: msg.id, author: msg.from, text: msg.text }),
+    }).catch(() => {});
   }, []);
+
+  const append = useCallback(
+    (from: ChatMessage["from"], text: string) => {
+      // crypto.randomUUID, not a timestamp+index: the id is the dedup key on
+      // the server, so it has to survive a reload and a retried POST.
+      const msg: ChatMessage = {
+        id: crypto.randomUUID(),
+        from,
+        text,
+        at: Date.now(),
+      };
+      setMessages((prev) => [...prev, msg]);
+      persist(msg);
+    },
+    [persist],
+  );
 
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
@@ -90,6 +111,60 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const jointStateRef = useRef<JointState | null>(null);
   /** One sim reset per page load — see ws.onopen. */
   const didResetSimRef = useRef(false);
+  /** One history load per mount, so React's double-invoked dev effects don't
+   *  rehydrate the transcript twice. */
+  const didLoadHistoryRef = useRef(false);
+
+  /** open() is built once with empty deps, so reaching append directly would
+   *  capture the first render's copy forever. */
+  const appendRef = useRef(append);
+  useEffect(() => {
+    appendRef.current = append;
+  }, [append]);
+
+  // Rehydrate the conversation. Until now the transcript lived in React state
+  // and a refresh wiped it — the robot remembered the skill it learned, the
+  // owner lost every word about how they got there.
+  useEffect(() => {
+    if (didLoadHistoryRef.current) return;
+    didLoadHistoryRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/messages?limit=200");
+        if (!res.ok || cancelled) return;
+        const { messages: history } = (await res.json()) as {
+          messages: { id: string; author: ChatMessage["from"]; text: string; createdAt: string }[];
+        };
+        if (cancelled || history.length === 0) return;
+        // Replace rather than merge: this runs before any socket is open, so
+        // there is nothing live to clobber.
+        setMessages(
+          history.map((m) => ({
+            id: m.id,
+            from: m.author,
+            text: m.text,
+            at: new Date(m.createdAt).getTime(),
+          })),
+        );
+      } catch {
+        /* signed out, or the api is unreachable — start with a blank slate */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Wipes the stored conversation — the only way to start a fresh one. */
+  const clearHistory = useCallback(async () => {
+    setMessages([]);
+    try {
+      await fetch("/api/messages", { method: "DELETE" });
+    } catch {
+      /* local list is already cleared; the server copy retries next time */
+    }
+  }, []);
 
   const teardown = useCallback(() => {
     intentionalCloseRef.current = true;
@@ -153,15 +228,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           break;
         case "chat":
           setLastChat(msg.text);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${prev.length}`,
-              from: "robot",
-              text: msg.text,
-              at: Date.now(),
-            },
-          ]);
+          appendRef.current("robot", msg.text);
           break;
         case "state":
           jointStateRef.current = msg.arms;
@@ -344,6 +411,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         stop,
         stopped,
         resetStop,
+        clearHistory,
       }}
     >
       {children}

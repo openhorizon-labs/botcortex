@@ -16,6 +16,7 @@ import {
   Play,
   Plus,
   Search,
+  SquarePen,
   ShieldCheck,
   Shuffle,
 } from "lucide-react";
@@ -107,8 +108,10 @@ function AppInner() {
 
   const toggleSim = () => setSimOpen((open) => !open);
 
-  const { status, robot, skills, activity, messages, sendChat, runSkill, connect, host } =
-    useRobot();
+  const {
+    status, robot, skills, activity, messages, sendChat, runSkill, connect, host,
+    clearHistory,
+  } = useRobot();
   const [paired, setPaired] = useState<PairedRobot[]>([]);
 
   // The robots this account has paired via `botcortex login`. Listing the real
@@ -238,6 +241,16 @@ function AppInner() {
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
+                <SidebarMenuItem>
+                  {/* Earns its place again now the transcript persists: this
+                      wipes it and starts fresh, instead of no-opping. */}
+                  <SidebarMenuButton
+                    onClick={() => void clearHistory()}
+                    className="cursor-pointer"
+                  >
+                    <SquarePen /> New task
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton onClick={() => setCmdOpen(true)}>
                     <Search /> Search
@@ -501,6 +514,14 @@ function AppInner() {
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Actions">
+            <CommandItem
+              onSelect={() => {
+                void clearHistory();
+                setCmdOpen(false);
+              }}
+            >
+              <SquarePen /> New task (clears the conversation)
+            </CommandItem>
             <CommandItem
               onSelect={() => {
                 setDryRun((d) => !d);
