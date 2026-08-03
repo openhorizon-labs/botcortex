@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -104,6 +105,13 @@ export function useRobot() {
 }
 
 export function RobotProvider({ children }: { children: React.ReactNode }) {
+  // The provider lives in the layout, so it survives moving between /app and
+  // /app/tasks/[id]. That is precisely why the "a task was just born, give it
+  // a URL" navigation belongs HERE: the page component remounts across those
+  // segments, so any ref it kept to spot the transition resets — and on
+  // landing at /app with the previous task still open, it would send you
+  // straight back to the task you had just left.
+  const router = useRouter();
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [robot, setRobot] = useState<RobotInfo | null>(null);
   const [skills, setSkills] = useState<string[] | null>(null);
@@ -208,6 +216,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         const { id } = (await res.json()) as { id: string };
         conversationIdRef.current = id;
         setConversationId(id);
+        // replace, not push — an empty /app is not somewhere to go Back to.
+        router.replace(`/app/tasks/${id}`);
         return id;
       })();
       creatingRef.current.finally(() => {
@@ -215,7 +225,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       });
     }
     return creatingRef.current;
-  }, []);
+  }, [router]);
 
   const ensureConversationRef = useRef(ensureConversation);
   useEffect(() => {

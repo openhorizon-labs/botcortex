@@ -85,24 +85,26 @@ function ChatBubble({
   skills: string[];
 }) {
   const mine = message.from === "you";
-  // Anything naming a skill is a status line about a run, not prose — render
-  // it as one, with the skill picked out, instead of pushing snake_case
-  // through a markdown renderer that will italicise the underscores.
+  // Skill names get picked out wherever they appear, so snake_case never goes
+  // through a markdown renderer that italicises the underscores.
   const mentionsSkill = skills.some((s) => s && message.text.includes(s));
+
+  // Only the ROBOT's skill lines are status lines. "Run wave_left_arm" is
+  // something the owner said, and muting it made their own words look like
+  // machine output.
+  const isStatusLine = mentionsSkill && !mine;
 
   return (
     <Message from={mine ? "user" : "assistant"}>
       <MessageContent
         className={cn(
-          mine &&
-            "rounded-2xl rounded-br-md border border-border bg-surface-2 px-3.5 py-2.5 leading-relaxed",
-          !mine && "leading-relaxed",
+          "leading-relaxed",
+          mine && "rounded-2xl rounded-br-md bg-surface-2 px-3.5 py-2.5 text-foreground",
+          isStatusLine && "text-[13px] text-muted-foreground",
         )}
       >
         {mentionsSkill ? (
-          <p className="text-[13px] text-muted-foreground">
-            <SkillText text={message.text} skills={skills} />
-          </p>
+          <SkillText text={message.text} skills={skills} />
         ) : (
           <MessageResponse>{message.text}</MessageResponse>
         )}

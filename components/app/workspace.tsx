@@ -667,7 +667,6 @@ function AppInner() {
  * open task pointing at each other.
  */
 export function Workspace({ conversationId }: { conversationId?: string }) {
-  const router = useRouter();
   const { conversationId: open, openConversation, newConversation } = useRobot();
 
   // URL -> state.
@@ -683,11 +682,8 @@ export function Workspace({ conversationId }: { conversationId?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  // State -> URL: a task earns its own address the moment it has something in
-  // it. replace, not push — an empty /app is not somewhere to go Back to.
-  useEffect(() => {
-    if (!conversationId && open) router.replace(`/app/tasks/${open}`);
-  }, [conversationId, open, router]);
+  // Giving a new task its URL is the provider's job — it outlives this
+  // component across route segments, which this does not.
 
   return <AppInner />;
 }
