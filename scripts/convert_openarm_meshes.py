@@ -16,6 +16,25 @@ import trimesh
 
 FILE_BUDGET = 18000  # faces per link, split across its parts by size
 MIN_FACES = 400      # never crush a small part into nothing
+FALLBACK_COLOUR = [0.55, 0.56, 0.58, 1.0]  # brushed aluminium, for untextured parts
+
+
+def _base_colour(geom) -> list[float]:
+    """The part's diffuse colour from the COLLADA material, RGBA 0-1."""
+    material = getattr(geom.visual, "material", None)
+    for attr in ("baseColorFactor", "diffuse"):
+        value = getattr(material, attr, None)
+        if value is None:
+            continue
+        rgba = [float(c) for c in value]
+        if max(rgba[:3]) > 1.0:  # some loaders hand back 0-255
+            rgba = [c / 255.0 for c in rgba[:3]] + rgba[3:]
+        if len(rgba) == 3:
+            rgba.append(1.0)
+        # Pure black reads as a void under studio lighting; treat it as unset.
+        if max(rgba[:3]) > 0.02:
+            return rgba
+    return list(FALLBACK_COLOUR)
 
 
 def convert(src: Path, dst: Path) -> tuple[int, int, int]:
@@ -31,12 +50,26 @@ def convert(src: Path, dst: Path) -> tuple[int, int, int]:
     meshes = []
     for name, geom in parts:
         before = len(geom.faces)
+        colour = _base_colour(geom)
         share = max(MIN_FACES, int(FILE_BUDGET * before / file_faces))
         if before > share:
             try:
+                # Decimation returns a BARE mesh — the material is dropped, so
+                # the colour is captured above and reapplied below. Without
+                # this the export has zero materials and renders unshaded.
                 geom = geom.simplify_quadric_decimation(face_count=share)
             except Exception as e:  # noqa: BLE001 — decimation is best-effort
                 print(f"    ! decimation failed for {name}: {e}")
+        geom.visual = trimesh.visual.TextureVisuals(
+            material=trimesh.visual.material.PBRMaterial(
+                baseColorFactor=colour,
+                metallicFactor=0.35,
+                roughnessFactor=0.55,
+            )
+        )
+        # Force normals into the export; without NORMAL accessors three.js has
+        # nothing to light and the model reads as a flat sketch.
+        geom.vertex_normals  # noqa: B018 — property access computes + caches
         meshes.append((name, geom, before))
 
     out = trimesh.Scene()

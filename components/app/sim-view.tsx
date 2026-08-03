@@ -20,6 +20,7 @@ import { Environment, Grid, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   Box3,
+  DoubleSide,
   LoadingManager,
   MathUtils,
   Mesh,
@@ -88,13 +89,12 @@ function ArmModel({ stateRef }: { stateRef: React.RefObject<JointState | null> }
           if (child instanceof Mesh) {
             child.castShadow = true;
             child.receiveShadow = true;
+            // The URDF mirrors the left arm with scale="0.001 -0.001 0.001".
+            // A negative determinant flips face winding, so back-face culling
+            // would show the inside of those shells — hence DoubleSide.
+            // Colours/metalness now come from the GLB itself; don't override.
             const material = child.material as MeshStandardMaterial;
-            if (material) {
-              // GLB materials come in flat-lit; a little spec makes the
-              // machined surfaces read as hardware rather than cardboard.
-              material.metalness = 0.25;
-              material.roughness = 0.55;
-            }
+            if (material) material.side = DoubleSide;
           }
         });
 
