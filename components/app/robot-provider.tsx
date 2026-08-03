@@ -135,6 +135,20 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  /**
+   * The authoritative list, written synchronously.
+   *
+   * `tool` and `tool_result` land milliseconds apart — often before React has
+   * flushed a render — so a ref synced from state in an effect is still empty
+   * when the result arrives, and the call's arguments (the authored code, the
+   * whole reason to keep a trace) are lost. State mirrors this for rendering;
+   * this is what the code reads.
+   */
+  const toolCallsRef = useRef<ToolCall[]>([]);
+  const putToolCalls = useCallback((next: ToolCall[]) => {
+    toolCallsRef.current = next;
+    setToolCalls(next);
+  }, []);
   const [simOpen, setSimOpen] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [model, setModel] = useState<string | null>(null);
@@ -170,6 +184,61 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       /* offline: the message is already on screen, just not filed */
     }
   }, []);
+
+  /** Store a finished tool call alongside the conversation, so reopening a
+   *  task shows HOW a skill was authored and not merely that it was. */
+  const persistTool = useCallback(
+    async (call: { id: string; result?: string; ok?: boolean }) => {
+    try {
+      const live = toolCallsRef.current.find((c) => c.id === call.id);
+      if (!live) return;
+      // Await the task rather than bailing when it does not exist yet. The
+      // agent starts calling tools within a second of the message being sent,
+      // which is faster than the round-trip that creates the task — so a
+      // "skip if missing" check silently dropped the OPENING calls of every
+      // teach, which are the ones that show what it looked at first.
+      const thread = await ensureConversationRef.current();
+      await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Namespaced by task. The runtime's call id is 8 hex characters —
+          // a correlation handle for one teach, never meant to be a key
+          // across every conversation in the database. Used raw, repeats
+          // landed on rows belonging to other tasks, where onConflictDoNothing
+          // silently discarded them: the trace looked saved and was not.
+          // Still deterministic, so a retry updates rather than duplicates.
+          id: `${thread}:${call.id}`,
+          conversationId: thread,
+          author: "robot",
+          kind: "tool",
+          text: live.name,
+          payload: {
+            name: live.name,
+            input: live.input,
+            result: call.result,
+            ok: call.ok,
+          },
+        }),
+      });
+    } catch {
+      /* the trace is a record; losing one must not disturb teaching */
+    }
+    },
+    [],
+  );
+
+
+  const persistToolRef = useRef(persistTool);
+  useEffect(() => {
+    persistToolRef.current = persistTool;
+  }, [persistTool]);
+
+  /** open() is built once, so it reaches these through refs. */
+  const putToolCallsRef = useRef(putToolCalls);
+  useEffect(() => {
+    putToolCallsRef.current = putToolCalls;
+  }, [putToolCalls]);
 
   const append = useCallback(
     (from: ChatMessage["from"], text: string) => {
@@ -291,15 +360,43 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`/api/messages?conversation=${encodeURIComponent(id)}&limit=200`);
       if (!res.ok) return;
       const { messages: history } = (await res.json()) as {
-        messages: { id: string; author: ChatMessage["from"]; text: string; createdAt: string }[];
+        messages: {
+          id: string;
+          author: ChatMessage["from"];
+          kind?: string;
+          text: string;
+          payload?: {
+            name: string;
+            input: Record<string, unknown>;
+            result?: string;
+            ok?: boolean;
+          } | null;
+          createdAt: string;
+        }[];
       };
+      // Words and workings come back on the same query, split apart here:
+      // the transcript renders them merged on timestamp.
       setMessages(
-        history.map((m) => ({
-          id: m.id,
-          from: m.author,
-          text: m.text,
-          at: new Date(m.createdAt).getTime(),
-        })),
+        history
+          .filter((m) => m.kind !== "tool")
+          .map((m) => ({
+            id: m.id,
+            from: m.author,
+            text: m.text,
+            at: new Date(m.createdAt).getTime(),
+          })),
+      );
+      putToolCalls(
+        history
+          .filter((m) => m.kind === "tool" && m.payload)
+          .map((m) => ({
+            id: m.id,
+            name: m.payload!.name,
+            input: m.payload!.input,
+            result: m.payload!.result,
+            ok: m.payload!.ok,
+            at: new Date(m.createdAt).getTime(),
+          })),
       );
     } catch {
       /* signed out, or the api is unreachable */
@@ -310,10 +407,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     async (id: string) => {
       selectThread(id);
       setMessages([]);
-      // Traces are live-only, so a reopened thread must not inherit the last
-      // one's — it would render as workings belonging to words that never
-      // produced them.
-      setToolCalls([]);
+      // Cleared so the previous task's workings never bleed through; the
+      // load below refills them from what was stored.
+      putToolCalls([]);
       await loadMessages(id);
     },
     [loadMessages, selectThread],
@@ -325,7 +421,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
    */
   const newConversation = useCallback(async () => {
     setMessages([]);
-    setToolCalls([]);
+    putToolCalls([]);
     // Nothing is created until something is said — so clicking "New task"
     // twice cannot leave two empty threads behind.
     selectThread(null);
@@ -421,18 +517,27 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           setStopped(msg.stopped);
           break;
         case "tool":
-          setToolCalls((prev) => [
-            ...prev,
+          putToolCallsRef.current([
+            ...toolCallsRef.current,
             { id: msg.id, name: msg.name, input: msg.input, at: Date.now() },
           ]);
           break;
-        case "tool_result":
-          setToolCalls((prev) =>
-            prev.map((call) =>
-              call.id === msg.id ? { ...call, result: msg.result, ok: msg.ok } : call,
+        case "tool_result": {
+          const finished = msg;
+          putToolCallsRef.current(
+            toolCallsRef.current.map((call) =>
+              call.id === finished.id
+                ? { ...call, result: finished.result, ok: finished.ok }
+                : call,
             ),
           );
+          // Filed once it has an outcome, so a stored trace is one row per
+          // call in its final state. Done HERE rather than inside the updater
+          // above — React may invoke an updater more than once, and a write
+          // hidden in one is a trap for whoever touches it next.
+          void persistToolRef.current(finished);
           break;
+        }
         case "skills":
           setSkills(msg.skills);
           break;
@@ -445,11 +550,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           const working = msg.state !== "idle";
           if (working && !workingRef.current) setSimOpen(true);
           workingRef.current = working;
-          // A new run starts a fresh trace; the last one's calls belong to the
-          // reply above it, not to this one.
-          if (working) setToolCalls([]);
-          // Back to idle means a teach just finished spending.
-          else void refreshCreditRef.current();
+          // Traces accumulate now that they are stored — a second teach in the
+          // same task appends to the record rather than erasing the first.
+          // Ordering by timestamp keeps each run's workings under the message
+          // that prompted them.
+          if (!working) void refreshCreditRef.current();
           break;
         }
         case "chat":
