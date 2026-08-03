@@ -11,9 +11,10 @@
  * regex — the runtime's own vocabulary ("e-stop-checked", "primitive calls")
  * would otherwise get badged as though it were a skill.
  *
- * Colour comes from the runner tokens, which is where the design system says
- * colour lives: primitives are deterministic code, which is exactly what a
- * saved skill executes as.
+ * Monochrome, on the theme's own surface and border tokens. The runner palette
+ * was tempting — a skill IS deterministic code — but the app is grayscale by
+ * design, and a green chip in the transcript reads as a status the colour was
+ * never meant to carry. Weight and the mono face do the highlighting.
  */
 
 import { cn } from "@/lib/utils";
@@ -43,7 +44,7 @@ export function SkillText({
             title="A skill this robot knows — deterministic code, no AI in the loop"
             className={cn(
               "mx-px inline-flex items-center rounded border px-1.5 py-0.5 align-baseline font-mono text-[11px] leading-none",
-              "border-runner-primitive/25 bg-runner-primitive/10 text-runner-primitive",
+              "border-border bg-surface-3 font-medium text-foreground",
             )}
           >
             {part}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -161,6 +161,16 @@ function AppInner() {
     if (connected) runSkill(name, dryRun);
     else setInput(`Run ${name}`);
   }
+
+  // A dry run is a rehearsal you are meant to WATCH — showing the arm move is
+  // the whole point of it. Opens once as the teach begins, and only then, so
+  // closing the panel mid-teach sticks rather than being fought.
+  const teaching = activity.startsWith("teaching");
+  const wasTeachingRef = useRef(false);
+  useEffect(() => {
+    if (teaching && !wasTeachingRef.current && dryRun) setSimOpen(true);
+    wasTeachingRef.current = teaching;
+  }, [teaching, dryRun]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
