@@ -113,7 +113,13 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
+      {/* Browser extensions (password managers, ColorZilla, Grammarly) inject
+          attributes onto <body> before React hydrates; that mismatch is theirs,
+          not ours, and this is React's documented escape hatch for it. */}
+      <body
+        suppressHydrationWarning
+        className="min-h-full flex flex-col bg-background text-foreground"
+      >
         {children}
         <script
           type="application/ld+json"

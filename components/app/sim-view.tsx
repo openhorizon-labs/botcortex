@@ -20,7 +20,7 @@ import { Environment, Grid, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   Box3,
-  type LoadingManager,
+  LoadingManager,
   MathUtils,
   Mesh,
   MeshStandardMaterial,
@@ -47,8 +47,13 @@ function ArmModel({ stateRef }: { stateRef: React.RefObject<JointState | null> }
   const [robot, setRobot] = useState<URDFRobot | null>(null);
 
   useEffect(() => {
-    const gltf = new GLTFLoader();
-    const loader = new URDFLoader();
+    // One manager shared by the URDF and every mesh: urdf-loader's own callback
+    // fires as soon as the XML is parsed, while meshes are still in flight, so
+    // anything that needs real geometry (like fitting the robot to the floor)
+    // has to wait for manager.onLoad instead.
+    const manager = new LoadingManager();
+    const gltf = new GLTFLoader(manager);
+    const loader = new URDFLoader(manager);
     loader.packages = PACKAGES;
     loader.parseVisual = true;
     loader.parseCollision = false;
@@ -76,25 +81,29 @@ function ArmModel({ stateRef }: { stateRef: React.RefObject<JointState | null> }
     loader.loadMeshCb = loadMesh as unknown as typeof loader.loadMeshCb;
 
     loader.load(URDF, (loaded) => {
-      loaded.traverse((child: Object3D) => {
-        if (child instanceof Mesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-          const material = child.material as MeshStandardMaterial;
-          if (material) {
-            // GLB materials come in flat-lit; give them a little spec so the
-            // machined surfaces read as hardware rather than cardboard.
-            material.metalness = 0.25;
-            material.roughness = 0.55;
-          }
-        }
-      });
       loaded.rotation.x = -Math.PI / 2; // URDF is Z-up; three.js is Y-up
 
-      // Sit the robot on the grid regardless of where its origin sits.
-      const box = new Box3().setFromObject(loaded);
-      loaded.position.y -= box.min.y;
-      setRobot(loaded);
+      manager.onLoad = () => {
+        loaded.traverse((child: Object3D) => {
+          if (child instanceof Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            const material = child.material as MeshStandardMaterial;
+            if (material) {
+              // GLB materials come in flat-lit; a little spec makes the
+              // machined surfaces read as hardware rather than cardboard.
+              material.metalness = 0.25;
+              material.roughness = 0.55;
+            }
+          }
+        });
+
+        // Sit the robot on the grid, now that it actually has geometry.
+        loaded.updateMatrixWorld(true);
+        const box = new Box3().setFromObject(loaded);
+        if (Number.isFinite(box.min.y)) loaded.position.y -= box.min.y;
+        setRobot(loaded);
+      };
     });
   }, []);
 
