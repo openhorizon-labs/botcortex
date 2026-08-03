@@ -51,6 +51,11 @@ type RobotContextValue = {
   sendChat: (text: string, dryRun: boolean) => boolean;
   runSkill: (name: string, dryRun: boolean) => boolean;
   stop: () => Promise<boolean>;
+  /** True while the e-stop is latched — motion stays blocked until cleared. */
+  stopped: boolean;
+  /** Clears the e-stop file. Deliberately separate from stop() so the UI can
+   *  make un-blocking a two-step, considered action. */
+  resetStop: () => Promise<boolean>;
 };
 
 const RobotContext = createContext<RobotContextValue | null>(null);
@@ -70,6 +75,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [activity, setActivity] = useState("idle");
   const [lastChat, setLastChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [stopped, setStopped] = useState(false);
 
   const append = useCallback((from: ChatMessage["from"], text: string) => {
     setMessages((prev) => [
@@ -82,6 +88,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const retriesRef = useRef(0);
   const intentionalCloseRef = useRef(false);
   const jointStateRef = useRef<JointState | null>(null);
+  /** One sim reset per page load — see ws.onopen. */
+  const didResetSimRef = useRef(false);
 
   const teardown = useCallback(() => {
     intentionalCloseRef.current = true;
@@ -109,6 +117,15 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       setStatus("connected");
       setHost(cleanHost);
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ host: cleanHost }));
+
+      // A refresh should give a clean scene. Guarded by a ref so it fires once
+      // per page load and NOT on the reconnects this socket does after a
+      // network blip — those would snap the arm home mid-session. The runtime
+      // ignores it while busy, and hardware backends never honour it at all.
+      if (!didResetSimRef.current) {
+        didResetSimRef.current = true;
+        ws.send(JSON.stringify({ type: "reset_sim" } satisfies ClientMessage));
+      }
     };
 
     ws.onmessage = (ev) => {
@@ -122,6 +139,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         case "hello":
           setRobot(msg.robot);
           setSkills(msg.skills);
+          // A page loaded while the robot is already stopped must say so.
+          setStopped(Boolean(msg.stopped));
+          break;
+        case "estop":
+          setStopped(msg.stopped);
           break;
         case "skills":
           setSkills(msg.skills);
@@ -239,6 +261,19 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     }
   }, [host]);
 
+  const resetStop = useCallback(async (): Promise<boolean> => {
+    if (!host) return false;
+    try {
+      const res = await fetch(`${httpUrl(host)}/stop/reset`, { method: "POST" });
+      // The runtime also broadcasts an estop event; setting it here means the
+      // button responds even if that event is delayed.
+      if (res.ok) setStopped(false);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, [host]);
+
   /* Auto-connect: same-origin first (robot-served page), then saved host. */
   useEffect(() => {
     let cancelled = false;
@@ -307,6 +342,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         sendChat,
         runSkill,
         stop,
+        stopped,
+        resetStop,
       }}
     >
       {children}

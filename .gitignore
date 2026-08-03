@@ -10,3 +10,6 @@ next-env.d.ts
 *.local
 .DS_Store
 .claude/worktrees/
+
+# TypeScript incremental build cache — regenerated on every build.
+*.tsbuildinfo

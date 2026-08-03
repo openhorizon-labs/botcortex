@@ -22,6 +22,9 @@ export type PlanStep = {
 export type ClientMessage =
   | { type: "chat"; text: string; dryRun: boolean }
   | { type: "run_skill"; name: string; dryRun: boolean }
+  /** Sent once per page load so a refresh gives a clean scene. The runtime
+   *  ignores it while busy, and backends with a physical arm never honour it. */
+  | { type: "reset_sim" }
   | { type: "ping" };
 
 /** Per-arm joint angles in degrees (gripper included), ~15 Hz. */
@@ -29,7 +32,18 @@ export type JointState = Record<string, Record<string, number>>;
 
 /** Runtime → client */
 export type RobotMessage =
-  | { type: "hello"; robot: RobotInfo; skills: string[] }
+  | {
+      type: "hello";
+      robot: RobotInfo;
+      skills: string[];
+      /** Whether the e-stop is already latched — a page loaded while the robot
+       *  is stopped must show that, not a cheerful idle state. */
+      stopped?: boolean;
+      /** Whether this backend can be snapped home (sim/mock, never hardware). */
+      resettable?: boolean;
+    }
+  /** Latch changes, including a stop file created outside this app. */
+  | { type: "estop"; stopped: boolean }
   | { type: "status"; state: "idle" | "teaching" | "running"; detail?: string }
   | { type: "chat"; text: string }
   | { type: "plan"; steps: PlanStep[] }

@@ -5,12 +5,8 @@ import {
   ArrowRight,
   Blocks,
   Bot,
-  Brain,
-  CalendarClock,
   ChevronDown,
   ChevronsUpDown,
-  CircleHelp,
-  FolderCode,
   Hand,
   KeyRound,
   Layers,
@@ -20,11 +16,8 @@ import {
   Play,
   Plus,
   Search,
-  ScrollText,
-  Settings,
   ShieldCheck,
   Shuffle,
-  SquarePen,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -88,14 +81,12 @@ import { LiveDot } from "@/components/kit/live-dot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { authClient, useSession } from "@/lib/auth-client";
 
-const SKILLS = ["wave_right_arm", "pick_and_place", "fold_towel"];
-
-const ROBOT_PAGES = [
-  { icon: Brain, label: "Memory" },
-  { icon: FolderCode, label: "Policies" },
-  { icon: CalendarClock, label: "Scheduled tasks" },
-  { icon: ScrollText, label: "Logs" },
-];
+type PairedRobot = {
+  id: string;
+  name: string;
+  platform: string;
+  address: string | null;
+};
 
 const SUGGESTED = [
   { icon: Hand, label: "Wave the right arm" },
@@ -116,11 +107,28 @@ function AppInner() {
 
   const toggleSim = () => setSimOpen((open) => !open);
 
-  const { status, robot, skills, activity, messages, sendChat, runSkill } =
+  const { status, robot, skills, activity, messages, sendChat, runSkill, connect, host } =
     useRobot();
+  const [paired, setPaired] = useState<PairedRobot[]>([]);
+
+  // The robots this account has paired via `botcortex login`. Listing the real
+  // ones replaces a dropdown that used to show a hardcoded name whether or not
+  // any robot existed.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/robots")
+      .then((r) => (r.ok ? r.json() : { robots: [] }))
+      .then((d) => {
+        if (!cancelled) setPaired(d.robots ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const hasMessages = messages.length > 0;
   const connected = status === "connected";
-  const skillList = skills ?? SKILLS;
+  const skillList = skills ?? [];
 
   function handleSend() {
     const text = input.trim();
@@ -194,10 +202,28 @@ function AppInner() {
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
                     Robots
                   </DropdownMenuLabel>
-                  <DropdownMenuItem>
-                    <Bot className="size-4" />{" "}
-                    {robot ? `${robot.name} · ${robot.platform}` : "OpenArm v1 · Thor"}
-                  </DropdownMenuItem>
+                  {paired.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                      None paired yet — run{" "}
+                      <code className="font-mono">botcortex login</code> on your
+                      robot.
+                    </p>
+                  ) : (
+                    paired.map((r) => (
+                      <DropdownMenuItem
+                        key={r.id}
+                        className="cursor-pointer"
+                        disabled={!r.address}
+                        onSelect={() => r.address && connect(r.address)}
+                      >
+                        <Bot className="size-4" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {r.name} · {r.platform}
+                        </span>
+                        {r.address && host === r.address && <LiveDot />}
+                      </DropdownMenuItem>
+                    ))
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => setConnectOpen(true)}>
                     <Plus className="size-4" /> Connect a robot
@@ -213,14 +239,6 @@ function AppInner() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive
-                    className="data-[active=true]:border data-[active=true]:border-border data-[active=true]:bg-background"
-                  >
-                    <SquarePen /> New task
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
                   <SidebarMenuButton onClick={() => setCmdOpen(true)}>
                     <Search /> Search
                   </SidebarMenuButton>
@@ -228,35 +246,6 @@ function AppInner() {
                     ⌘K
                   </SidebarMenuBadge>
                 </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton>
-                    <Blocks /> Marketplace
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup>
-            <SidebarGroupLabel>Tasks</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <p className="px-2 py-1 text-sm text-muted-foreground">
-                No tasks yet
-              </p>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup>
-            <SidebarGroupLabel>Robot</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {ROBOT_PAGES.map(({ icon: Icon, label }) => (
-                  <SidebarMenuItem key={label}>
-                    <SidebarMenuButton>
-                      <Icon /> {label}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -273,18 +262,26 @@ function AppInner() {
             </Tooltip>
             <SidebarGroupContent>
               <SidebarMenu>
-                {skillList.map((s) => (
-                  <SidebarMenuItem key={s}>
-                    <SidebarMenuButton>{s}</SidebarMenuButton>
-                    <SidebarMenuAction
-                      showOnHover
-                      aria-label={`Run ${s}`}
-                      onClick={() => handleRunSkill(s)}
-                    >
-                      <Play />
-                    </SidebarMenuAction>
-                  </SidebarMenuItem>
-                ))}
+                {skillList.length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {connected
+                      ? "Nothing learned yet — describe a task below."
+                      : "Connect a robot to see its skills."}
+                  </p>
+                ) : (
+                  skillList.map((s) => (
+                    <SidebarMenuItem key={s}>
+                      <SidebarMenuButton>{s}</SidebarMenuButton>
+                      <SidebarMenuAction
+                        showOnHover
+                        aria-label={`Run ${s}`}
+                        onClick={() => handleRunSkill(s)}
+                      >
+                        <Play />
+                      </SidebarMenuAction>
+                    </SidebarMenuItem>
+                  ))
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -293,21 +290,11 @@ function AppInner() {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton>
-                <CircleHelp /> Help
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setKeysOpen(true)}
                 className="cursor-pointer"
               >
                 <KeyRound /> Robot keys
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton>
-                <Settings /> Settings
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -487,25 +474,33 @@ function AppInner() {
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Robot">
-            {ROBOT_PAGES.map(({ icon: Icon, label }) => (
-              <CommandItem key={label} onSelect={() => setCmdOpen(false)}>
-                <Icon /> {label}
-              </CommandItem>
-            ))}
-            <CommandItem onSelect={() => setCmdOpen(false)}>
-              <Blocks /> Marketplace
+            <CommandItem
+              onSelect={() => {
+                setConnectOpen(true);
+                setCmdOpen(false);
+              }}
+            >
+              <Plus /> Connect a robot
+            </CommandItem>
+            <CommandItem
+              onSelect={() => {
+                setKeysOpen(true);
+                setCmdOpen(false);
+              }}
+            >
+              <KeyRound /> Robot keys
+            </CommandItem>
+            <CommandItem
+              onSelect={() => {
+                toggleSim();
+                setCmdOpen(false);
+              }}
+            >
+              <PanelRight /> Toggle the simulation
             </CommandItem>
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Actions">
-            <CommandItem
-              onSelect={() => {
-                setInput("");
-                setCmdOpen(false);
-              }}
-            >
-              <SquarePen /> New task
-            </CommandItem>
             <CommandItem
               onSelect={() => {
                 setDryRun((d) => !d);
