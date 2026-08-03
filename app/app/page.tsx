@@ -355,18 +355,22 @@ function AppInner() {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              {/* Credit belongs where an owner can see it without going
-                  looking — it is what teaching spends. Opens the detail. */}
+              {/* A readout, not a control. It sat next to Settings and opened
+                  the same dialog on the same default tab, so two adjacent
+                  rows did the identical thing — asChild keeps the rail sizing
+                  and the collapsed tooltip without pretending to be a button. */}
               <SidebarMenuButton
-                onClick={() => setSettingsOpen(true)}
+                asChild
                 tooltip={credit ? `${credit.display} credit remaining` : "Credit"}
-                className="cursor-pointer"
+                className="cursor-default hover:bg-transparent active:translate-y-0"
               >
-                <Coins />
-                <span className="flex-1 truncate">Credit</span>
-                <span className="font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-                  {credit?.display ?? "—"}
-                </span>
+                <div>
+                  <Coins />
+                  <span className="flex-1 truncate">Credit</span>
+                  <span className="font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+                    {credit?.display ?? "—"}
+                  </span>
+                </div>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
