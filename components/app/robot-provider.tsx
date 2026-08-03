@@ -68,6 +68,10 @@ type RobotContextValue = {
   deleteConversation: (id: string) => Promise<void>;
   /** Remaining BotCortex credit, or null when signed out / unreachable. */
   credit: Credit | null;
+  /** Which wallet the connected robot teaches from — null until it says.
+   *  "half" is a broken setup (pointed at BotCortex, no key): the runtime
+   *  refuses to teach, so showing a balance would be a lie. */
+  pairing: "paired" | "byo" | "half" | null;
   /** What the agent is doing right now, oldest first. */
   toolCalls: ToolCall[];
 
@@ -136,6 +140,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [stopped, setStopped] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
+  const [pairing, setPairing] = useState<RobotContextValue["pairing"]>(null);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   /**
    * The authoritative list, written synchronously.
@@ -514,6 +519,12 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           setSkills(msg.skills);
           // A page loaded while the robot is already stopped must say so.
           setStopped(Boolean(msg.stopped));
+          // Older runtimes send neither field. Treating that as "paired"
+          // would reinstate exactly the silent lie this exists to end, so
+          // absent means unknown and the credit row stays quiet.
+          setPairing(
+            msg.halfPaired ? "half" : msg.paired === true ? "paired" : msg.paired === false ? "byo" : null,
+          );
           break;
         case "estop":
           setStopped(msg.stopped);
@@ -573,6 +584,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       if (wsRef.current !== ws) return;
       wsRef.current = null;
       setRobot(null);
+      // Whose wallet is unknowable with nothing on the other end. Keeping the
+      // last robot's answer would label the NEXT one wrongly on reconnect.
+      setPairing(null);
       if (intentionalCloseRef.current) {
         setStatus("disconnected");
         return;
@@ -621,6 +635,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     setStatus("disconnected");
     setRobot(null);
     setSkills(null);
+    setPairing(null);
     setActivity("idle");
     localStorage.removeItem(STORAGE_KEY);
   }, [teardown]);
@@ -753,6 +768,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         openConversation,
         deleteConversation,
         credit,
+        pairing,
         toolCalls,
         simOpen,
         setSimOpen,

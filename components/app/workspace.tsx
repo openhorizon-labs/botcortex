@@ -116,6 +116,7 @@ function AppInner() {
     status, robot, skills, activity, messages, sendChat, runSkill, connect, host,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
     credit,
+    pairing,
     // Session-scoped so the navigation the first message triggers doesn't
     // reset them out from under the owner.
     simOpen, setSimOpen, dryRun, setDryRun, model, setModel,
@@ -378,17 +379,38 @@ function AppInner() {
               {/* A readout, not a control. It sat next to Settings and opened
                   the same dialog on the same default tab, so two adjacent
                   rows did the identical thing — asChild keeps the rail sizing
-                  and the collapsed tooltip without pretending to be a button. */}
+                  and the collapsed tooltip without pretending to be a button.
+
+                  The BALANCE is hidden unless the connected robot can actually
+                  spend it. A robot teaching on its owner's own provider key
+                  leaves this figure frozen at full no matter how much work it
+                  does, and a correct-looking number that never moves is worse
+                  than no number — it is what sent an afternoon into debugging
+                  a billing system that was working. The figure stays one click
+                  away in Settings → Credit, where it is the account's, not a
+                  claim about this robot. */}
               <SidebarMenuButton
                 asChild
-                tooltip={credit ? `${credit.display} credit remaining` : "Credit"}
+                tooltip={
+                  pairing === "half"
+                    ? "This robot has no key — run `botcortex login` on it"
+                    : pairing === "byo"
+                      ? "This robot teaches on its own provider key — credit is not spent"
+                      : credit
+                        ? `${credit.display} credit remaining`
+                        : "Credit"
+                }
                 className="cursor-default hover:bg-transparent active:translate-y-0"
               >
                 <div>
                   <Coins />
                   <span className="flex-1 truncate">Credit</span>
                   <span className="font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-                    {credit?.display ?? "—"}
+                    {pairing === "half"
+                      ? "not paired"
+                      : pairing === "byo"
+                        ? "own key"
+                        : (credit?.display ?? "—")}
                   </span>
                 </div>
               </SidebarMenuButton>

@@ -43,6 +43,13 @@ export type RobotMessage =
       stopped?: boolean;
       /** Whether this backend can be snapped home (sim/mock, never hardware). */
       resettable?: boolean;
+      /** Whether this robot holds a key, so teaching spends BotCortex credit
+       *  rather than the owner's own model provider. */
+      paired?: boolean;
+      /** Pointed at BotCortex with no key — a broken setup, not BYO. The
+       *  runtime refuses to teach in this state; the app must not show a
+       *  credit balance as though it were being spent. */
+      halfPaired?: boolean;
     }
   /** Latch changes, including a stop file created outside this app. */
   | { type: "estop"; stopped: boolean }

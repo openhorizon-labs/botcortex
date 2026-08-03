@@ -41,7 +41,7 @@ export function SettingsDialog({
 }) {
   const [section, setSection] = useState<SectionId>("access");
   const { data: session } = useSession();
-  const { credit, conversations } = useRobot();
+  const { credit, conversations, pairing } = useRobot();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -100,6 +100,24 @@ export function SettingsDialog({
                     {credit ? ` · ${credit.spentDisplay} used so far` : ""}
                   </p>
                 </div>
+                {/* The sidebar sends people here when the connected robot
+                    cannot spend this, so the reason has to be here too — the
+                    figure above is the ACCOUNT's, which is not the same claim
+                    as "this is being spent right now". */}
+                {pairing === "half" && (
+                  <p className="text-xs text-muted-foreground">
+                    The connected robot has no robot key, so it cannot spend this
+                    and refuses to teach rather than billing your own model
+                    provider. Run{" "}
+                    <code className="font-mono">botcortex login</code> on it.
+                  </p>
+                )}
+                {pairing === "byo" && (
+                  <p className="text-xs text-muted-foreground">
+                    The connected robot teaches on its own provider key, so this
+                    balance stays put while it works.
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Need more? Reply to your invite email and we&apos;ll top you up.
                 </p>
