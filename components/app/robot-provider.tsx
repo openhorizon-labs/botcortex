@@ -24,6 +24,13 @@ const STORAGE_KEY = "botcortex.robot";
 const RETRY_DELAY_MS = 3000;
 const MAX_RETRIES = 5;
 
+export type ChatMessage = {
+  id: string;
+  from: "you" | "robot";
+  text: string;
+  at: number;
+};
+
 type RobotContextValue = {
   status: ConnectionStatus;
   robot: RobotInfo | null;
@@ -33,6 +40,8 @@ type RobotContextValue = {
   /** Robot-side activity: idle / teaching / running. */
   activity: string;
   lastChat: string | null;
+  /** Full conversation for this session, oldest first. */
+  messages: ChatMessage[];
   /** Latest joint state, written at ~15 Hz. A ref on purpose: the 3D scene
    *  reads it per-frame; routing it through React state would re-render the
    *  whole app at stream rate. */
@@ -60,6 +69,14 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState("idle");
   const [lastChat, setLastChat] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  const append = useCallback((from: ChatMessage["from"], text: string) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${prev.length}`, from, text, at: Date.now() },
+    ]);
+  }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
@@ -114,6 +131,15 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           break;
         case "chat":
           setLastChat(msg.text);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-${prev.length}`,
+              from: "robot",
+              text: msg.text,
+              at: Date.now(),
+            },
+          ]);
           break;
         case "state":
           jointStateRef.current = msg.arms;
@@ -185,14 +211,21 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const sendChat = useCallback(
-    (text: string, dryRun: boolean) => send({ type: "chat", text, dryRun }),
-    [send],
+    (text: string, dryRun: boolean) => {
+      const sent = send({ type: "chat", text, dryRun });
+      if (sent) append("you", text);
+      return sent;
+    },
+    [send, append],
   );
 
   const runSkill = useCallback(
-    (name: string, dryRun: boolean) =>
-      send({ type: "run_skill", name, dryRun }),
-    [send],
+    (name: string, dryRun: boolean) => {
+      const sent = send({ type: "run_skill", name, dryRun });
+      if (sent) append("you", `Run ${name}`);
+      return sent;
+    },
+    [send, append],
   );
 
   /** STOP goes over plain REST — never queued behind WebSocket traffic. */
@@ -249,6 +282,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         error,
         activity,
         lastChat,
+        messages,
         jointStateRef,
         connect,
         disconnect,

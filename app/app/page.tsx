@@ -1,23 +1,11 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-
-/** three.js is browser-only; ssr:false keeps the landing/server clean. */
-const SimView = dynamic(() => import("@/components/app/sim-view"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      loading simulation…
-    </div>
-  ),
-});
 import {
   ArrowRight,
   ArrowUp,
   Blocks,
   Bot,
-  Box,
   Brain,
   CalendarClock,
   ChevronDown,
@@ -28,6 +16,7 @@ import {
   Layers,
   LogIn,
   LogOut,
+  PanelRight,
   Play,
   Plus,
   Search,
@@ -94,6 +83,8 @@ import {
 } from "@/components/ui/collapsible";
 import { RobotProvider, useRobot } from "@/components/app/robot-provider";
 import { ConnectRobotDialog } from "@/components/app/connect-robot-dialog";
+import { ChatPane } from "@/components/app/chat-pane";
+import { SimPanel } from "@/components/app/sim-panel";
 import { LiveDot } from "@/components/kit/live-dot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { authClient, useSession } from "@/lib/auth-client";
@@ -120,23 +111,12 @@ function AppInner() {
   const [dryRun, setDryRun] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [simOpen, setSimOpen] = useState(true);
+  const [simOpen, setSimOpen] = useState(false);
   const { data: session } = useSession();
 
-  useEffect(() => {
-    const saved = localStorage.getItem("botcortex.simOpen");
-    if (saved !== null) setSimOpen(saved === "true");
-  }, []);
+  const toggleSim = () => setSimOpen((open) => !open);
 
-  function toggleSim() {
-    setSimOpen((open) => {
-      localStorage.setItem("botcortex.simOpen", String(!open));
-      return !open;
-    });
-  }
-
-  const { status, robot, skills, activity, lastChat, sendChat, runSkill, stop } =
-    useRobot();
+  const { status, robot, skills, activity, sendChat, runSkill, stop } = useRobot();
   const connected = status === "connected";
   const skillList = skills ?? SKILLS;
 
@@ -348,30 +328,27 @@ function AppInner() {
         <SidebarRail />
       </Sidebar>
 
-      <SidebarInset className="overflow-y-auto rounded-lg border border-border shadow-none">
+      <SidebarInset className="min-h-0 flex-row overflow-hidden rounded-lg border border-border shadow-none">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between px-3">
           <SidebarTrigger className="text-muted-foreground" />
           <div className="flex items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleSim}
-                  className={cn(
-                    "size-7",
-                    simOpen ? "text-foreground" : "text-muted-foreground",
-                  )}
-                  aria-label="Toggle simulation view"
-                  aria-pressed={simOpen}
-                >
-                  <Box className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {simOpen ? "Hide" : "Show"} the simulation view
-              </TooltipContent>
-            </Tooltip>
+            {!simOpen && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleSim}
+                    className="size-7 text-muted-foreground"
+                    aria-label="Show the simulation"
+                  >
+                    <PanelRight className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Show the simulation</TooltipContent>
+              </Tooltip>
+            )}
             <button onClick={() => setConnectOpen(true)} aria-label="Connection">
               <Badge
                 variant="outline"
@@ -416,24 +393,11 @@ function AppInner() {
           </div>
         </header>
 
-        <div
-          className={cn(
-            "mx-auto flex w-full max-w-[768px] flex-1 flex-col px-4",
-            simOpen ? "pt-4" : "pt-[22vh]",
-          )}
-        >
-          {simOpen ? (
-            <div className="h-[380px] shrink-0 overflow-hidden rounded-[16px] border border-border bg-surface-2">
-              <SimView />
-            </div>
-          ) : (
-            <h1 className="text-center text-[30px] font-normal tracking-[-0.01em]">
-              What should the robot learn today?
-            </h1>
-          )}
+        <div className="mx-auto flex min-h-0 w-full max-w-[768px] flex-1 flex-col px-4 pb-3">
+          <ChatPane />
 
           {/* Composer — off-white panel on the white card, radius 16. */}
-          <div className="mt-7 rounded-[16px] border border-border bg-surface-2 transition-colors focus-within:border-border-strong">
+          <div className="mt-3 shrink-0 rounded-[16px] border border-border bg-surface-2 transition-colors focus-within:border-border-strong">
             <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -503,18 +467,11 @@ function AppInner() {
             </div>
           </div>
 
-          {lastChat && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm">
-              <Bot className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <span>{lastChat}</span>
-            </div>
-          )}
-
           {/* Suggested tasks */}
           <Collapsible
             open={suggestedOpen}
             onOpenChange={setSuggestedOpen}
-            className="mt-12"
+            className="mt-3 shrink-0"
           >
             <div className="flex items-center justify-between px-1">
               <CollapsibleTrigger asChild>
@@ -549,11 +506,13 @@ function AppInner() {
             </CollapsibleContent>
           </Collapsible>
 
-          <p className="mt-auto pb-4 text-center text-xs text-muted-foreground/70">
+          <p className="shrink-0 pt-3 text-center text-xs text-muted-foreground/70">
             Skills run locally on the robot — the AI is only in the loop while
             teaching.
           </p>
         </div>
+        </div>
+        <SimPanel open={simOpen} onClose={toggleSim} />
       </SidebarInset>
 
       {/* ⌘K palette — real Command component over skills, pages, and actions. */}
