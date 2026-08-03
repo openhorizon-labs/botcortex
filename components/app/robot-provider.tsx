@@ -56,8 +56,22 @@ type RobotContextValue = {
   /** Clears the e-stop file. Deliberately separate from stop() so the UI can
    *  make un-blocking a two-step, considered action. */
   resetStop: () => Promise<boolean>;
-  /** Wipes the persisted conversation and starts a fresh one. */
-  clearHistory: () => Promise<void>;
+  /** The owner's threads, most recently active first. */
+  conversations: Conversation[];
+  /** Which thread the chat pane is showing. */
+  conversationId: string | null;
+  /** Starts a NEW thread. Additive — the previous one is kept, which is the
+   *  whole reason threads exist. */
+  newConversation: () => Promise<void>;
+  openConversation: (id: string) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
+};
+
+export type Conversation = {
+  id: string;
+  title: string | null;
+  updatedAt: string;
+  messages: number;
 };
 
 const RobotContext = createContext<RobotContextValue | null>(null);
@@ -78,15 +92,34 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [lastChat, setLastChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stopped, setStopped] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  /** Read by persist(), which is built once and would otherwise capture the
+   *  first render's (null) thread id forever. */
+  const conversationIdRef = useRef<string | null>(null);
 
   /** Persist one message. Fire-and-forget: the transcript is a record, and
    *  losing a line of it must never interrupt teaching a robot. */
-  const persist = useCallback((msg: ChatMessage) => {
-    void fetch("/api/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: msg.id, author: msg.from, text: msg.text }),
-    }).catch(() => {});
+  const persist = useCallback(async (msg: ChatMessage) => {
+    try {
+      // Creates the thread if this is the first thing said in it. Dropping the
+      // message when no thread existed yet is how the opening line of a
+      // conversation went missing.
+      const thread = await ensureConversationRef.current();
+      await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: msg.id,
+          conversationId: thread,
+          author: msg.from,
+          text: msg.text,
+        }),
+      });
+      await refreshConversationsRef.current();
+    } catch {
+      /* offline: the message is already on screen, just not filed */
+    }
   }, []);
 
   const append = useCallback(
@@ -100,7 +133,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         at: Date.now(),
       };
       setMessages((prev) => [...prev, msg]);
-      persist(msg);
+      void persist(msg);
     },
     [persist],
   );
@@ -122,49 +155,131 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     appendRef.current = append;
   }, [append]);
 
-  // Rehydrate the conversation. Until now the transcript lived in React state
-  // and a refresh wiped it — the robot remembered the skill it learned, the
-  // owner lost every word about how they got there.
+  const selectThread = useCallback((id: string | null) => {
+    conversationIdRef.current = id;
+    setConversationId(id);
+  }, []);
+
+  /**
+   * The thread to file the next message under, made on demand.
+   *
+   * Lazy on purpose. Creating one eagerly on mount left an empty thread behind
+   * every single load — and since the sidebar hides empty threads, those
+   * orphans were invisible while they piled up.
+   */
+  const creatingRef = useRef<Promise<string> | null>(null);
+  const ensureConversation = useCallback(async (): Promise<string> => {
+    const existing = conversationIdRef.current;
+    if (existing) return existing;
+    // One in-flight create at a time: two messages sent together must land in
+    // the same thread, not race into two.
+    if (!creatingRef.current) {
+      creatingRef.current = (async () => {
+        const res = await fetch("/api/conversations", { method: "POST" });
+        if (!res.ok) throw new Error("could not start a conversation");
+        const { id } = (await res.json()) as { id: string };
+        conversationIdRef.current = id;
+        setConversationId(id);
+        return id;
+      })();
+      creatingRef.current.finally(() => {
+        creatingRef.current = null;
+      });
+    }
+    return creatingRef.current;
+  }, []);
+
+  const ensureConversationRef = useRef(ensureConversation);
+  useEffect(() => {
+    ensureConversationRef.current = ensureConversation;
+  }, [ensureConversation]);
+
+  const refreshConversations = useCallback(async (): Promise<Conversation[]> => {
+    try {
+      const res = await fetch("/api/conversations");
+      if (!res.ok) return [];
+      const { conversations: rows } = (await res.json()) as { conversations: Conversation[] };
+      setConversations(rows);
+      return rows;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  /** persist() is built once, so it reaches the latest refresh through a ref. */
+  const refreshConversationsRef = useRef(refreshConversations);
+  useEffect(() => {
+    refreshConversationsRef.current = refreshConversations;
+  }, [refreshConversations]);
+
+  const loadMessages = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/messages?conversation=${encodeURIComponent(id)}&limit=200`);
+      if (!res.ok) return;
+      const { messages: history } = (await res.json()) as {
+        messages: { id: string; author: ChatMessage["from"]; text: string; createdAt: string }[];
+      };
+      setMessages(
+        history.map((m) => ({
+          id: m.id,
+          from: m.author,
+          text: m.text,
+          at: new Date(m.createdAt).getTime(),
+        })),
+      );
+    } catch {
+      /* signed out, or the api is unreachable */
+    }
+  }, []);
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      selectThread(id);
+      setMessages([]);
+      await loadMessages(id);
+    },
+    [loadMessages, selectThread],
+  );
+
+  /**
+   * Starts a fresh thread. ADDITIVE — this used to delete the transcript
+   * outright, so clicking "New task" cost you every previous conversation.
+   */
+  const newConversation = useCallback(async () => {
+    setMessages([]);
+    // Nothing is created until something is said — so clicking "New task"
+    // twice cannot leave two empty threads behind.
+    selectThread(null);
+    await refreshConversations();
+  }, [refreshConversations, selectThread]);
+
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      try {
+        await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+      } catch {
+        /* ignore */
+      }
+      const rows = await refreshConversations();
+      if (conversationIdRef.current === id) {
+        // Land somewhere real rather than on a thread that no longer exists.
+        if (rows[0]) await openConversation(rows[0].id);
+        else await newConversation();
+      }
+    },
+    [refreshConversations, openConversation, newConversation],
+  );
+
+  // Rehydrate on load: reopen the most recent thread. With none, stay on a
+  // blank one — the first message will create it.
   useEffect(() => {
     if (didLoadHistoryRef.current) return;
     didLoadHistoryRef.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/messages?limit=200");
-        if (!res.ok || cancelled) return;
-        const { messages: history } = (await res.json()) as {
-          messages: { id: string; author: ChatMessage["from"]; text: string; createdAt: string }[];
-        };
-        if (cancelled || history.length === 0) return;
-        // Replace rather than merge: this runs before any socket is open, so
-        // there is nothing live to clobber.
-        setMessages(
-          history.map((m) => ({
-            id: m.id,
-            from: m.author,
-            text: m.text,
-            at: new Date(m.createdAt).getTime(),
-          })),
-        );
-      } catch {
-        /* signed out, or the api is unreachable — start with a blank slate */
-      }
+    void (async () => {
+      const rows = await refreshConversations();
+      if (rows[0]) await openConversation(rows[0].id);
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /** Wipes the stored conversation — the only way to start a fresh one. */
-  const clearHistory = useCallback(async () => {
-    setMessages([]);
-    try {
-      await fetch("/api/messages", { method: "DELETE" });
-    } catch {
-      /* local list is already cleared; the server copy retries next time */
-    }
-  }, []);
+  }, [refreshConversations, openConversation]);
 
   const teardown = useCallback(() => {
     intentionalCloseRef.current = true;
@@ -411,7 +526,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         stop,
         stopped,
         resetStop,
-        clearHistory,
+        conversations,
+        conversationId,
+        newConversation,
+        openConversation,
+        deleteConversation,
       }}
     >
       {children}

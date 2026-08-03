@@ -19,6 +19,7 @@ import {
   SquarePen,
   ShieldCheck,
   Shuffle,
+  Trash2,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -110,7 +111,7 @@ function AppInner() {
 
   const {
     status, robot, skills, activity, messages, sendChat, runSkill, connect, host,
-    clearHistory,
+    conversations, conversationId, newConversation, openConversation, deleteConversation,
   } = useRobot();
   const [paired, setPaired] = useState<PairedRobot[]>([]);
 
@@ -245,7 +246,7 @@ function AppInner() {
                   {/* Earns its place again now the transcript persists: this
                       wipes it and starts fresh, instead of no-opping. */}
                   <SidebarMenuButton
-                    onClick={() => void clearHistory()}
+                    onClick={() => void newConversation()}
                     className="cursor-pointer"
                   >
                     <SquarePen /> New task
@@ -259,6 +260,39 @@ function AppInner() {
                     ⌘K
                   </SidebarMenuBadge>
                 </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarGroup>
+            <SidebarGroupLabel>Tasks</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {conversations.length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    Nothing yet — describe a task below.
+                  </p>
+                ) : (
+                  conversations.map((thread) => (
+                    <SidebarMenuItem key={thread.id}>
+                      <SidebarMenuButton
+                        isActive={thread.id === conversationId}
+                        onClick={() => void openConversation(thread.id)}
+                        className="cursor-pointer data-[active=true]:border data-[active=true]:border-border data-[active=true]:bg-background"
+                      >
+                        <span className="truncate">{thread.title ?? "Untitled task"}</span>
+                      </SidebarMenuButton>
+                      <SidebarMenuAction
+                        showOnHover
+                        aria-label={`Delete ${thread.title ?? "task"}`}
+                        onClick={() => void deleteConversation(thread.id)}
+                        className="cursor-pointer hover:text-destructive"
+                      >
+                        <Trash2 />
+                      </SidebarMenuAction>
+                    </SidebarMenuItem>
+                  ))
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -516,11 +550,11 @@ function AppInner() {
           <CommandGroup heading="Actions">
             <CommandItem
               onSelect={() => {
-                void clearHistory();
+                void newConversation();
                 setCmdOpen(false);
               }}
             >
-              <SquarePen /> New task (clears the conversation)
+              <SquarePen /> New task
             </CommandItem>
             <CommandItem
               onSelect={() => {
