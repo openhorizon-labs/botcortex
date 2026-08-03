@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ModelPicker } from "@/components/app/model-picker";
+import { useRobot } from "@/components/app/robot-provider";
 import {
   Tooltip,
   TooltipContent,
@@ -79,6 +80,7 @@ export function Composer({
               execution needs an operator present.
             </TooltipContent>
           </Tooltip>
+          <CreditReadout />
         </div>
         <Button
           size="icon"
@@ -91,5 +93,37 @@ export function Composer({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The balance, beside the thing that spends it.
+ *
+ * It lives in the sidebar too, but the sidebar collapses to a 16px icon rail
+ * — and there the figure is not shortened, it is GONE, leaving a coin icon
+ * that says nothing. Reported, reasonably, as "credit is not visible". A rail
+ * that narrow cannot hold a currency figure at all, so the readout belongs
+ * where it is always on screen and where it is actually relevant: next to the
+ * model picker, in the row that chooses what the next teach will cost.
+ *
+ * Hidden entirely unless the connected robot can spend it — the same reason
+ * the sidebar row hides the number for an unpaired robot. A balance shown
+ * beside a Send button implies pressing it draws down that balance.
+ */
+function CreditReadout() {
+  const { credit, pairing } = useRobot();
+  if (!credit || pairing !== "paired") return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="hidden h-6 shrink-0 items-center rounded-full px-1.5 font-mono text-xs text-muted-foreground sm:flex">
+          {credit.display}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        {credit.display} of BotCortex credit left · {credit.spentDisplay} used
+        so far. Teaching spends it; skills already learned run free.
+      </TooltipContent>
+    </Tooltip>
   );
 }
