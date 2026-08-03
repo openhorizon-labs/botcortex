@@ -22,6 +22,10 @@ const nextConfig: NextConfig = {
       { source: "/api/conversations", destination: `${api}/api/conversations` },
       { source: "/api/conversations/:id", destination: `${api}/api/conversations/:id` },
       { source: "/api/device/pending", destination: `${api}/api/device/pending` },
+      // The browser sim's agent loop runs in the page, so its inference goes
+      // through here too — same meter, same balance gate, and the browser
+      // never holds a robot key.
+      { source: "/api/inference/:path*", destination: `${api}/api/inference/:path*` },
     ];
   },
 };

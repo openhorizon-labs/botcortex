@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+
+import { BrowserSimTransport } from "@/lib/robot/browser-sim/transport";
 import {
   createContext,
   useCallback,
@@ -66,6 +68,10 @@ type RobotContextValue = {
   newConversation: () => Promise<void>;
   openConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
+  /** Boot the robot INSIDE this tab — no runtime, no hardware. */
+  connectBrowserSim: () => Promise<void>;
+  /** Which stage the in-page robot is at while it loads, or null. */
+  simBooting: string | null;
   /** Remaining BotCortex credit, or null when signed out / unreachable. */
   credit: Credit | null;
   /** Which wallet the connected robot teaches from — null until it says.
@@ -145,6 +151,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
   const [pairing, setPairing] = useState<RobotContextValue["pairing"]>(null);
+  /** Set when the robot IS this tab. Mutually exclusive with wsRef. */
+  const simRef = useRef<BrowserSimTransport | null>(null);
+  const [simBooting, setSimBooting] = useState<string | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   /**
    * The authoritative list, written synchronously.
@@ -163,6 +172,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [simOpen, setSimOpen] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [model, setModel] = useState<string | null>(null);
+  // Read inside send(), which is memoised with no deps — a stale closure would
+  // bill whatever model was picked when the provider first mounted.
+  const modelRef = useRef<string | null>(null);
+  modelRef.current = model;
   const [conversationId, setConversationId] = useState<string | null>(null);
   /** Read by persist(), which is built once and would otherwise capture the
    *  first render's (null) thread id forever. */
@@ -473,50 +486,16 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     void refreshConversations();
   }, [refreshConversations]);
 
-  const teardown = useCallback(() => {
-    intentionalCloseRef.current = true;
-    wsRef.current?.close();
-    wsRef.current = null;
-  }, []);
-
-  const open = useCallback((cleanHost: string) => {
-    intentionalCloseRef.current = false;
-    setStatus("connecting");
-    setError(null);
-
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl(cleanHost));
-    } catch {
-      setStatus("error");
-      setError("Invalid robot address.");
-      return;
-    }
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      retriesRef.current = 0;
-      setStatus("connected");
-      setHost(cleanHost);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ host: cleanHost }));
-
-      // A refresh should give a clean scene. Guarded by a ref so it fires once
-      // per page load and NOT on the reconnects this socket does after a
-      // network blip — those would snap the arm home mid-session. The runtime
-      // ignores it while busy, and hardware backends never honour it at all.
-      if (!didResetSimRef.current) {
-        didResetSimRef.current = true;
-        ws.send(JSON.stringify({ type: "reset_sim" } satisfies ClientMessage));
-      }
-    };
-
-    ws.onmessage = (ev) => {
-      let msg: RobotMessage;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
+  /**
+   * Everything the app does with a runtime message, independent of how it
+   * arrived.
+   *
+   * Extracted because the browser sim delivers the SAME messages over an
+   * in-process channel rather than a socket. Two copies of this switch is
+   * how the two backends would start behaving differently — and the whole
+   * claim is that they do not.
+   */
+  const handleMessage = useCallback((msg: RobotMessage) => {
       switch (msg.type) {
         case "hello":
           setRobot(msg.robot);
@@ -582,6 +561,57 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           jointStateRef.current = msg.arms;
           break;
       }
+  }, []);
+  const handleMessageRef = useRef(handleMessage);
+  handleMessageRef.current = handleMessage;
+
+  const teardown = useCallback(() => {
+    simRef.current?.close();
+    simRef.current = null;
+    intentionalCloseRef.current = true;
+    wsRef.current?.close();
+    wsRef.current = null;
+  }, []);
+
+  const open = useCallback((cleanHost: string) => {
+    intentionalCloseRef.current = false;
+    setStatus("connecting");
+    setError(null);
+
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl(cleanHost));
+    } catch {
+      setStatus("error");
+      setError("Invalid robot address.");
+      return;
+    }
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      retriesRef.current = 0;
+      setStatus("connected");
+      setHost(cleanHost);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ host: cleanHost }));
+
+      // A refresh should give a clean scene. Guarded by a ref so it fires once
+      // per page load and NOT on the reconnects this socket does after a
+      // network blip — those would snap the arm home mid-session. The runtime
+      // ignores it while busy, and hardware backends never honour it at all.
+      if (!didResetSimRef.current) {
+        didResetSimRef.current = true;
+        ws.send(JSON.stringify({ type: "reset_sim" } satisfies ClientMessage));
+      }
+    };
+
+    ws.onmessage = (ev) => {
+      let msg: RobotMessage;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      handleMessageRef.current(msg);
     };
 
     ws.onclose = () => {
@@ -644,7 +674,45 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(STORAGE_KEY);
   }, [teardown]);
 
+  /**
+   * Become the robot.
+   *
+   * Downloads ~14 MB the first time (Python, MuJoCo, the runtime wheel), which
+   * is why it is never on the path of an owner who has real hardware — it
+   * happens only when someone asks for it.
+   */
+  const connectBrowserSim = useCallback(async () => {
+    teardown();
+    setError(null);
+    setStatus("connecting");
+    const transport = new BrowserSimTransport((msg) => handleMessageRef.current(msg));
+    simRef.current = transport;
+    try {
+      await transport.open((stage) => setSimBooting(stage));
+      setSimBooting(null);
+      setStatus("connected");
+      setHost("this browser");
+      // Not remembered in localStorage: nothing was paired, and silently
+      // booting 14 MB of WASM on the next visit is not a decision to make on
+      // someone's behalf.
+    } catch (e) {
+      console.error("[botcortex] browser sim failed to start", e);
+      simRef.current = null;
+      setSimBooting(null);
+      setStatus("error");
+      setError("The in-browser robot could not start. Reload and try again.");
+    }
+  }, [teardown]);
+
   const send = useCallback((msg: ClientMessage): boolean => {
+    // The sim answers the identical protocol, so everything above this line —
+    // the composer, the skill list, the STOP button — is unaware of which it
+    // is talking to.
+    const sim = simRef.current;
+    if (sim) {
+      void sim.send(msg, modelRef.current ?? "");
+      return true;
+    }
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     ws.send(JSON.stringify(msg));
@@ -674,6 +742,13 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
 
   /** STOP goes over plain REST — never queued behind WebSocket traffic. */
   const stop = useCallback(async (): Promise<boolean> => {
+    // In-page: no host to POST to, and the same latch either way — a file the
+    // primitives check before every frame.
+    if (simRef.current) {
+      simRef.current.stop();
+      setStopped(true);
+      return true;
+    }
     if (!host) return false;
     try {
       const res = await fetch(`${httpUrl(host)}/stop`, { method: "POST" });
@@ -684,6 +759,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   }, [host]);
 
   const resetStop = useCallback(async (): Promise<boolean> => {
+    if (simRef.current) {
+      simRef.current.resetStop();
+      setStopped(false);
+      return true;
+    }
     if (!host) return false;
     try {
       const res = await fetch(`${httpUrl(host)}/stop/reset`, { method: "POST" });
@@ -771,6 +851,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         newConversation,
         openConversation,
         deleteConversation,
+        connectBrowserSim,
+        simBooting,
         credit,
         pairing,
         toolCalls,

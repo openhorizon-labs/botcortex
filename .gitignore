@@ -13,3 +13,10 @@ next-env.d.ts
 
 # TypeScript incremental build cache — regenerated on every build.
 *.tsbuildinfo
+
+# Browser-sim runtimes, copied from node_modules by `bun run vendor` on every
+# build. 23 MB of binaries npm already versions — the wheel in
+# public/botcortex/ IS committed, because it comes from another repo and a
+# build must not silently pick up a different one than was tested.
+/public/pyodide/
+/public/mujoco/

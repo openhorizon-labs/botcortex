@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Cable, KeyRound, Loader2, Unplug } from "lucide-react";
+import { Cable, KeyRound, Loader2, MonitorPlay, Unplug } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,8 @@ export function ConnectRobotDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { status, robot, host, error, connect, disconnect } = useRobot();
+  const { status, robot, host, error, connect, disconnect, connectBrowserSim, simBooting } =
+    useRobot();
   const [mode, setMode] = useState<Mode>("local");
   const [address, setAddress] = useState("");
   const [token, setToken] = useState("");
@@ -69,6 +70,41 @@ export function ConnectRobotDialog({
           </div>
         ) : (
           <>
+            {/* First, because it is the only option that works for someone who
+                does not own an arm — which is most people opening this. */}
+            <button
+              onClick={() => void connectBrowserSim()}
+              disabled={connecting}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg border border-border bg-surface-2 p-3 text-left transition-colors",
+                "hover:bg-surface-3 disabled:cursor-default disabled:opacity-70",
+              )}
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+                {simBooting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <MonitorPlay className="size-4" />
+                )}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">
+                  {simBooting ? `${simBooting}…` : "No robot? Teach one here"}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {simBooting
+                    ? "First run downloads the robot runtime — about 14 MB."
+                    : "Runs the real runtime and real physics in this tab. Skills you teach it are saved to your account."}
+                </span>
+              </span>
+            </button>
+
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-[11px] text-muted-foreground">or connect real hardware</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+
             <div className="flex gap-1 rounded-lg bg-surface-3 p-1">
               {(
                 [
