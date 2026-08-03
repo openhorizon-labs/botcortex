@@ -1,21 +1,30 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import Link from "next/link";
 
-import { Nav } from "@/components/site/nav";
+import { Logo } from "@/components/site/logo";
 import { DeviceForm } from "./device-form";
 
 export const metadata: Metadata = {
   title: "Pair a robot",
   description: "Approve a robot's request to use your BotCortex account.",
-  alternates: { canonical: "/device" },
+  alternates: { canonical: "/app/device" },
   robots: { index: false, follow: false },
 };
 
 export default function Page() {
   return (
     <main className="flex min-h-screen flex-col">
-      <Nav />
-      <div className="flex flex-1 items-center justify-center px-6 py-16">
+      {/* Not the marketing Nav: this page lives inside the signed-in area, and
+          every link on that nav would bounce the owner straight back to /app.
+          Just the wordmark, pointing at the control room. */}
+      <header className="flex h-16 items-center px-6 lg:px-10">
+        <Link href="/app" className="flex items-center gap-2">
+          <Logo className="size-6 text-foreground" />
+          <span className="text-[17px] font-semibold tracking-tight">BotCortex</span>
+        </Link>
+      </header>
+      <div className="flex flex-1 items-center justify-center px-6 pb-24">
         <div className="w-full max-w-sm">
           <h1 className="text-[28px] font-normal tracking-[-0.01em]">Pair a robot</h1>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -29,6 +38,11 @@ export default function Page() {
           <Suspense>
             <DeviceForm />
           </Suspense>
+          <p className="mt-8 text-sm text-muted-foreground">
+            <Link href="/app" className="underline underline-offset-2 hover:text-foreground">
+              Back to the control room
+            </Link>
+          </p>
         </div>
       </div>
     </main>
