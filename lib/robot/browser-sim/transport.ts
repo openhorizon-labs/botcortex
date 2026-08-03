@@ -61,6 +61,9 @@ export class BrowserSimTransport {
     if (this.ticker) clearInterval(this.ticker);
     this.ticker = null;
     this.abort?.abort();
+    // Terminates the worker: Pyodide and MuJoCo are ~100 MB of resident WASM,
+    // and leaking a thread per connect would be felt within a few reconnects.
+    this.sim?.close();
     this.sim = null;
   }
 
@@ -89,8 +92,7 @@ export class BrowserSimTransport {
         // Never mid-teach: teleporting the arm under a running skill would
         // corrupt what the agent is verifying. Same rule as the runtime.
         if (!this.busy) {
-          sim.reset();
-          this.emit({ type: "state", arms: sim.state });
+          void sim.reset().then(() => this.emit({ type: "state", arms: sim.state }));
         }
         return;
 
