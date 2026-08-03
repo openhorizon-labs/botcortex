@@ -166,8 +166,13 @@ function AppInner() {
 
   return (
     <TooltipProvider>
+      {/* h-svh, not the provider's default min-h-svh. "At least a viewport"
+          lets the shell grow with the transcript, so flex-1 below resolves
+          against content and the chat pane never scrolls — the whole PAGE
+          does instead. Pinning the height is what makes the inner scroller
+          engage. */}
       <SidebarProvider
-        className="bg-sidebar"
+        className="h-svh overflow-hidden bg-sidebar"
         style={{ "--sidebar-width": "248px" } as React.CSSProperties}
       >
       {/* icon, not offcanvas: collapsing leaves a rail of icons rather than
