@@ -99,13 +99,22 @@ const SUGGESTED = [
   { icon: Layers, label: "Pick from tray A, place in tray B" },
   { icon: Blocks, label: "Sort the blocks by color into bins" },
   { icon: Bot, label: "Fold the towel with both arms" },
+  { icon: Hand, label: "Nod the left arm twice" },
+  { icon: Layers, label: "Raise both arms together, slowly" },
+  { icon: Blocks, label: "Open and close the right gripper" },
+  { icon: Bot, label: "Reach forward and hold" },
 ];
+
+/** How many of them the panel shows at once. */
+const SUGGESTED_SHOWN = 4;
 
 function AppInner() {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [suggestedOpen, setSuggestedOpen] = useState(true);
+  const [suggestedFrom, setSuggestedFrom] = useState(0);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [connectOpen, setConnectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { data: session } = useSession();
@@ -116,6 +125,7 @@ function AppInner() {
     status, robot, skills, activity, messages, sendChat, runSkill, connect, host,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
     credit,
+    stopped,
     pairing,
     // Session-scoped so the navigation the first message triggers doesn't
     // reset them out from under the owner.
@@ -151,6 +161,10 @@ function AppInner() {
       setConnectOpen(true);
       return;
     }
+    // A teach with the e-stop latched authors a skill and then cannot run it,
+    // so the owner pays for something that was never verified. The banner is
+    // right there; refusing here is what makes it mean something.
+    if (stopped) return;
     if (sendChat(text, dryRun, model)) setInput("");
   }
 
@@ -331,7 +345,18 @@ function AppInner() {
             <SidebarGroupLabel>Skills</SidebarGroupLabel>
             <Tooltip>
               <TooltipTrigger asChild>
-                <SidebarGroupAction aria-label="Teach a new skill">
+                {/* Did nothing at all. Teaching a skill IS describing a task,
+                    so it opens a fresh one and puts the cursor where the
+                    describing happens. */}
+                <SidebarGroupAction
+                  aria-label="Teach a new skill"
+                  onClick={() => {
+                    router.push("/app");
+                    requestAnimationFrame(() =>
+                      document.querySelector("textarea")?.focus(),
+                    );
+                  }}
+                >
                   <Plus />
                 </SidebarGroupAction>
               </TooltipTrigger>
@@ -348,7 +373,15 @@ function AppInner() {
                 ) : (
                   skillList.map((s) => (
                     <SidebarMenuItem key={s}>
-                      <SidebarMenuButton tooltip={s} className="cursor-pointer">
+                      {/* The row itself runs the skill. It looked clickable,
+                          had a pointer cursor, and did nothing — the only way
+                          to run one was a hover-revealed arrow most people
+                          never found. */}
+                      <SidebarMenuButton
+                        tooltip={busy ? `${s} — robot busy` : `Run ${s}`}
+                        onClick={() => handleRunSkill(s)}
+                        className={cn("cursor-pointer", busy && "opacity-50")}
+                      >
                         <Wrench />
                         <span className="truncate">{s}</span>
                       </SidebarMenuButton>
@@ -391,6 +424,9 @@ function AppInner() {
                   claim about this robot. */}
               <SidebarMenuButton
                 asChild
+                // Also the ONLY way to read your balance in the collapsed
+                // rail, where the figure itself is hidden — without it the
+                // icon was mute.
                 tooltip={
                   pairing === "half"
                     ? "This robot has no key — run `botcortex login` on it"
@@ -520,9 +556,12 @@ function AppInner() {
                 model={model}
                 onModelChange={setModel}
               />
+              {/* Refusing silently reads as a broken send button, so the
+                  footer says why — and points at the control that undoes it. */}
               <p className="shrink-0 pt-3 text-center text-xs text-muted-foreground/70">
-                Skills run locally on the robot — the AI is only in the loop
-                while teaching.
+                {stopped
+                  ? "The e-stop is latched — clear it with STOP before teaching anything new."
+                  : "Skills run locally on the robot — the AI is only in the loop while teaching."}
               </p>
             </>
           ) : (
@@ -560,13 +599,21 @@ function AppInner() {
                       />
                     </button>
                   </CollapsibleTrigger>
-                  <button className="flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                  {/* This used to be inert: clicking it four times gave the
+                      same four ideas in the same order. There were only ever
+                      four to draw from, so it now has a pool to rotate. */}
+                  <button
+                    onClick={() => setSuggestedFrom((n) => n + SUGGESTED_SHOWN)}
+                    className="flex cursor-pointer items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+                  >
                     Shuffle <Shuffle className="size-3.5" />
                   </button>
                 </div>
                 <CollapsibleContent>
                   <div className="mt-1 flex flex-col divide-y divide-border">
-                    {SUGGESTED.map(({ icon: Icon, label }) => (
+                    {Array.from({ length: SUGGESTED_SHOWN }, (_, i) => SUGGESTED[
+                      (suggestedFrom + i) % SUGGESTED.length
+                    ]).map(({ icon: Icon, label }) => (
                       <button
                         key={label}
                         onClick={() => setInput(label)}
@@ -590,14 +637,45 @@ function AppInner() {
       {/* ⌘K palette — real Command component over skills, pages, and actions. */}
       <CommandDialog
         open={cmdOpen}
-        onOpenChange={setCmdOpen}
+        onOpenChange={(open) => {
+          setCmdOpen(open);
+          // Escape used to close the palette with the query still in it, so
+          // reopening and typing appended to the old one — "wave armwave".
+          if (!open) setQuery("");
+        }}
         title="Search"
-        description="Search skills, pages, and actions"
+        description="Search tasks, skills, pages, and actions"
       >
         <Command>
-        <CommandInput placeholder="Search skills, pages, actions…" />
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search tasks, skills, actions…"
+        />
         <CommandList>
           <CommandEmpty>Nothing found.</CommandEmpty>
+          {/* Tasks, first — searching "wave" and being told "Nothing found."
+              while a task named "wave arm twice" sits in the sidebar is the
+              search failing at the only job anyone opens it for. */}
+          {conversations.length > 0 && (
+            <>
+              <CommandGroup heading="Tasks">
+                {conversations.map((c) => (
+                  <CommandItem
+                    key={c.id}
+                    value={`task ${c.title ?? "Untitled task"}`}
+                    onSelect={() => {
+                      router.push(`/app/tasks/${c.id}`);
+                      setCmdOpen(false);
+                    }}
+                  >
+                    <MessageSquare /> {c.title ?? "Untitled task"}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+              <CommandSeparator />
+            </>
+          )}
           <CommandGroup heading="Skills">
             {skillList.map((s) => (
               <CommandItem
