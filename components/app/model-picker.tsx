@@ -121,10 +121,19 @@ export function ModelPicker({
                         {m.note}
                       </span>
                     </span>
-                    <span className="shrink-0 pt-0.5 font-mono text-[11px] text-muted-foreground">
-                      {m.affordable
-                        ? `${dollars(m.inputPerMTok)}/${dollars(m.outputPerMTok)}`
-                        : `needs ${dollars(m.neededMicros)}`}
+                    {/* "/M" inline, not only in the tooltip. Bare "$5.00/$30.00"
+                        beside a $2 balance reads as the price of one run, so
+                        the most capable model looks unaffordable when a teach
+                        on it actually costs fractions of a cent. */}
+                    <span className="shrink-0 pt-0.5 text-right font-mono text-[11px] text-muted-foreground">
+                      {m.affordable ? (
+                        <>
+                          {dollars(m.inputPerMTok)}/{dollars(m.outputPerMTok)}
+                          <span className="block text-[10px] opacity-70">per M tokens</span>
+                        </>
+                      ) : (
+                        `needs ${dollars(m.neededMicros)}`
+                      )}
                     </span>
                   </DropdownMenuItem>
                 );

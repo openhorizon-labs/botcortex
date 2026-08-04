@@ -176,6 +176,11 @@ export async function teach({
         let ok = true;
         try {
           result = await dispatch(call.function.name, args);
+          // Tool bodies report failure by RETURNING it, not by throwing — the
+          // model has to read what went wrong to repair it. Classified with
+          // the runtime's own prefixes rather than a guess, or a failed call
+          // shows "Completed" here and "Error" on a robot.
+          ok = !(contract.failure_prefixes ?? []).some((prefix) => result.startsWith(prefix));
         } catch (error) {
           ok = false;
           // The MODEL gets the real error — it is the one that has to repair

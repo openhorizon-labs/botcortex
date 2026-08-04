@@ -29,6 +29,11 @@ export interface AgentContract {
   version: string;
   system_prompt: string;
   max_iterations: number;
+  /** How a tool reports failure IN ITS RETURN VALUE rather than by raising.
+   *  Comes from the runtime because the runtime owns the convention: without
+   *  it this loop marked every call ok, so a failed one wore a green
+   *  "Completed" badge here while the same call showed an error on a robot. */
+  failure_prefixes?: string[];
   tools: ToolSchema[];
 }
 

@@ -94,15 +94,24 @@ type PairedRobot = {
   address: string | null;
 };
 
+/**
+ * Tasks the robot can actually attempt.
+ *
+ * Half of these used to be impossible. There is no towel to fold and no "tray
+ * A" — the workcell has `tray_right`, `tray_left` and three named blocks — so
+ * a new owner's most likely first click was a task that could not succeed, and
+ * they paid credit to find out. Every entry below names something that exists
+ * in the scene the robot reports.
+ */
 const SUGGESTED = [
+  { icon: Blocks, label: "Put the red block in the right tray" },
+  { icon: Layers, label: "Move the blue block next to the red one" },
   { icon: Hand, label: "Wave the right arm" },
-  { icon: Layers, label: "Pick from tray A, place in tray B" },
-  { icon: Blocks, label: "Sort the blocks by color into bins" },
-  { icon: Bot, label: "Fold the towel with both arms" },
-  { icon: Hand, label: "Nod the left arm twice" },
-  { icon: Layers, label: "Raise both arms together, slowly" },
-  { icon: Blocks, label: "Open and close the right gripper" },
-  { icon: Bot, label: "Reach forward and hold" },
+  { icon: Bot, label: "Open and close the right gripper twice" },
+  { icon: Blocks, label: "Put the green block in the left tray" },
+  { icon: Layers, label: "Line the three blocks up in a row" },
+  { icon: Hand, label: "Raise both arms together, slowly" },
+  { icon: Bot, label: "Hold the red block up, then put it back" },
 ];
 
 /** How many of them the panel shows at once. */
