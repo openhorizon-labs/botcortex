@@ -826,8 +826,22 @@ export function Workspace({ conversationId }: { conversationId?: string }) {
   useEffect(() => {
     if (conversationId) {
       if (conversationId !== open) void openConversation(conversationId);
-    } else if (open) {
-      // Landing on /app means starting fresh, not showing the last task.
+      return;
+    }
+    // Landing on /app means starting fresh, not showing the last task — but
+    // ONLY if the URL still says /app.
+    //
+    // `conversationId` is a PROP from the route segment, and the provider
+    // rewrites the address bar with history.replaceState when a task is born,
+    // which deliberately does not re-render this. So a moment after the first
+    // message the URL reads /app/tasks/<id> while this prop is still
+    // undefined, and any re-render of this component then read that as
+    // "landing on /app" and wiped the task out from under the teach in
+    // progress. The rest of that teach's messages were filed into a SECOND
+    // conversation: one prompt, two tasks, the same history split across them.
+    //
+    // The real question is what the URL says now, so ask it.
+    if (open && window.location.pathname === "/app") {
       void newConversation();
     }
     // Only the URL drives this; reacting to `open` too would fight the effect
