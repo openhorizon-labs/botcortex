@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SITE_URL } from "@/lib/site";
@@ -121,6 +122,9 @@ export default function RootLayout({
         className="min-h-full flex flex-col bg-background text-foreground"
       >
         {children}
+        {/* Page views and Web Vitals from Vercel. No-ops off Vercel, so local
+            dev and any self-host stay clean. */}
+        <Analytics />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(JSONLD) }}
