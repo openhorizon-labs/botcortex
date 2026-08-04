@@ -28,12 +28,19 @@ const RETRY_DELAY_MS = 3000;
 /** Retries for a robot that has ALREADY answered once — a Wi-Fi blip, a
  *  runtime restart. Patience is right there: the robot is real and coming back. */
 const MAX_RETRIES = 5;
-/** Retries before the FIRST hello. Nothing has proved it is there, and five
- *  attempts at three seconds left a new account watching "connecting…" for
- *  nineteen seconds with no idea whether the product was working. Failing fast
- *  is what surfaces the in-browser robot, which is the answer for anyone who
- *  does not own hardware. */
-const MAX_RETRIES_BEFORE_FIRST_HELLO = 1;
+/** Retries before the FIRST hello: none. Nothing has proved the address is
+ *  there, a robot that IS there answers at once, and five attempts at three
+ *  seconds left a new account watching "connecting…" for nineteen seconds with
+ *  no idea whether the product was working. Failing fast is what surfaces the
+ *  in-browser robot, which is the answer for anyone without hardware. */
+const MAX_RETRIES_BEFORE_FIRST_HELLO = 0;
+/** How long one attempt may sit in TCP connect before we call it dead.
+ *
+ *  Cutting the retry COUNT was not enough, and it is worth recording why: an
+ *  address that is switched off drops packets rather than refusing them, so
+ *  the socket does not error — it hangs until the browser's own connect
+ *  timeout, tens of seconds later. The count never dominated; this does. */
+const CONNECT_DEADLINE_MS = 4000;
 
 export type ChatMessage = {
   id: string;
@@ -644,7 +651,13 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     }
     wsRef.current = ws;
 
+    // A silent host never fires onerror, so nothing else ends this attempt.
+    const deadline = setTimeout(() => {
+      if (wsRef.current === ws && ws.readyState === WebSocket.CONNECTING) ws.close();
+    }, CONNECT_DEADLINE_MS);
+
     ws.onopen = () => {
+      clearTimeout(deadline);
       retriesRef.current = 0;
       setStatus("connected");
       setHost(cleanHost);
@@ -671,6 +684,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     };
 
     ws.onclose = () => {
+      clearTimeout(deadline);
       if (wsRef.current !== ws) return;
       wsRef.current = null;
       setRobot(null);
