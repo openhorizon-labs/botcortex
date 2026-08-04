@@ -54,6 +54,8 @@ type RobotContextValue = {
   status: ConnectionStatus;
   robot: RobotInfo | null;
   skills: string[] | null;
+  /** Saved, never seen to run. See RobotMessage's `unproven`. */
+  unproven: string[];
   host: string | null;
   error: string | null;
   /** Robot-side activity: idle / teaching / running. */
@@ -165,6 +167,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [robot, setRobot] = useState<RobotInfo | null>(null);
   const [skills, setSkills] = useState<string[] | null>(null);
+  const [unproven, setUnproven] = useState<string[]>([]);
   const [host, setHost] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState("idle");
@@ -541,6 +544,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           greetedRef.current = true;
           setRobot(msg.robot);
           setSkills(msg.skills);
+          setUnproven(msg.unproven ?? []);
           // A page loaded while the robot is already stopped must say so.
           setStopped(Boolean(msg.stopped));
           // Older runtimes send neither field. Treating that as "paired"
@@ -580,6 +584,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         }
         case "skills":
           setSkills(msg.skills);
+          setUnproven(msg.unproven ?? []);
           break;
         case "status": {
           setActivity(msg.state + (msg.detail ? ` — ${msg.detail}` : ""));
@@ -919,6 +924,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         status,
         robot,
         skills,
+      unproven,
         host,
         error,
         activity,

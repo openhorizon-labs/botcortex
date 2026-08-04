@@ -47,6 +47,7 @@ interface ToolReply {
   state: JointState;
   scene: { objects: SceneBodies; fixtures: SceneBodies };
   skills: string[];
+  unproven: string[];
   stopped: boolean;
 }
 
@@ -62,6 +63,8 @@ export class BrowserSim {
   state: JointState = {};
   /** The skills the robot knows, as the sidebar shows them. */
   skills: string[] = [];
+  /** Of those, the ones never seen to run to completion. */
+  unproven: string[] = [];
   /** Whether the e-stop is already latched — the hello carries it. */
   stopped = false;
   /** The loaded platform's gripper mapping, for the viewer. */
@@ -109,6 +112,7 @@ export class BrowserSim {
     this.contract = parseContract(booted.contract);
     this.state = booted.state;
     this.skills = booted.skills;
+    this.unproven = booted.unproven;
     this.stopped = booted.stopped;
     this.gripper = booted.gripper;
     this.scene = booted.scene;
@@ -146,6 +150,7 @@ export class BrowserSim {
   ): Promise<ToolReply> {
     const reply: ToolReply = await this.ask({ type: "callTool", name, args });
     this.skills = reply.skills;
+    this.unproven = reply.unproven;
     this.stopped = reply.stopped;
     // Where the blocks ended up. Read AFTER the tool, so a pick shows the
     // block in the gripper rather than back where it started.

@@ -55,6 +55,13 @@ export type RobotMessage =
       type: "hello";
       robot: RobotInfo;
       skills: string[];
+      /** Of those, the ones saved but never seen to run to completion. The
+       *  sidebar's promise is "your robot knows these", and a skill the agent
+       *  wrote and could not make work is not something the robot knows —
+       *  listing it beside the ones that do is the same lie as reporting a
+       *  failed teach as done. Optional: an older runtime omits it, and then
+       *  nothing is marked. */
+      unproven?: string[];
       /** Whether the e-stop is already latched — a page loaded while the robot
        *  is stopped must show that, not a cheerful idle state. */
       stopped?: boolean;
@@ -77,7 +84,7 @@ export type RobotMessage =
   | { type: "chat"; text: string }
   | { type: "plan"; steps: PlanStep[] }
   | { type: "step"; id: string; state: "start" | "ok" | "fail"; error?: string }
-  | { type: "skills"; skills: string[] }
+  | { type: "skills"; skills: string[]; unproven?: string[] }
   /** Which model a teach actually ran on — echoed back, never assumed. */
   | { type: "model"; name: string; provider: string }
   /** The agent reaching into the runtime — emitted as it happens, so an owner

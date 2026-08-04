@@ -41,6 +41,7 @@ export class BrowserSimTransport {
         gripper: this.sim.gripper,
       },
       skills: this.sim.skills,
+      unproven: this.sim.unproven,
       stopped: this.sim.stopped,
       resettable: true,
       // The credit is the account's and it is genuinely being spent, so this
@@ -163,7 +164,7 @@ export class BrowserSimTransport {
           this.emit({ type: "state", arms, objects: sim.scene.objects }),
         );
         // The skill list can change under save_skill; the sidebar watches this.
-        this.emit({ type: "skills", skills: sim.skills });
+        this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
         for (const skill of sim.skills) {
           if (!before.has(skill) && !saved.includes(skill)) saved.push(skill);
         }

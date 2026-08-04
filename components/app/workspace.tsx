@@ -8,6 +8,7 @@ import {
   Bot,
   ChevronDown,
   ChevronsUpDown,
+  CircleDashed,
   Coins,
   Hand,
   Settings,
@@ -131,7 +132,7 @@ function AppInner() {
   const toggleSim = () => setSimOpen((open) => !open);
 
   const {
-    status, robot, skills, activity, messages, sendChat, runSkill, connect, host,
+    status, robot, skills, unproven, activity, messages, sendChat, runSkill, connect, host,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
     credit,
     stopped,
@@ -162,6 +163,10 @@ function AppInner() {
   const busy =
     activity.startsWith("teaching") || activity.startsWith("running");
   const skillList = skills ?? [];
+  // Saved, never seen to run to completion. A failed teach still leaves its
+  // skill on disk, and listing it exactly like the ones that work told the
+  // owner the robot had learned something it plainly had not.
+  const unprovenSet = new Set(unproven);
 
   function handleSend() {
     const text = input.trim();
@@ -396,15 +401,32 @@ function AppInner() {
                           to run one was a hover-revealed arrow most people
                           never found. */}
                       <SidebarMenuButton
-                        tooltip={busy ? `${s} — robot busy` : `Run ${s}`}
+                        tooltip={
+                          busy
+                            ? `${s} — robot busy`
+                            : unprovenSet.has(s)
+                              ? `${s} — never run successfully. Run it to find out if it works.`
+                              : `Run ${s}`
+                        }
                         onClick={() => handleRunSkill(s)}
                         className={cn("cursor-pointer", busy && "opacity-50")}
                       >
                         <span className="hidden size-4 shrink-0 items-center justify-center rounded-[4px] bg-foreground/10 text-[10px] font-medium uppercase group-data-[collapsible=icon]:flex">
                           {s.trim().charAt(0) || "?"}
                         </span>
-                        <Wrench className="group-data-[collapsible=icon]:hidden" />
-                        <span className="truncate">{s}</span>
+                        {unprovenSet.has(s) ? (
+                          <CircleDashed className="text-muted-foreground group-data-[collapsible=icon]:hidden" />
+                        ) : (
+                          <Wrench className="group-data-[collapsible=icon]:hidden" />
+                        )}
+                        <span
+                          className={cn(
+                            "truncate",
+                            unprovenSet.has(s) && "text-muted-foreground",
+                          )}
+                        >
+                          {s}
+                        </span>
                       </SidebarMenuButton>
                       <SidebarMenuAction
                         showOnHover

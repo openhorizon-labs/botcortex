@@ -170,6 +170,10 @@ json.dumps({arm: session.robot.get_positions(arm) for arm in ("right", "left")})
     // ride the state stream, fixtures do not and go in the hello.
     scene: JSON.parse(py.runPython(`import json; json.dumps(session.robot.describe_scene())`)),
     skills: JSON.parse(py.runPython(`import json; json.dumps(session.store.names())`)),
+    // Saved but never seen to run. The runtime's own hello carries this; a
+    // browser that dropped it would list a failed teach's skill exactly like
+    // one that works.
+    unproven: JSON.parse(py.runPython(`import json; json.dumps(session.store.unproven())`)),
     stopped: py.runPython(`STOP_FILE.exists()`) as boolean,
     // Straight from the loaded platform, so the viewer never has to guess.
     gripper: JSON.parse(
