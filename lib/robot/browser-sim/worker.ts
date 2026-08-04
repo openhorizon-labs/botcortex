@@ -96,10 +96,18 @@ sys.path.insert(0, "/pkg")
   progress("Loading the arm");
   // The model rides in the same wheel as the code, so they cannot disagree.
   // The two WASM modules have separate filesystems, hence the copy.
-  const modelDir: string = py.runPython(`
-import pathlib, botcortex
-str(pathlib.Path(botcortex.__file__).parent / "platforms" / "openarm_v1" / "model")
-`);
+  // Ask the PLATFORM which file to load, rather than naming one here. The
+  // workcell (table, trays, blocks) lives in scene.xml and `<include>`s the
+  // vendored arm; hardcoding the arm would silently give the browser a robot
+  // with nothing to manipulate while the runtime had a full workcell.
+  const [modelDir, worldFile]: [string, string] = JSON.parse(
+    py.runPython(`
+import json, pathlib
+from botcortex import config
+_world = config.PLATFORM.world_path
+json.dumps([str(_world.parent), _world.name])
+`),
+  );
   const assets: string[] = JSON.parse(
     py.runPython(`
 import json, pathlib
@@ -112,7 +120,7 @@ json.dumps([str(p) for p in pathlib.Path("${modelDir}").rglob("*") if p.is_file(
     mj.FS.mkdirTree(dest.slice(0, dest.lastIndexOf("/")), 0o777);
     mj.FS.writeFile(dest, py.FS.readFile(path));
   }
-  const model = mj.MjModel.from_xml_path("/model/openarm_bimanual.xml");
+  const model = mj.MjModel.from_xml_path(`/model/${worldFile}`);
 
   progress("Waking the robot");
   py.globals.set("js_mujoco", mj);
