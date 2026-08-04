@@ -182,6 +182,19 @@ function AppInner() {
     if (sendChat(text, dryRun, model)) setInput("");
   }
 
+  /**
+   * New task: clear the transcript, put the workcell back, show the intro.
+   *
+   * Was router.push("/app"), which is a route-segment navigation — the same
+   * unmount-and-refetch that made pressing send blink, in the other
+   * direction. Nothing needs fetching: the intro appears whenever the
+   * transcript is empty, so clearing it IS the new task. The URL just follows.
+   */
+  function startNewTask() {
+    void newConversation();
+    window.history.replaceState(null, "", "/app");
+  }
+
   function handleRunSkill(name: string) {
     // The runtime refuses this too — that is the real guard, since a second
     // tab can send it. Here it just stops the button lying about what will
@@ -296,7 +309,7 @@ function AppInner() {
                   {/* Earns its place again now the transcript persists: this
                       wipes it and starts fresh, instead of no-opping. */}
                   <SidebarMenuButton
-                    onClick={() => router.push("/app")}
+                    onClick={startNewTask}
                     tooltip="New task"
                     className="cursor-pointer"
                   >
@@ -374,7 +387,7 @@ function AppInner() {
                 <SidebarGroupAction
                   aria-label="Teach a new skill"
                   onClick={() => {
-                    router.push("/app");
+                    startNewTask();
                     requestAnimationFrame(() =>
                       document.querySelector("textarea")?.focus(),
                     );
@@ -764,7 +777,7 @@ function AppInner() {
           <CommandGroup heading="Actions">
             <CommandItem
               onSelect={() => {
-                router.push("/app");
+                startNewTask();
                 setCmdOpen(false);
               }}
             >

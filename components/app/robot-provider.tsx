@@ -211,6 +211,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   // bill whatever model was picked when the provider first mounted.
   const modelRef = useRef<string | null>(null);
   modelRef.current = model;
+  /** `send` is defined further down and newConversation needs it. Assigned
+   *  during render rather than in an effect: it is a stable callback over
+   *  refs, and a fresh task must be able to reset the scene on the very first
+   *  click rather than the second. */
+  const sendRef = useRef<((msg: ClientMessage) => boolean) | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   /** Read by persist(), which is built once and would otherwise capture the
    *  first render's (null) thread id forever. */
@@ -497,6 +502,14 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     // Nothing is created until something is said — so clicking "New task"
     // twice cannot leave two empty threads behind.
     selectThread(null);
+    // And the WORKCELL starts over too. Without this a new task inherits
+    // whatever the last one left behind — the arm somewhere over the table,
+    // the red block wherever it was dropped — so "put the red block in the
+    // tray" means something different every time, and the owner is looking at
+    // a scene nobody set up while reading an empty transcript. The runtime
+    // refuses this while it is busy, and hardware backends never honour it at
+    // all: there is no resetting a real arm by teleporting it.
+    sendRef.current?.({ type: "reset_sim" });
     await refreshConversations();
   }, [refreshConversations, selectThread]);
 
@@ -822,6 +835,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     ws.send(JSON.stringify(msg));
     return true;
   }, []);
+
+  sendRef.current = send;
 
   const sendChat = useCallback(
     (text: string, dryRun: boolean, model?: string | null) => {
