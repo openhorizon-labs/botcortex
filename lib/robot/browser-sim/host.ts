@@ -59,6 +59,8 @@ export class BrowserSim {
   skills: string[] = [];
   /** Whether the e-stop is already latched — the hello carries it. */
   stopped = false;
+  /** The loaded platform's gripper mapping, for the viewer. */
+  gripper?: { minDeg: number; maxDeg: number; travelM: number };
   /** Read out of the installed wheel, never from a copy in this repo. */
   contract!: AgentContract;
 
@@ -101,6 +103,7 @@ export class BrowserSim {
     this.state = booted.state;
     this.skills = booted.skills;
     this.stopped = booted.stopped;
+    this.gripper = booted.gripper;
   }
 
   private ask(request: PendingRequest): Promise<any> {
@@ -127,20 +130,30 @@ export class BrowserSim {
     const reply: ToolReply = await this.ask({ type: "callTool", name, args });
     this.skills = reply.skills;
     this.stopped = reply.stopped;
-    await this.play(reply, onFrame);
-    this.state = reply.state;
+    const played = await this.play(reply, onFrame);
+    if (played) {
+      this.state = reply.state;
+    } else {
+      // Aborted mid-playback. Assigning reply.state here — the pose physics
+      // finished at — teleported the arm to the END of the move the owner had
+      // just stopped, which is the exact opposite of stopping. Hold what was
+      // shown, and rewind the worker to match so the next move plans from it.
+      await this.ask({ type: "seek", state: this.state });
+      onFrame(this.state);
+    }
     return reply.output;
   }
 
-  private async play(reply: ToolReply, onFrame: (state: JointState) => void) {
-    if (reply.motion.length === 0) return;
+  /** Returns false if STOP cut it short. */
+  private async play(reply: ToolReply, onFrame: (state: JointState) => void): Promise<boolean> {
+    if (reply.motion.length === 0) return true;
     // A recorded frame names ONE arm; the other holds its pose, so each
     // displayed frame is the whole robot rather than half of it.
     const running: JointState = JSON.parse(JSON.stringify(this.state));
     const tick = 1000 / CONTROL_HZ;
     let next = performance.now();
     for (const entry of reply.motion) {
-      if (this.aborted) return;
+      if (this.aborted) return false;
       running[entry.arm] = entry.positions;
       this.state = JSON.parse(JSON.stringify(running));
       onFrame(this.state);
@@ -148,6 +161,19 @@ export class BrowserSim {
       const wait = next - performance.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
+    return true;
+  }
+
+  /** Record what this attempt taught, so the next teach can recall it.
+   *  The runtime does this per teach; the browser skipping it left
+   *  recall_episodes reading a store nothing ever wrote to. */
+  async logEpisode(
+    task: string,
+    skills: string[],
+    outcome: "ok" | "fail",
+    error?: string,
+  ): Promise<void> {
+    await this.ask({ type: "logEpisode", task, skills, outcome, error });
   }
 
   /** The e-stop, through the same file every other backend checks. */
@@ -175,6 +201,13 @@ export class BrowserSim {
 
   close() {
     this.worker?.terminate();
+    // Reject, don't just drop: terminate() kills every in-flight call, and a
+    // cleared map left `teach()` awaiting a promise that could never settle —
+    // so connecting a real robot mid-teach hung the loop forever, holding the
+    // whole transcript.
+    for (const waiter of this.pending.values()) {
+      waiter.reject(new Error("the in-browser robot was disconnected"));
+    }
     this.pending.clear();
   }
 }

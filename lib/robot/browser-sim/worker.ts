@@ -7,12 +7,25 @@
  * here" looked like nothing happening at all, right up until the robot
  * appeared.
  *
- * Note what did NOT drive this decision. The plan worried that a worker could
- * not receive STOP while Python blocked inside `time.sleep` — true, and moot,
- * because the pacing decision removed the sleeping: a skill executes as fast as
- * the CPU allows (~100 ms) and the MAIN thread paces the playback. So the
- * worker is idle between tool calls, STOP lands within one call, and the tab
- * never stops responding.
+ * WHAT STOP CAN AND CANNOT DO HERE — stated precisely, because an earlier
+ * version of this comment overstated it.
+ *
+ * `call_tool` is a synchronous Pyodide call, so a `{type:"stop"}` message
+ * cannot be processed until the in-flight tool returns. The e-stop file is
+ * therefore only written BETWEEN tool calls, not between motion frames the way
+ * `wasm.py`'s loop checks it. A skill that loops for seconds runs to
+ * completion inside the worker whatever the owner presses.
+ *
+ * What DOES happen immediately is the part an owner can see: the main thread
+ * cuts playback on the very next frame, rewinds this worker to the pose that
+ * was actually shown (`seek`), and the agent loop refuses to dispatch another
+ * tool. So the arm stops where it was stopped, and nothing further is
+ * attempted.
+ *
+ * Closing the remaining gap needs Pyodide's setInterruptBuffer, which needs a
+ * SharedArrayBuffer and therefore COOP/COEP headers on the whole app. Worth
+ * doing before anything here drives hardware; not worth it for a simulation
+ * with no arm to hurt.
  *
  * The protocol is request/response by id. Everything crossing the boundary is
  * plain JSON — no proxies, since Pyodide objects cannot be structured-cloned.
@@ -29,6 +42,15 @@ export type WorkerRequest =
   | { id: number; type: "boot" }
   | { id: number; type: "callTool"; name: string; args: Record<string, unknown> }
   | { id: number; type: "reset" }
+  | { id: number; type: "seek"; state: Record<string, Record<string, number>> }
+  | {
+      id: number;
+      type: "logEpisode";
+      task: string;
+      skills: string[];
+      outcome: "ok" | "fail";
+      error?: string;
+    }
   | { id: number; type: "stop" }
   | { id: number; type: "resetStop" };
 
@@ -136,6 +158,19 @@ json.dumps({arm: session.robot.get_positions(arm) for arm in ("right", "left")})
     ),
     skills: JSON.parse(py.runPython(`import json; json.dumps(session.store.names())`)),
     stopped: py.runPython(`STOP_FILE.exists()`) as boolean,
+    // Straight from the loaded platform, so the viewer never has to guess.
+    gripper: JSON.parse(
+      py.runPython(`
+import json
+from botcortex import config
+_lo, _hi = config.JOINT_LIMITS[config.ARMS[0]]["gripper"]
+json.dumps({
+    "minDeg": _lo,
+    "maxDeg": _hi,
+    "travelM": float(config.PLATFORM.sim.get("gripper_meters_open", 0.044)),
+})
+`),
+    ),
   };
 }
 
@@ -169,6 +204,39 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case "reset":
         py.runPython(`session.robot.reset()`);
         result = snapshot();
+        break;
+      case "seek":
+        // STOP cut the playback short, so the arm the owner is looking at is
+        // behind the one physics finished. Rewind physics to the displayed
+        // pose, or the next move would plan its delta from a position that was
+        // never shown and the e-stop would have "moved" the arm.
+        py.globals.set("seek_state", py.toPy(request.state));
+        py.runPython(`
+for _arm, _joints in seek_state.items():
+    for _joint, _deg in _joints.items():
+        session.robot._write_target(_arm, _joint, _deg)
+        session.robot._write_qpos(_arm, _joint, _deg)
+for _i in range(len(session.robot.data.qvel)):
+    session.robot.data.qvel[_i] = 0.0
+js_mujoco.mj_forward(js_model, js_data)
+`);
+        result = snapshot();
+        break;
+      case "logEpisode":
+        // The runtime writes one of these per teach (agent.py). Without it the
+        // browser CALLS recall_episodes and never fills the store it reads —
+        // half a loop, and the half that is missing is the one the product's
+        // failure-memory claim rests on.
+        py.globals.set("episode", py.toPy(request));
+        py.runPython(`
+session.memory.log(
+    task=episode["task"],
+    skills_used=list(episode.get("skills") or []),
+    outcome=episode["outcome"],
+    error=episode.get("error"),
+)
+`);
+        result = true;
         break;
       case "stop":
         py.runPython(`STOP_FILE.touch()`);

@@ -9,6 +9,11 @@ export type RobotInfo = {
   name: string;
   platform: string;
   version?: string;
+  /** How to turn a gripper angle into finger travel, FROM the robot.
+   *  The viewer used to hardcode this, which made it a third copy of the
+   *  mapping jointmap.py owns — right for openarm_v1 and silently wrong for
+   *  whatever platform comes next. */
+  gripper?: { minDeg: number; maxDeg: number; travelM: number };
 };
 
 export type PlanStep = {

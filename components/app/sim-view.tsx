@@ -37,15 +37,35 @@ import { useRobot } from "@/components/app/robot-provider";
 const ROOT = "/robots/openarm_v1";
 const PACKAGES = { openarm_description: ROOT };
 const URDF = `${ROOT}/v1.urdf`;
-const GRIPPER_TRAVEL_M = 0.044;
+/**
+ * Only used until a robot has said hello. openarm_v1's numbers, and a fallback
+ * for exactly one frame — not a definition.
+ *
+ * This function used to BE the definition, with -65 and 0.044 written into it,
+ * which quietly made it a third implementation of the mapping that
+ * `jointmap.py` owns and that `test_it_contains_no_arithmetic` guards. Correct
+ * for openarm_v1 and silently wrong for the platform after it: the jaw would
+ * render at the wrong opening with nothing anywhere reporting a problem. The
+ * robot carries its own mapping in `hello` now.
+ */
+const ASSUMED_GRIPPER: GripperMap = { minDeg: -65, maxDeg: 0, travelM: 0.044 };
 
-/** 0° is rest (jaws together, the URDF finger zero); -65° is fully open.
- *  Mirrors the runtime's SimRobot mapping exactly. */
-function gripperDegToMeters(deg: number): number {
-  return (-deg / 65) * GRIPPER_TRAVEL_M;
+type GripperMap = { minDeg: number; maxDeg: number; travelM: number };
+
+/** The inverse of JointMap.gripper_deg_to_m, driven by the robot's own limits.
+ *  The vendor range runs negative-open to zero-closed; that inversion is real. */
+function gripperDegToMeters(deg: number, map: GripperMap): number {
+  const { minDeg: lo, maxDeg: hi, travelM } = map;
+  return ((hi - deg) / (hi - lo)) * travelM;
 }
 
-function ArmModel({ stateRef }: { stateRef: React.RefObject<JointState | null> }) {
+function ArmModel({
+  stateRef,
+  gripper,
+}: {
+  stateRef: React.RefObject<JointState | null>;
+  gripper: GripperMap;
+}) {
   const [robot, setRobot] = useState<URDFRobot | null>(null);
 
   useEffect(() => {
@@ -130,7 +150,7 @@ function ArmModel({ stateRef }: { stateRef: React.RefObject<JointState | null> }
           // finger_joint2 mimics finger_joint1 — urdf-loader applies it for us.
           robot.setJointValue(
             `openarm_${arm}_finger_joint1`,
-            gripperDegToMeters(deg),
+            gripperDegToMeters(deg, gripper),
           );
         } else {
           robot.setJointValue(
@@ -162,7 +182,9 @@ function FrameOnLoad() {
 
 export default function SimView() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { jointStateRef } = useRobot(); // read OUTSIDE the R3F Canvas boundary
+  // Read OUTSIDE the R3F Canvas boundary — the scene is its own React root.
+  const { jointStateRef, robot } = useRobot();
+  const gripper = robot?.gripper ?? ASSUMED_GRIPPER;
 
   return (
     <div ref={containerRef} className="h-full w-full">
@@ -191,7 +213,7 @@ export default function SimView() {
         />
         <directionalLight position={[-2.5, 2, -1.5]} intensity={0.35} />
         <directionalLight position={[0, 1.5, -3]} intensity={0.25} />
-        <ArmModel stateRef={jointStateRef} />
+        <ArmModel stateRef={jointStateRef} gripper={gripper} />
         <Grid
           args={[4, 4]}
           position={[0, 0, 0]}

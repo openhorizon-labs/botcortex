@@ -155,6 +155,12 @@ export async function teach({
       });
 
       for (const call of calls) {
+        // Checked per CALL, not just per turn. A model routinely asks for
+        // several tools in one turn; aborting only at the top of the loop let
+        // every remaining one dispatch after STOP, each moving the arm.
+        if (signal?.aborted) {
+          return { text: "Stopped.", outcome: "fail", error: "aborted" };
+        }
         // Sequential, matching the runtime: two tools moving the same arm at
         // once is not something the primitives are built for, and the trace an
         // owner watches would interleave into nonsense.

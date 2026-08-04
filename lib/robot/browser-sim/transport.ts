@@ -38,6 +38,7 @@ export class BrowserSimTransport {
         name: "OpenArm v1 (browser sim)",
         platform: "wasm",
         version: this.sim.contract.version,
+        gripper: this.sim.gripper,
       },
       skills: this.sim.skills,
       stopped: this.sim.stopped,
@@ -138,6 +139,9 @@ export class BrowserSimTransport {
         ? `Relevant past episodes (apply their lessons):\n${episodes}\n\nTask: ${text}`
         : `No relevant past episodes.\n\nTask: ${text}`;
 
+    const before = new Set(sim.skills);
+    const saved: string[] = [];
+
     const result = await teach({
       contract: sim.contract,
       model,
@@ -148,13 +152,17 @@ export class BrowserSimTransport {
         const out = await sim.callTool(name, args, (arms) => this.emit({ type: "state", arms }));
         // The skill list can change under save_skill; the sidebar watches this.
         this.emit({ type: "skills", skills: sim.skills });
+        for (const skill of sim.skills) {
+          if (!before.has(skill) && !saved.includes(skill)) saved.push(skill);
+        }
         return out;
       },
     });
 
-    if (result.outcome === "ok" && result.text) {
-      // teach() already emitted the model's own words; nothing to add.
-    }
+    // The other half of the failure-memory loop. Written even when the teach
+    // fails — especially then, since a failed attempt is what carries a lesson
+    // worth recalling.
+    await sim.logEpisode(text, saved, result.outcome, result.error);
   }
 
   private async runSkill(sim: BrowserSim, name: string) {
