@@ -80,6 +80,9 @@ type RobotContextValue = {
   connectBrowserSim: () => Promise<void>;
   /** Which stage the in-page robot is at while it loads, or null. */
   simBooting: string | null;
+  /** Which model the last teach REALLY ran on — echoed by the robot, never
+   *  assumed, because it is what the account was billed for. */
+  ranModel: string | null;
   /** Remaining BotCortex credit, or null when signed out / unreachable. */
   credit: Credit | null;
   /** Which wallet the connected robot teaches from — null until it says.
@@ -159,6 +162,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
   const [pairing, setPairing] = useState<RobotContextValue["pairing"]>(null);
+  /** The model the last teach actually ran on, as the robot reported it. */
+  const [ranModel, setRanModel] = useState<string | null>(null);
   /** Whether this address has ever said hello — see the retry budgets above. */
   const greetedRef = useRef(false);
   /** Set when the robot IS this tab. Mutually exclusive with wsRef. */
@@ -472,13 +477,21 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       const rows = await refreshConversations();
       if (conversationIdRef.current === id) {
         // Land somewhere real rather than on a thread that no longer exists.
-        if (rows[0] && !spokeRef.current && !conversationIdRef.current) {
-        await openConversation(rows[0].id);
-      }
-        else await newConversation();
+        //
+        // The condition here used to include `!conversationIdRef.current`,
+        // which cannot hold inside a branch that just compared it to a
+        // non-empty id — so the "open the next thread" arm was unreachable and
+        // deleting the open task ALWAYS dumped you on a blank one, with the
+        // URL still pointing at the id you had just deleted.
+        const next = rows.find((row) => row.id !== id);
+        if (next) await openConversation(next.id);
+        else {
+          await newConversation();
+          router.replace("/app");
+        }
       }
     },
-    [refreshConversations, openConversation, newConversation],
+    [refreshConversations, openConversation, newConversation, router],
   );
 
   // The URL decides which task is open. /app is a fresh one — it stays blank
@@ -571,6 +584,38 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         case "state":
           jointStateRef.current = msg.arms;
           break;
+        case "model":
+          // Which brain ACTUALLY ran. Both backends go out of their way to
+          // echo this because it is what gets billed, and the client dropped
+          // it — so an owner who picked one model and was served another had
+          // no way to know. Surfaced only when it differs from the pick.
+          setRanModel(msg.name);
+          break;
+        case "sync":
+          // A skill saved locally but not copied to the registry is not a
+          // failure worth interrupting a teach for — it still runs. Worth
+          // knowing about, so it goes to the console rather than nowhere.
+          if (!msg.ok) {
+            console.warn(`[botcortex] skill ${msg.skill} did not reach the registry`);
+          }
+          break;
+        case "plan":
+        case "step":
+          // The blueprint's review-before-run plan view. `step` is already
+          // emitted per primitive call; `plan` has no emitter yet. Named here
+          // so the exhaustiveness check below stays honest about what is
+          // deliberately unrendered rather than accidentally dropped.
+          break;
+        case "pong":
+          break;
+        default: {
+          // Every RobotMessage must be handled. `model` and `sync` were BOTH
+          // being emitted and silently dropped — one of them not even present
+          // in the union — and nothing anywhere said so. Adding a protocol
+          // event is now a compile error until this switch answers for it.
+          const unhandled: never = msg;
+          console.warn("[botcortex] unhandled runtime message", unhandled);
+        }
       }
   }, []);
   const handleMessageRef = useRef(handleMessage);
@@ -866,6 +911,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         deleteConversation,
         connectBrowserSim,
         simBooting,
+        ranModel,
         credit,
         pairing,
         toolCalls,

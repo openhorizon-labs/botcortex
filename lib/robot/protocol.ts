@@ -75,6 +75,11 @@ export type RobotMessage =
     }
   | { type: "tool_result"; id: string; ok: boolean; result: string }
   | { type: "state"; arms: JointState }
+  /** A saved skill's copy reaching the account registry, or failing to.
+   *  Emitted by the runtime (agent.py) and was missing from this union
+   *  entirely — a cross-repo shape mismatch that typechecked only because
+   *  nothing handled it. */
+  | { type: "sync"; skill: string; ok: boolean }
   | { type: "pong" };
 
 export type ConnectionStatus =
@@ -103,13 +108,37 @@ export function httpUrl(host: string): string {
   return `${secure ? "https" : "http"}://${host}`;
 }
 
+/** Addresses that cannot hold a public certificate, so a https page can only
+ *  ever reach them over plain ws:// — which the browser blocks. */
+function isPrivateAddress(bare: string): boolean {
+  const host = bare.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) return false; // secure context
+  if (host === "127.0.0.1" || host === "::1" || host === "[::1]") return false;
+  if (host.endsWith(".local")) return true; // mDNS: thor.local
+  return (
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^127\./.test(host)
+  );
+}
+
 /**
  * A https page may not open ws:// to a LAN address (mixed content).
- * localhost is exempt; robot-served pages are same-origin so never hit this.
+ *
+ * The test is whether the target could hold a CERTIFICATE, not whether it is
+ * localhost. This used to block every host but localhost, which was right for
+ * a robot on the LAN serving plain ws and wrong for anything public: wsUrl()
+ * already picks wss:// on a https page, so a hosted robot or the relay is a
+ * perfectly ordinary secure connection — and would have been refused before it
+ * was ever attempted.
+ *
+ * localhost and 127.0.0.1 are exempt because browsers treat them as secure
+ * contexts. Robot-served pages are same-origin, so they never reach here.
  */
 export function mixedContentBlocked(host: string): boolean {
   if (typeof window === "undefined") return false;
   if (window.location.protocol !== "https:") return false;
-  const bare = host.replace(/:\d+$/, "");
-  return bare !== "localhost" && bare !== "127.0.0.1";
+  return isPrivateAddress(host.replace(/:\d+$/, ""));
 }

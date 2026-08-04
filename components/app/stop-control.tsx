@@ -35,7 +35,12 @@ export function StopControl() {
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
   const connected = status === "connected";
-  const moving = connected && activity.startsWith("running");
+  // Teaching moves the arm too — get_positions, move_to, gripper, and running
+  // the skill it just wrote. Matching only "running" meant the button stayed
+  // quiet through the ENTIRE authoring pass, which is the longest stretch of
+  // motion in the product. workspace.tsx checks both prefixes; this did not.
+  const moving =
+    connected && (activity.startsWith("running") || activity.startsWith("teaching"));
 
   // Never leave a confirm hanging: the CLI or another operator can clear the
   // latch out from under this tab.

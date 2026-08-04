@@ -81,6 +81,7 @@ export function Composer({
               hardware will need an operator present, and is not wired yet.
             </TooltipContent>
           </Tooltip>
+          <RanOnNotice />
           <CreditReadout />
         </div>
         <Button
@@ -124,6 +125,33 @@ function CreditReadout() {
       <TooltipContent>
         {credit.display} of BotCortex credit left · {credit.spentDisplay} used
         so far. Teaching spends it; skills already learned run free.
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Says which model the last teach ACTUALLY ran on — but only when that differs
+ * from the one selected.
+ *
+ * The robot echoes the model back precisely because it is what the account was
+ * billed for, and the client used to drop that message on the floor. An owner
+ * who picked an expensive model and was served a different one had no way to
+ * find out. Silent when they agree, because then it is noise.
+ */
+function RanOnNotice() {
+  const { ranModel, model } = useRobot();
+  if (!ranModel || !model || ranModel === model) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="hidden h-6 shrink-0 items-center rounded-full border border-border px-2 font-mono text-[11px] text-muted-foreground sm:flex">
+          ran on {ranModel}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        The last teach ran on {ranModel}, not the model selected here — and that
+        is what your credit paid for.
       </TooltipContent>
     </Tooltip>
   );
