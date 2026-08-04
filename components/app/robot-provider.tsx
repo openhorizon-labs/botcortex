@@ -360,8 +360,21 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         const { id } = (await res.json()) as { id: string };
         conversationIdRef.current = id;
         setConversationId(id);
-        // replace, not push — an empty /app is not somewhere to go Back to.
-        router.replace(`/app/tasks/${id}`);
+        // The native History API, NOT router.replace.
+        //
+        // /app and /app/tasks/[id] are different route segments, so a router
+        // navigation unmounts one page component and mounts the other —
+        // fetching an RSC payload and tearing down the whole workspace,
+        // 3D view included, to render the same component with an id. What an
+        // owner saw was the app blink the instant they pressed send.
+        //
+        // Both URLs render <Workspace> under the same layout, and the id
+        // already lives in this provider, so there is nothing to fetch and
+        // nothing to remount: rewrite the address bar and stay put. Next
+        // supports this and keeps usePathname in sync — see
+        // node_modules/next/dist/docs "Native History API". A reload or a real
+        // navigation still resolves the URL through the server route.
+        window.history.replaceState(null, "", `/app/tasks/${id}`);
         return id;
       })();
       creatingRef.current.finally(() => {

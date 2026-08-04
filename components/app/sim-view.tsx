@@ -30,12 +30,51 @@ import {
   Mesh,
   MeshStandardMaterial,
   type Object3D,
+  Quaternion,
   Vector3,
 } from "three";
 import URDFLoader, { type URDFRobot } from "urdf-loader";
 
 import type { JointState, SceneBodies } from "@/lib/robot/protocol";
 import { useRobot } from "@/components/app/robot-provider";
+
+/**
+ * How fast the drawn pose catches up to the reported one, per second.
+ *
+ * The robot streams joint state at 15 Hz and the canvas renders at ~60. Setting
+ * each joint to the last message held every pose for four frames and then
+ * jumped, so a smooth 20 Hz motion was DISPLAYED as fifteen visible steps a
+ * second. The arm looked broken while behaving perfectly.
+ *
+ * This is honest about a real cost: the view now TRAILS the truth, by roughly
+ * a frame of the stream (~50 ms at this rate). That is a rendering choice and
+ * nothing else reads these values — the trace, the tool results and the
+ * verification gate all use the robot's own numbers. It is worth saying out
+ * loud in a repo that argues about honesty elsewhere: what you watch is a
+ * smoothed replay of what happened, a twentieth of a second behind.
+ */
+const CATCH_UP = 18;
+
+/** Scratch, allocated once. A new Vector3 per object per frame at 60 Hz is
+ *  thousands of allocations a second for no reason. */
+const TARGET = new Vector3();
+const SPIN = new Quaternion();
+
+/** Ease a value toward a target, framerate-independent. */
+function approach(
+  shown: Map<string, number>,
+  key: string,
+  target: number,
+  delta: number,
+): number {
+  const current = shown.get(key);
+  // First sight of a joint snaps: easing in from zero would swing the whole
+  // arm across the screen when the page loads.
+  const next =
+    current === undefined ? target : MathUtils.damp(current, target, CATCH_UP, delta);
+  shown.set(key, next);
+  return next;
+}
 
 const ROOT = "/robots/openarm_v1";
 const PACKAGES = { openarm_description: ROOT };
@@ -81,11 +120,12 @@ function Workcell({
   const group = useRef<Group>(null);
   const drawn = useRef<Map<string, Mesh>>(new Map());
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!group.current) return;
     const bodies = { ...(fixturesRef.current ?? {}), ...(objectsRef.current ?? {}) };
     for (const [name, body] of Object.entries(bodies)) {
       let mesh = drawn.current.get(name);
+      const fresh = !mesh;
       if (!mesh) {
         // Built on first sight rather than from a fixed list: a platform with
         // a different workcell needs no change here.
@@ -102,10 +142,22 @@ function Workcell({
         drawn.current.set(name, mesh);
         group.current.add(mesh);
       }
-      mesh.position.set(...body.position);
       // MuJoCo quaternions are wxyz; three.js wants xyzw.
       const [w, x, y, z] = body.orientation;
-      mesh.quaternion.set(x, y, z, w);
+      TARGET.set(...body.position);
+      SPIN.set(x, y, z, w);
+      if (fresh) {
+        // First sight snaps. Easing in from the origin would fling every block
+        // across the table on the first frame after connecting.
+        mesh.position.copy(TARGET);
+        mesh.quaternion.copy(SPIN);
+      } else {
+        // Same easing as the arm, for the same reason: a block carried by a
+        // smoothly-drawn arm must not itself arrive in 15 Hz steps.
+        const t = 1 - Math.exp(-CATCH_UP * delta);
+        mesh.position.lerp(TARGET, t);
+        mesh.quaternion.slerp(SPIN, t);
+      }
     }
   });
 
@@ -199,23 +251,24 @@ function ArmModel({
     });
   }, []);
 
-  useFrame(() => {
+  /** Where each joint is DRAWN, which trails where the robot says it is. */
+  const shown = useRef(new Map<string, number>());
+
+  useFrame((_, delta) => {
     const state = stateRef.current;
     if (!robot || !state) return;
     for (const [arm, joints] of Object.entries(state)) {
       for (const [joint, deg] of Object.entries(joints)) {
-        if (joint === "gripper") {
-          // finger_joint2 mimics finger_joint1 — urdf-loader applies it for us.
-          robot.setJointValue(
-            `openarm_${arm}_finger_joint1`,
-            gripperDegToMeters(deg, gripper),
-          );
-        } else {
-          robot.setJointValue(
-            `openarm_${arm}_joint${joint.slice(1)}`,
-            MathUtils.degToRad(deg),
-          );
-        }
+        const name =
+          joint === "gripper"
+            ? `openarm_${arm}_finger_joint1`
+            : `openarm_${arm}_joint${joint.slice(1)}`;
+        const target =
+          joint === "gripper"
+            ? gripperDegToMeters(deg, gripper)
+            : MathUtils.degToRad(deg);
+        // finger_joint2 mimics finger_joint1 — urdf-loader applies it for us.
+        robot.setJointValue(name, approach(shown.current, name, target, delta));
       }
     }
   });
