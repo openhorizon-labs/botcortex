@@ -118,8 +118,13 @@ function CreditReadout() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="hidden h-6 shrink-0 items-center rounded-full px-1.5 font-mono text-xs text-muted-foreground sm:flex">
-          {credit.display}
+        {/* "left", not a bare figure. Unlabelled beside a Send button it read
+            as the price of this task; the sidebar shows used/total and
+            Settings shows both, so this is the third rendering of one number
+            and the only one that had no word attached. */}
+        <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-xs text-muted-foreground sm:flex">
+          <span className="font-mono">{credit.display}</span>
+          <span className="opacity-70">left</span>
         </span>
       </TooltipTrigger>
       <TooltipContent>

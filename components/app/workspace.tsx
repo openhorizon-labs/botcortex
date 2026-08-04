@@ -332,7 +332,16 @@ function AppInner() {
                         tooltip={thread.title ?? "Untitled task"}
                         className="cursor-pointer data-[active=true]:border data-[active=true]:border-border data-[active=true]:bg-background"
                       >
-                        <MessageSquare />
+                        {/* Collapsed, the sidebar becomes a rail of icons —
+                            and seven tasks were seven IDENTICAL speech
+                            bubbles, distinguishable only by hovering each one
+                            in turn. The first letter of the task is what
+                            someone actually scans for, and it costs nothing
+                            when expanded because the icon is hidden there. */}
+                        <span className="hidden size-4 shrink-0 items-center justify-center rounded-[4px] bg-foreground/10 text-[10px] font-medium uppercase group-data-[collapsible=icon]:flex">
+                          {(thread.title ?? "?").trim().charAt(0) || "?"}
+                        </span>
+                        <MessageSquare className="group-data-[collapsible=icon]:hidden" />
                         <span className="truncate">{thread.title ?? "Untitled task"}</span>
                       </SidebarMenuButton>
                       <SidebarMenuAction
@@ -391,7 +400,10 @@ function AppInner() {
                         onClick={() => handleRunSkill(s)}
                         className={cn("cursor-pointer", busy && "opacity-50")}
                       >
-                        <Wrench />
+                        <span className="hidden size-4 shrink-0 items-center justify-center rounded-[4px] bg-foreground/10 text-[10px] font-medium uppercase group-data-[collapsible=icon]:flex">
+                          {s.trim().charAt(0) || "?"}
+                        </span>
+                        <Wrench className="group-data-[collapsible=icon]:hidden" />
                         <span className="truncate">{s}</span>
                       </SidebarMenuButton>
                       <SidebarMenuAction

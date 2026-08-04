@@ -82,7 +82,16 @@ export function ToolTrace({ call }: { call: ToolCall }) {
         <div className="space-y-3 p-4">
           {typeof code === "string" && (
             <Field label="Skill">
-              <CodeBlock code={code} language="python" />
+              {/* Wrapped, not scrolled. The skill is the product's main
+                  artifact and roughly two thirds of it sat outside the
+                  viewport: the block DID scroll horizontally, but macOS
+                  overlay scrollbars leave no visible affordance, so every
+                  ctx.move_to line simply ended mid-argument. Overriding the
+                  vendored CodeBlock's <pre> here rather than editing it keeps
+                  ai-elements re-syncable. */}
+              <div className="[&_pre]:whitespace-pre-wrap [&_pre]:break-words">
+                <CodeBlock code={code} language="python" />
+              </div>
             </Field>
           )}
 
