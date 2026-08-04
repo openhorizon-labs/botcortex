@@ -28,6 +28,18 @@ export type ToolDispatch = (
   args: Record<string, unknown>,
 ) => Promise<string>;
 
+/** Why the robot may not call the task done — see RobotSession.unverified. */
+export interface Pushback {
+  /** What to tell the model, in words it can act on. */
+  agent: string;
+  /** What to tell the owner, if the model still cannot back its claim up. */
+  owner: string;
+  /** No version of this ends with the task done — a latched e-stop, say. The
+   *  loop stops rather than arguing, which would only spend the owner's
+   *  credit on turns that cannot move anything. */
+  final?: boolean;
+}
+
 export interface TeachOptions {
   contract: AgentContract;
   model: string;
@@ -35,6 +47,16 @@ export interface TeachOptions {
   prompt: string;
   dispatch: ToolDispatch;
   emit: (event: RobotMessage) => void;
+  /**
+   * Asks the runtime whether the task has actually been shown to work.
+   *
+   * The model does not get to decide it succeeded. This is the same
+   * `RobotSession.unverified()` the runtime's own loop consults — a model that
+   * saved a skill and never ran it, or whose last run was refused, is sent
+   * back to work rather than believed. Optional only so tests can leave it
+   * out; the transport always wires it.
+   */
+  verify?: () => Promise<Pushback | null>;
   /** Aborts the run — the STOP button, or the owner starting something else. */
   signal?: AbortSignal;
   /** Where inference goes. Cookie-authenticated; the browser holds no key. */
@@ -94,6 +116,7 @@ export async function teach({
   prompt,
   dispatch,
   emit,
+  verify,
   signal,
   endpoint = "/api/inference/chat",
 }: TeachOptions): Promise<TeachOutcome> {
@@ -108,7 +131,25 @@ export async function teach({
     { role: "user", content: prompt },
   ];
 
+  /**
+   * The last word to the owner, checked against what the robot actually did.
+   *
+   * When the claim is unbacked the model's own words are NOT shown: it has
+   * been told twice what was missing and is still saying otherwise, which
+   * makes its account the least reliable thing available. And the outcome
+   * carries "fail", which is what reaches `memory.log` — an attempt filed as a
+   * success comes back out of recall_episodes as an example worth following.
+   */
+  const finish = (said: string, pushback: Pushback | null): TeachOutcome => {
+    const spoken = (pushback ? pushback.owner : said).trim();
+    if (spoken) emit({ type: "chat", text: spoken });
+    return pushback
+      ? { text: spoken, outcome: "fail", error: "unverified" }
+      : { text: spoken, outcome: "ok" };
+  };
+
   let text = "";
+  let followUps = contract.max_follow_ups ?? 2;
   try {
     for (let turn = 0; turn < contract.max_iterations; turn++) {
       if (signal?.aborted) {
@@ -138,15 +179,27 @@ export async function teach({
       const choice = data.choices?.[0]?.message;
       if (!choice) return { text: "The agent produced no response.", outcome: "fail" };
 
-      if (choice.content) {
-        text = choice.content;
-        emit({ type: "chat", text: choice.content });
-      }
+      if (choice.content) text = choice.content;
 
       const calls: ToolCall[] = choice.tool_calls ?? [];
       if (calls.length === 0) {
-        return { text, outcome: "ok" };
+        // The model believes it is finished. Whether it is, is not its call —
+        // hence nothing emitted above: "Done, the block is in the tray!" must
+        // not reach the chat pane one turn before the robot is sent back to
+        // try again.
+        const pushback = (await verify?.()) ?? null;
+        if (pushback && followUps > 0 && !pushback.final) {
+          followUps--;
+          messages.push({ role: "assistant", content: choice.content ?? "" });
+          messages.push({ role: "user", content: pushback.agent });
+          continue;
+        }
+        return finish(text, pushback);
       }
+
+      // A turn that also calls tools is the agent narrating its work, and goes
+      // straight through to the owner.
+      if (choice.content) emit({ type: "chat", text: choice.content });
 
       messages.push({
         role: "assistant",
@@ -192,10 +245,9 @@ export async function teach({
       }
     }
 
-    return {
-      text: text || "Stopped after the iteration limit.",
-      outcome: "ok",
-    };
+    // Out of turns. Checked too — running out of iterations is not evidence
+    // that anything worked, and it used to be reported as a success.
+    return finish(text || "Stopped after the iteration limit.", (await verify?.()) ?? null);
   } catch (error) {
     if (signal?.aborted) return { text: "Stopped.", outcome: "fail", error: "aborted" };
     // Full detail to the console for whoever is debugging; one actionable

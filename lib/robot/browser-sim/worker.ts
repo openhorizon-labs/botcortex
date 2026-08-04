@@ -51,6 +51,8 @@ export type WorkerRequest =
       outcome: "ok" | "fail";
       error?: string;
     }
+  | { id: number; type: "beginTask" }
+  | { id: number; type: "verify" }
   | { id: number; type: "stop" }
   | { id: number; type: "resetStop" };
 
@@ -207,9 +209,19 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         break;
       case "callTool": {
         const output = String(session.call_tool(request.name, py.toPy(request.args)));
+        // `output` is written for the MODEL — primitive counts, rehearsal
+        // bookkeeping, how to approach an obstacle next time. `plain` is the
+        // same event for the person watching, rewritten by the runtime's own
+        // rule so the sidebar's Run button says what the robot's Run button
+        // says.
+        py.globals.set("tool_output", output);
+        const plain = py.runPython(`
+from botcortex.session import for_owner
+for_owner(tool_output)
+`) as string;
         // The motion goes back with the result so the main thread can play it;
         // the agent does not see the frames, only what the tool returned.
-        result = { output, motion: drainMotion(), ...snapshot() };
+        result = { output, plain, motion: drainMotion(), ...snapshot() };
         break;
       }
       case "reset":
@@ -248,6 +260,20 @@ session.memory.log(
 )
 `);
         result = true;
+        break;
+      case "beginTask":
+        // A new task starts with no claims about it. Without this, a skill
+        // saved during the LAST teach would count as evidence for this one.
+        py.runPython(`session.forget_evidence()`);
+        result = true;
+        break;
+      case "verify":
+        // The runtime's own gate, asked across the worker boundary rather
+        // than re-decided here — a browser that judged "done" by its own
+        // rules would be a differently strict robot wearing the same name.
+        result = JSON.parse(
+          py.runPython(`import json; json.dumps(session.unverified())`),
+        );
         break;
       case "stop":
         py.runPython(`STOP_FILE.touch()`);

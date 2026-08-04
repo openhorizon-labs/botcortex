@@ -275,3 +275,166 @@ test("the system prompt sent is the runtime's, verbatim", async () => {
   // The tools offered are the contract's, in the vendor's envelope.
   expect(seen.tools.map((t: any) => t.function.name)).toEqual(["move_to", "save_skill"]);
 });
+
+// --- the gate on saying "done" ---------------------------------------------
+//
+// Reported by the owner: "even if the agent is not able to perform something
+// properly it says the work is done and writes a skill". The loop believed it,
+// returned outcome "ok", and that value goes on to memory.log — so the attempt
+// where the arm ended up in the table was filed as a success and would come
+// back out of recall_episodes as an example worth following.
+//
+// The rule itself lives in the runtime (RobotSession.unverified) and is asked
+// across the worker boundary. What is under test here is that this loop
+// actually asks, and what it does with the answer.
+
+const UNVERIFIED = {
+  agent: "Do not stop here. You saved nod but never ran it.",
+  owner: "The robot wrote that skill but never tried it, so I can't say it works.",
+};
+
+test("a model that claims done without evidence is sent back to work", async () => {
+  const bodies: any[] = [];
+  stubModel(
+    [{ content: "All done!" }, { content: "Ran it — the block is in the tray." }],
+    (body) => bodies.push(body),
+  );
+  const { emit } = collect();
+  let asked = 0;
+  const result = await teach({
+    contract: CONTRACT,
+    model: "gpt-5.6-luna",
+    prompt: "x",
+    dispatch: async () => "",
+    emit,
+    verify: async () => (asked++ === 0 ? UNVERIFIED : null),
+  });
+
+  expect(asked).toBe(2);
+  expect(result.outcome).toBe("ok");
+  expect(result.text).toBe("Ran it — the block is in the tray.");
+  // The pushback reached the model as a user turn, in the runtime's own words.
+  const sent = bodies[bodies.length - 1].messages;
+  expect(sent.some((m: any) => m.role === "user" && m.content === UNVERIFIED.agent)).toBe(true);
+});
+
+test("a claim that never gets backed up fails the task", async () => {
+  stubModel([{ content: "Done!" }]);
+  const { emit } = collect();
+  const result = await teach({
+    contract: { ...CONTRACT, max_follow_ups: 2 },
+    model: "gpt-5.6-luna",
+    prompt: "x",
+    dispatch: async () => "",
+    emit,
+    verify: async () => UNVERIFIED,
+  });
+
+  // outcome "fail" is the line that matters: it is what reaches memory.log.
+  expect(result.outcome).toBe("fail");
+  expect(result.error).toBe("unverified");
+  expect(result.text).toBe(UNVERIFIED.owner);
+});
+
+test("the owner never hears a claim the robot could not back up", async () => {
+  stubModel([{ content: "Done!" }]);
+  const { events, emit } = collect();
+  await teach({
+    contract: CONTRACT,
+    model: "gpt-5.6-luna",
+    prompt: "x",
+    dispatch: async () => "",
+    emit,
+    verify: async () => UNVERIFIED,
+  });
+
+  const said = events.filter((e) => e.type === "chat").map((e: any) => e.text);
+  expect(said).not.toContain("Done!");
+  expect(said).toContain(UNVERIFIED.owner);
+});
+
+test("narration during tool use still reaches the owner", async () => {
+  // Only the FINAL claim waits for the check. Deferring the running commentary
+  // too would leave the chat pane silent for the whole teach.
+  stubModel([
+    {
+      content: "Looking at the table first.",
+      tool_calls: [{ id: "1", type: "function", function: { name: "move_to", arguments: "{}" } }],
+    },
+    { content: "Done." },
+  ]);
+  const { events, emit } = collect();
+  await teach({
+    contract: CONTRACT,
+    model: "gpt-5.6-luna",
+    prompt: "x",
+    dispatch: async () => "moved",
+    emit,
+    verify: async () => null,
+  });
+
+  const said = events.filter((e) => e.type === "chat").map((e: any) => e.text);
+  expect(said).toEqual(["Looking at the table first.", "Done."]);
+});
+
+test("running out of turns is not evidence that anything worked", async () => {
+  stubModel([
+    {
+      content: "still going",
+      tool_calls: [{ id: "1", type: "function", function: { name: "move_to", arguments: "{}" } }],
+    },
+  ]);
+  const { emit } = collect();
+  const result = await teach({
+    contract: { ...CONTRACT, max_iterations: 2 },
+    model: "gpt-5.6-luna",
+    prompt: "x",
+    dispatch: async () => "moved",
+    emit,
+    verify: async () => UNVERIFIED,
+  });
+
+  expect(result.outcome).toBe("fail");
+  expect(result.text).toBe(UNVERIFIED.owner);
+});
+
+test("a loop with no verifier still works", async () => {
+  // The transport always wires one; tests and any future caller need not.
+  stubModel([{ content: "ok" }]);
+  const { emit } = collect();
+  const result = await teach({
+    contract: CONTRACT,
+    model: "gpt-5.6-luna",
+    prompt: "x",
+    dispatch: async () => "",
+    emit,
+  });
+  expect(result.outcome).toBe("ok");
+});
+
+test("a final verdict is not argued with", async () => {
+  // A latched e-stop cannot be talked out of. Sending the model back would
+  // spend the owner's credit on turns that cannot move anything.
+  let asked = 0;
+  stubModel([{ content: "Nodded the right arm for you." }]);
+  const { emit } = collect();
+  const result = await teach({
+    contract: CONTRACT,
+    model: "gpt-5.6-luna",
+    prompt: "x",
+    dispatch: async () => "",
+    emit,
+    verify: async () => {
+      asked++;
+      return {
+        agent: "The e-stop is latched.",
+        owner: "Stopped: the e-stop is latched. Clear it to continue.",
+        final: true,
+      };
+    },
+  });
+
+  expect(asked).toBe(1);
+  expect(result.outcome).toBe("fail");
+  expect(result.text).toBe("Stopped: the e-stop is latched. Clear it to continue.");
+});

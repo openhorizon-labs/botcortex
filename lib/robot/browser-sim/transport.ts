@@ -147,12 +147,17 @@ export class BrowserSimTransport {
     const before = new Set(sim.skills);
     const saved: string[] = [];
 
+    // Nothing this teach has not itself shown counts as evidence for it.
+    await sim.beginTask();
+
     const result = await teach({
       contract: sim.contract,
       model,
       prompt,
       signal: this.abort?.signal,
       emit: this.emit,
+      // The gate on saying "done" — the runtime's, not a second copy of it.
+      verify: () => sim.verify(),
       dispatch: async (name, args) => {
         const out = await sim.callTool(name, args, (arms) =>
           this.emit({ type: "state", arms, objects: sim.scene.objects }),
@@ -174,11 +179,16 @@ export class BrowserSimTransport {
 
   private async runSkill(sim: BrowserSim, name: string) {
     this.emit({ type: "status", state: "running", detail: name });
-    const result = await sim.callTool(
+    const reply = await sim.runTool(
       "run_skill",
       { name, params_json: "{}" },
       (arms) => this.emit({ type: "state", arms, objects: sim.scene.objects }),
     );
-    this.emit({ type: "chat", text: result });
+    // The owner-facing wording, not the model's. What run_skill returns is
+    // written for something that has to repair a skill — primitive counts,
+    // rehearsal bookkeeping, advice on approaching an obstacle. The rule that
+    // rewrites it is the runtime's, so this button and the robot's own say the
+    // same thing.
+    this.emit({ type: "chat", text: reply.plain });
   }
 }

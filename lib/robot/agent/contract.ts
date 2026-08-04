@@ -29,6 +29,11 @@ export interface AgentContract {
   version: string;
   system_prompt: string;
   max_iterations: number;
+  /** How many times a model that claims it is finished without evidence gets
+   *  sent back to work. From the runtime for the same reason the prompt is: a
+   *  browser that pushed back a different number of times would be a
+   *  differently strict robot wearing the same name. */
+  max_follow_ups?: number;
   /** How a tool reports failure IN ITS RETURN VALUE rather than by raising.
    *  Comes from the runtime because the runtime owns the convention: without
    *  it this loop marked every call ok, so a failed one wore a green

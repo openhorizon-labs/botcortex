@@ -19,6 +19,7 @@
  */
 
 import { type AgentContract, parseContract } from "@/lib/robot/agent/contract";
+import type { Pushback } from "@/lib/robot/agent/loop";
 import type { JointState, SceneBodies } from "@/lib/robot/protocol";
 import type { WorkerRequest, WorkerResponse } from "@/lib/robot/browser-sim/worker";
 
@@ -38,7 +39,10 @@ type PendingRequest = WorkerRequest extends infer R
   : never;
 
 interface ToolReply {
+  /** What the MODEL is handed back. */
   output: string;
+  /** The same event for the person watching — see session.for_owner. */
+  plain: string;
   motion: Array<{ arm: string; positions: Record<string, number> }>;
   state: JointState;
   scene: { objects: SceneBodies; fixtures: SceneBodies };
@@ -131,6 +135,15 @@ export class BrowserSim {
     args: Record<string, unknown>,
     onFrame: (state: JointState) => void,
   ): Promise<string> {
+    return (await this.runTool(name, args, onFrame)).output;
+  }
+
+  /** As callTool, but keeping the owner-facing wording the Run button needs. */
+  async runTool(
+    name: string,
+    args: Record<string, unknown>,
+    onFrame: (state: JointState) => void,
+  ): Promise<ToolReply> {
     const reply: ToolReply = await this.ask({ type: "callTool", name, args });
     this.skills = reply.skills;
     this.stopped = reply.stopped;
@@ -148,7 +161,7 @@ export class BrowserSim {
       await this.ask({ type: "seek", state: this.state });
       onFrame(this.state);
     }
-    return reply.output;
+    return reply;
   }
 
   /** Returns false if STOP cut it short. */
@@ -169,6 +182,23 @@ export class BrowserSim {
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
     return true;
+  }
+
+  /** Start a task with no claims about it. See `verify`. */
+  async beginTask(): Promise<void> {
+    await this.ask({ type: "beginTask" });
+  }
+
+  /**
+   * Whether the robot can back up a claim that the task is done.
+   *
+   * Null means yes. Anything else is the runtime's own reason it cannot —
+   * asked across the boundary rather than re-decided here, because a browser
+   * that judged success by its own rules would be a differently strict robot
+   * wearing the same name.
+   */
+  async verify(): Promise<Pushback | null> {
+    return (await this.ask({ type: "verify" })) ?? null;
   }
 
   /** Record what this attempt taught, so the next teach can recall it.
