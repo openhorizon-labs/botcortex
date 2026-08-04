@@ -164,6 +164,9 @@ import json
 json.dumps({arm: session.robot.get_positions(arm) for arm in ("right", "left")})
 `),
     ),
+    // The workcell, split the way the protocol splits it: objects move and
+    // ride the state stream, fixtures do not and go in the hello.
+    scene: JSON.parse(py.runPython(`import json; json.dumps(session.robot.describe_scene())`)),
     skills: JSON.parse(py.runPython(`import json; json.dumps(session.store.names())`)),
     stopped: py.runPython(`STOP_FILE.exists()`) as boolean,
     // Straight from the loaded platform, so the viewer never has to guess.

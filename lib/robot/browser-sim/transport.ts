@@ -47,6 +47,7 @@ export class BrowserSimTransport {
       // reports paired — the sidebar figure is telling the truth here.
       paired: true,
       halfPaired: false,
+      fixtures: this.sim.scene.fixtures,
     });
     this.emit({ type: "status", state: "idle" });
 
@@ -54,7 +55,9 @@ export class BrowserSimTransport {
     // frame: the renderer wants the CURRENT pose at its own cadence, and
     // flooding it with 20 Hz updates it will coalesce anyway is wasted work.
     this.ticker = setInterval(() => {
-      if (this.sim) this.emit({ type: "state", arms: this.sim.state });
+      if (this.sim) {
+        this.emit({ type: "state", arms: this.sim.state, objects: this.sim.scene.objects });
+      }
     }, STATE_INTERVAL_MS);
   }
 
@@ -93,7 +96,9 @@ export class BrowserSimTransport {
         // Never mid-teach: teleporting the arm under a running skill would
         // corrupt what the agent is verifying. Same rule as the runtime.
         if (!this.busy) {
-          void sim.reset().then(() => this.emit({ type: "state", arms: sim.state }));
+          void sim
+            .reset()
+            .then(() => this.emit({ type: "state", arms: sim.state, objects: sim.scene.objects }));
         }
         return;
 
@@ -149,7 +154,9 @@ export class BrowserSimTransport {
       signal: this.abort?.signal,
       emit: this.emit,
       dispatch: async (name, args) => {
-        const out = await sim.callTool(name, args, (arms) => this.emit({ type: "state", arms }));
+        const out = await sim.callTool(name, args, (arms) =>
+          this.emit({ type: "state", arms, objects: sim.scene.objects }),
+        );
         // The skill list can change under save_skill; the sidebar watches this.
         this.emit({ type: "skills", skills: sim.skills });
         for (const skill of sim.skills) {
@@ -170,7 +177,7 @@ export class BrowserSimTransport {
     const result = await sim.callTool(
       "run_skill",
       { name, params_json: "{}" },
-      (arms) => this.emit({ type: "state", arms }),
+      (arms) => this.emit({ type: "state", arms, objects: sim.scene.objects }),
     );
     this.emit({ type: "chat", text: result });
   }

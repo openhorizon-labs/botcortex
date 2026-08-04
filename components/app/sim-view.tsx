@@ -21,7 +21,10 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   Box3,
+  BoxGeometry,
+  Color,
   DoubleSide,
+  type Group,
   LoadingManager,
   MathUtils,
   Mesh,
@@ -31,7 +34,7 @@ import {
 } from "three";
 import URDFLoader, { type URDFRobot } from "urdf-loader";
 
-import type { JointState } from "@/lib/robot/protocol";
+import type { JointState, SceneBodies } from "@/lib/robot/protocol";
 import { useRobot } from "@/components/app/robot-provider";
 
 const ROOT = "/robots/openarm_v1";
@@ -57,6 +60,61 @@ type GripperMap = { minDeg: number; maxDeg: number; travelM: number };
 function gripperDegToMeters(deg: number, map: GripperMap): number {
   const { minDeg: lo, maxDeg: hi, travelM } = map;
   return ((hi - deg) / (hi - lo)) * travelM;
+}
+
+/**
+ * The workcell: table, trays, blocks.
+ *
+ * Boxes, posed straight from the robot's own report — position, orientation,
+ * size and colour all come down the wire, so nothing here decides what a scene
+ * contains or what colour a "red block" is. Before this the viewer drew an arm
+ * alone in a void while the simulation it was mirroring had a table with three
+ * blocks on it, which made every manipulation task impossible to follow.
+ */
+function Workcell({
+  objectsRef,
+  fixturesRef,
+}: {
+  objectsRef: React.RefObject<SceneBodies | null>;
+  fixturesRef: React.RefObject<SceneBodies | null>;
+}) {
+  const group = useRef<Group>(null);
+  const drawn = useRef<Map<string, Mesh>>(new Map());
+
+  useFrame(() => {
+    if (!group.current) return;
+    const bodies = { ...(fixturesRef.current ?? {}), ...(objectsRef.current ?? {}) };
+    for (const [name, body] of Object.entries(bodies)) {
+      let mesh = drawn.current.get(name);
+      if (!mesh) {
+        // Built on first sight rather than from a fixed list: a platform with
+        // a different workcell needs no change here.
+        mesh = new Mesh(
+          new BoxGeometry(...body.size_m),
+          new MeshStandardMaterial({
+            color: new Color(body.colour[0], body.colour[1], body.colour[2]),
+            roughness: 0.75,
+            metalness: 0.02,
+          }),
+        );
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        drawn.current.set(name, mesh);
+        group.current.add(mesh);
+      }
+      mesh.position.set(...body.position);
+      // MuJoCo quaternions are wxyz; three.js wants xyzw.
+      const [w, x, y, z] = body.orientation;
+      mesh.quaternion.set(x, y, z, w);
+    }
+  });
+
+  // Z-up in, Y-up out — the same -90 degrees about x the arm gets. Doing it on
+  // the GROUP rather than per box means positions, sizes and quaternions all
+  // stay exactly as the robot reported them: MuJoCo's (x, y, z) with z up.
+  // Converting each mesh by hand is how the table came out 1.1 m TALL, because
+  // BoxGeometry reads its second argument as height.
+  return <group ref={group} rotation={[-Math.PI / 2, 0, 0]} />;
 }
 
 function ArmModel({
@@ -165,11 +223,17 @@ function ArmModel({
   return robot ? <primitive object={robot} /> : null;
 }
 
-/** Frames the arm once it exists, so the camera never starts pointing at air. */
+/** Frames the WORKCELL, not just the arm.
+ *
+ *  The old target sat on the torso at (0, 0.42, 0), which was right when the
+ *  arm was the only thing in the world. With a table in front of the robot it
+ *  put the near edge of that table across most of the viewport and the blocks
+ *  — the things a manipulation task is actually about — off the bottom of the
+ *  frame. Aimed between the torso and the tabletop instead. */
 function FrameOnLoad() {
   return (
     <OrbitControls
-      target={new Vector3(0, 0.42, 0)}
+      target={new Vector3(0, 0.30, 0.22)}
       enablePan={false}
       minDistance={0.5}
       maxDistance={3}
@@ -183,14 +247,17 @@ function FrameOnLoad() {
 export default function SimView() {
   const containerRef = useRef<HTMLDivElement>(null);
   // Read OUTSIDE the R3F Canvas boundary — the scene is its own React root.
-  const { jointStateRef, robot } = useRobot();
+  const { jointStateRef, objectsRef, fixturesRef, robot } = useRobot();
   const gripper = robot?.gripper ?? ASSUMED_GRIPPER;
 
   return (
     <div ref={containerRef} className="h-full w-full">
       <Canvas
         shadows
-        camera={{ position: [0.85, 0.75, 0.95], fov: 42 }}
+        // Pulled back and swung round to the working side: the table occupies
+        // x 0.12..0.42 in front of the robot, so a camera tight on the torso
+        // saw furniture rather than work.
+          camera={{ position: [0.95, 0.85, 1.15], fov: 42 }}
         gl={{ antialias: true, alpha: true }}
       >
         {/* A studio backdrop, several shades darker than the page, so the
@@ -214,6 +281,7 @@ export default function SimView() {
         <directionalLight position={[-2.5, 2, -1.5]} intensity={0.35} />
         <directionalLight position={[0, 1.5, -3]} intensity={0.25} />
         <ArmModel stateRef={jointStateRef} gripper={gripper} />
+        <Workcell objectsRef={objectsRef} fixturesRef={fixturesRef} />
         <Grid
           args={[4, 4]}
           position={[0, 0, 0]}

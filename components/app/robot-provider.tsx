@@ -16,6 +16,7 @@ import {
   type JointState,
   type RobotInfo,
   type RobotMessage,
+  type SceneBodies,
   type ClientMessage,
   httpUrl,
   mixedContentBlocked,
@@ -64,6 +65,10 @@ type RobotContextValue = {
    *  reads it per-frame; routing it through React state would re-render the
    *  whole app at stream rate. */
   jointStateRef: React.RefObject<JointState | null>;
+  /** Blocks and anything else that moves, ~15 Hz. */
+  objectsRef: React.RefObject<SceneBodies | null>;
+  /** Table and trays — set once from hello. */
+  fixturesRef: React.RefObject<SceneBodies | null>;
   connect: (rawHost: string) => void;
   disconnect: () => void;
   sendChat: (text: string, dryRun: boolean, model?: string | null) => boolean;
@@ -171,6 +176,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [pairing, setPairing] = useState<RobotContextValue["pairing"]>(null);
   /** The model the last teach actually ran on, as the robot reported it. */
   const [ranModel, setRanModel] = useState<string | null>(null);
+  /** What is on the table. Refs for the same reason joints are: the 3D scene
+   *  reads them every frame, and routing 15 Hz through React state would
+   *  re-render the whole app at stream rate. */
+  const objectsRef = useRef<SceneBodies | null>(null);
+  const fixturesRef = useRef<SceneBodies | null>(null);
   /** Whether this address has ever said hello — see the retry budgets above. */
   const greetedRef = useRef(false);
   /** Set when the robot IS this tab. Mutually exclusive with wsRef. */
@@ -539,6 +549,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           setPairing(
             msg.halfPaired ? "half" : msg.paired === true ? "paired" : msg.paired === false ? "byo" : null,
           );
+          // Furniture arrives once and never changes; a robot with no workcell
+          // sends none, and the viewer draws just the arm as before.
+          fixturesRef.current = msg.fixtures ?? null;
           break;
         case "estop":
           setStopped(msg.stopped);
@@ -590,6 +603,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           break;
         case "state":
           jointStateRef.current = msg.arms;
+          if (msg.objects) objectsRef.current = msg.objects;
           break;
         case "model":
           // Which brain ACTUALLY ran. Both backends go out of their way to
@@ -911,6 +925,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         lastChat,
         messages,
         jointStateRef,
+        objectsRef,
+        fixturesRef,
         connect,
         disconnect,
         sendChat,

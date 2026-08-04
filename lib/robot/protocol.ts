@@ -37,6 +37,18 @@ export type ClientMessage =
 /** Per-arm joint angles in degrees (gripper included), ~15 Hz. */
 export type JointState = Record<string, Record<string, number>>;
 
+/** A thing in the workcell, as the robot reports it. Metres, and full extents
+ *  rather than MuJoCo's half-extents — the conversion happens once, runtime
+ *  side, so the viewer never has to know that convention. */
+export type SceneBody = {
+  position: [number, number, number];
+  /** wxyz, so a block knocked on its corner is drawn on its corner. */
+  orientation: [number, number, number, number];
+  size_m: [number, number, number];
+  colour: [number, number, number, number];
+};
+export type SceneBodies = Record<string, SceneBody>;
+
 /** Runtime → client */
 export type RobotMessage =
   | {
@@ -55,6 +67,9 @@ export type RobotMessage =
        *  runtime refuses to teach in this state; the app must not show a
        *  credit balance as though it were being spent. */
       halfPaired?: boolean;
+      /** Immovable furniture — table, trays. Sent once because it never moves;
+       *  the things that DO move ride the state stream instead. */
+      fixtures?: SceneBodies;
     }
   /** Latch changes, including a stop file created outside this app. */
   | { type: "estop"; stopped: boolean }
@@ -74,7 +89,8 @@ export type RobotMessage =
       input: Record<string, unknown>;
     }
   | { type: "tool_result"; id: string; ok: boolean; result: string }
-  | { type: "state"; arms: JointState }
+  /** Joints, plus anything on the table that can move. */
+  | { type: "state"; arms: JointState; objects?: SceneBodies }
   /** A saved skill's copy reaching the account registry, or failing to.
    *  Emitted by the runtime (agent.py) and was missing from this union
    *  entirely — a cross-repo shape mismatch that typechecked only because

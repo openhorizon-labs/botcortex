@@ -19,7 +19,7 @@
  */
 
 import { type AgentContract, parseContract } from "@/lib/robot/agent/contract";
-import type { JointState } from "@/lib/robot/protocol";
+import type { JointState, SceneBodies } from "@/lib/robot/protocol";
 import type { WorkerRequest, WorkerResponse } from "@/lib/robot/browser-sim/worker";
 
 /** Control rate, mirrored from botcortex.config.CONTROL_HZ. Paces PLAYBACK
@@ -41,6 +41,7 @@ interface ToolReply {
   output: string;
   motion: Array<{ arm: string; positions: Record<string, number> }>;
   state: JointState;
+  scene: { objects: SceneBodies; fixtures: SceneBodies };
   skills: string[];
   stopped: boolean;
 }
@@ -61,6 +62,8 @@ export class BrowserSim {
   stopped = false;
   /** The loaded platform's gripper mapping, for the viewer. */
   gripper?: { minDeg: number; maxDeg: number; travelM: number };
+  /** What is on the table. Objects move with every tool call; fixtures do not. */
+  scene: { objects: SceneBodies; fixtures: SceneBodies } = { objects: {}, fixtures: {} };
   /** Read out of the installed wheel, never from a copy in this repo. */
   contract!: AgentContract;
 
@@ -104,6 +107,7 @@ export class BrowserSim {
     this.skills = booted.skills;
     this.stopped = booted.stopped;
     this.gripper = booted.gripper;
+    this.scene = booted.scene;
   }
 
   private ask(request: PendingRequest): Promise<any> {
@@ -130,6 +134,9 @@ export class BrowserSim {
     const reply: ToolReply = await this.ask({ type: "callTool", name, args });
     this.skills = reply.skills;
     this.stopped = reply.stopped;
+    // Where the blocks ended up. Read AFTER the tool, so a pick shows the
+    // block in the gripper rather than back where it started.
+    this.scene = reply.scene;
     const played = await this.play(reply, onFrame);
     if (played) {
       this.state = reply.state;
@@ -192,6 +199,7 @@ export class BrowserSim {
     this.aborted = false;
     const snap = await this.ask({ type: "reset" });
     this.state = snap.state;
+    this.scene = snap.scene;
   }
 
   /** Lets a teach begin from a clean slate after an abort. */
