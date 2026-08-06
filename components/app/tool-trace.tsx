@@ -14,13 +14,19 @@
  * are plain text, which cannot fail to draw.
  */
 
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-} from "@/components/ai-elements/tool";
+import { Tool, ToolContent } from "@/components/ai-elements/tool";
 import { CodeBlock } from "@/components/ai-elements/code-block";
+import { Badge } from "@/components/ui/badge";
+import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ToolCall } from "@/components/app/robot-provider";
+import {
+  CheckCircleIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  TriangleAlertIcon,
+  WrenchIcon,
+  XCircleIcon,
+} from "lucide-react";
 
 /** Plain-language labels — these are robot owners, not programmers. */
 function describe(call: ToolCall): string {
@@ -58,26 +64,60 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function ToolTrace({ call }: { call: ToolCall }) {
-  const running = call.result === undefined;
-  const failed = call.ok === false;
-  const state = running
-    ? ("input-available" as const)
-    : failed
-      ? ("output-error" as const)
-      : ("output-available" as const);
+/**
+ * The vendored ToolHeader maps every finished call to a green "Completed" —
+ * which put ✅ beside "Noting what went wrong" after a failed task, and Sai
+ * read it exactly the way anyone would: as the UI saying everything went
+ * fine. Recording a failure is a step that WORKS while meaning bad news, so
+ * it gets its own amber badge. Local copy of the header layout rather than
+ * an edit to ai-elements, same reasoning as the CodeBlock override below.
+ */
+function badge(call: ToolCall) {
+  if (call.result === undefined) {
+    return (
+      <>
+        <ClockIcon className="size-4 animate-pulse" /> Running
+      </>
+    );
+  }
+  if (call.ok === false) {
+    return (
+      <>
+        <XCircleIcon className="size-4 text-red-600" /> Error
+      </>
+    );
+  }
+  if (call.name === "log_lesson") {
+    return (
+      <>
+        <TriangleAlertIcon className="size-4 text-amber-600" /> Lesson recorded
+      </>
+    );
+  }
+  return (
+    <>
+      <CheckCircleIcon className="size-4 text-green-600" /> Completed
+    </>
+  );
+}
 
+export function ToolTrace({ call }: { call: ToolCall }) {
+  const failed = call.ok === false;
   const { code, ...args } = call.input as { code?: string };
   const hasArgs = Object.keys(args).length > 0;
 
   return (
     <Tool defaultOpen={typeof code === "string"}>
-      <ToolHeader
-        type="dynamic-tool"
-        toolName={call.name}
-        title={describe(call)}
-        state={state}
-      />
+      <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 p-3">
+        <div className="flex items-center gap-2">
+          <WrenchIcon className="size-4 text-muted-foreground" />
+          <span className="font-medium text-sm">{describe(call)}</span>
+          <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
+            {badge(call)}
+          </Badge>
+        </div>
+        <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+      </CollapsibleTrigger>
       <ToolContent>
         <div className="space-y-3 p-4">
           {typeof code === "string" && (
