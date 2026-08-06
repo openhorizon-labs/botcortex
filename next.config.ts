@@ -26,6 +26,9 @@ const nextConfig: NextConfig = {
       // through here too — same meter, same balance gate, and the browser
       // never holds a robot key.
       { source: "/api/inference/:path*", destination: `${api}/api/inference/:path*` },
+      // And its skill sync: a skill taught in the browser lands in the same
+      // account registry a robot's would.
+      { source: "/api/skills", destination: `${api}/api/skills` },
     ];
   },
 };

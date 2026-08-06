@@ -20,6 +20,36 @@ export type Emit = (message: RobotMessage) => void;
 /** ~15 Hz, matching the runtime's state stream. */
 const STATE_INTERVAL_MS = 66;
 
+/**
+ * Push one saved skill to the account registry, through the same-origin
+ * rewrite the inference calls use. The description comes from the sim's own
+ * list_skills rather than being parsed out of save_skill's reply — the reply
+ * is prose for the model, and prose formats drift.
+ */
+async function persistSkill(sim: BrowserSim, name: string, code: string) {
+  try {
+    const listed = await sim.callTool("list_skills", {}, () => {});
+    const meta = (JSON.parse(listed) as { name: string; description?: string }[]).find(
+      (skill) => skill.name === name,
+    );
+    await fetch("/api/skills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        description: meta?.description ?? "",
+        code,
+        // The wheel the sim boots is the openarm_v1 build; when a second
+        // platform ships, this should ride in the agent contract instead.
+        platform: "openarm_v1",
+      }),
+    });
+  } catch {
+    // The sim's local copy is the one that runs; the registry copy arrives
+    // late or not at all, exactly like a robot with a flaky uplink.
+  }
+}
+
 export class BrowserSimTransport {
   private sim: BrowserSim | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
@@ -167,6 +197,13 @@ export class BrowserSimTransport {
         this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
         for (const skill of sim.skills) {
           if (!before.has(skill) && !saved.includes(skill)) saved.push(skill);
+        }
+        // Phase 5: a skill saved in the browser also lands in the account
+        // registry, so pairing a real arm later finds it waiting. Fired and
+        // not awaited — best-effort like the runtime's cloud.sync_skill; the
+        // teach must not slow down or fail because the registry is away.
+        if (name === "save_skill" && out.startsWith("saved ")) {
+          void persistSkill(sim, String(args.name ?? ""), String(args.code ?? ""));
         }
         return out;
       },
