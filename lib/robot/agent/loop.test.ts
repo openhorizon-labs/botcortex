@@ -116,6 +116,42 @@ test("tool calls are dispatched and fed back, then the loop continues", async ()
   expect(finished).toMatchObject({ type: "tool_result", id: "call_1", ok: true });
 });
 
+test("a silent model's report summary still reaches the owner", async () => {
+  // GPT-5.6 ends a teach by CALLING report and writing no prose at all, which
+  // left every successful teach mute — the owner watched the arm move and was
+  // never told what the robot believed it did.
+  stubModel([
+    {
+      content: null,
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: {
+            name: "report",
+            arguments: '{"done":true,"summary":"Moved the red block out of the tray."}',
+          },
+        },
+      ],
+    },
+    { content: null },
+  ]);
+  const { events, emit } = collect();
+  const result = await teach({
+    contract: CONTRACT,
+    model: "gpt-5.6-luna",
+    prompt: "take the red cube out of the tray",
+    dispatch: async () => "recorded",
+    emit,
+  });
+
+  expect(result.outcome).toBe("ok");
+  expect(result.text).toBe("Moved the red block out of the tray.");
+  expect(
+    events.some((e) => e.type === "chat" && e.text === "Moved the red block out of the tray."),
+  ).toBe(true);
+});
+
 test("a failing tool tells the MODEL what broke, and does not end the run", async () => {
   stubModel([
     {

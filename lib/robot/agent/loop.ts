@@ -242,6 +242,20 @@ export async function teach({
         }
         emit({ type: "tool_result", id: call.id, ok, result });
         messages.push({ role: "tool", tool_call_id: call.id, content: result });
+        // report() IS the answer — the prompt says so — and some models call
+        // it without writing any closing prose, which left every SUCCESSFUL
+        // teach silent in the chat: the owner watched the arm move and was
+        // never told what the robot believed it did. The summary becomes the
+        // final text finish() speaks; a verification pushback still replaces
+        // it, so an unbacked claim is no easier to make this way.
+        if (
+          call.function.name === "report" &&
+          ok &&
+          typeof args.summary === "string" &&
+          args.summary.trim()
+        ) {
+          text = args.summary.trim();
+        }
       }
     }
 
