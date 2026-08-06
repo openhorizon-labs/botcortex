@@ -43,7 +43,15 @@ interface ToolReply {
   output: string;
   /** The same event for the person watching — see session.for_owner. */
   plain: string;
-  motion: Array<{ arm: string; positions: Record<string, number> }>;
+  /** One frame per control tick. `objects` is where every block stood at
+   *  that tick — [x, y, z, qw, qx, qy, qz] per name, straight from the
+   *  runtime's object_log — so a carried block RIDES the playback instead of
+   *  teleporting to its destination before the arm sets off. */
+  motion: Array<{
+    arm: string;
+    positions: Record<string, number>;
+    objects: Record<string, number[]> | null;
+  }>;
   state: JointState;
   scene: { objects: SceneBodies; fixtures: SceneBodies };
   skills: string[];
@@ -152,12 +160,14 @@ export class BrowserSim {
     this.skills = reply.skills;
     this.unproven = reply.unproven;
     this.stopped = reply.stopped;
-    // Where the blocks ended up. Read AFTER the tool, so a pick shows the
-    // block in the gripper rather than back where it started.
-    this.scene = reply.scene;
     const played = await this.play(reply, onFrame);
     if (played) {
       this.state = reply.state;
+      // The authoritative end state, AFTER playback: physics may settle a
+      // block a little past the last recorded frame. Setting it before
+      // playback was the teleport bug — the cube appeared at its destination
+      // and the arm then set off to fetch nothing.
+      this.scene = reply.scene;
     } else {
       // Aborted mid-playback. Assigning reply.state here — the pose physics
       // finished at — teleported the arm to the END of the move the owner had
@@ -181,6 +191,23 @@ export class BrowserSim {
       if (this.aborted) return false;
       running[entry.arm] = entry.positions;
       this.state = JSON.parse(JSON.stringify(running));
+      // The blocks move WITH the arm, frame by frame. Updated before
+      // onFrame, so both the per-frame emit and the 15 Hz ticker read the
+      // scene this frame actually showed.
+      if (entry.objects) {
+        const objects = { ...this.scene.objects };
+        for (const [name, pose] of Object.entries(entry.objects)) {
+          const known = objects[name];
+          if (known) {
+            objects[name] = {
+              ...known,
+              position: [pose[0], pose[1], pose[2]],
+              orientation: [pose[3], pose[4], pose[5], pose[6]],
+            };
+          }
+        }
+        this.scene = { ...this.scene, objects };
+      }
       onFrame(this.state);
       next += tick;
       const wait = next - performance.now();

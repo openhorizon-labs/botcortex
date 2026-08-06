@@ -191,16 +191,34 @@ json.dumps({
   };
 }
 
-/** Frames recorded by the last call, then cleared. */
+/** Frames recorded by the last call, then cleared.
+ *
+ *  Joint frames zip with object frames one to one: both are appended per
+ *  control tick and both are rewound by rehearsals, so the i-th step saw the
+ *  i-th object pose. This is what lets playback carry a picked block WITH
+ *  the arm instead of teleporting it to its destination first. */
 function drainMotion() {
   return JSON.parse(
     py.runPython(`
 import json
-log = [e for e in session.robot.motion_log if e[0] == "step"]
+steps = [e for e in session.robot.motion_log if e[0] == "step"]
+objects = list(session.robot.object_log)
 session.robot.motion_log.clear()
-json.dumps([{"arm": arm, "positions": pos} for _, arm, pos in log])
+session.robot.object_log.clear()
+json.dumps([
+    {
+        "arm": arm,
+        "positions": pos,
+        "objects": objects[i] if i < len(objects) else None,
+    }
+    for i, (_, arm, pos) in enumerate(steps)
+])
 `),
-  ) as Array<{ arm: string; positions: Record<string, number> }>;
+  ) as Array<{
+    arm: string;
+    positions: Record<string, number>;
+    objects: Record<string, number[]> | null;
+  }>;
 }
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
