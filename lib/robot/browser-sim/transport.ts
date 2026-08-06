@@ -11,9 +11,26 @@
  * message the runtime does not send, the two would have diverged.
  */
 
-import type { ClientMessage, RobotMessage } from "@/lib/robot/protocol";
+import type { ChatHistoryEntry, ClientMessage, RobotMessage } from "@/lib/robot/protocol";
 import { teach } from "@/lib/robot/agent/loop";
 import { BrowserSim } from "@/lib/robot/browser-sim/host";
+
+/**
+ * The conversation so far, rendered for the model. Each teach is a fresh
+ * model conversation, so without this "no, put it back" arrives meaning
+ * nothing — watched live: told exactly that, the agent re-ran the skill it
+ * was being corrected about. Mirrors agent.py's rendering, so a robot and a
+ * browser read the same conversation the same way.
+ */
+export function transcriptOf(history?: ChatHistoryEntry[]): string {
+  if (!history?.length) return "";
+  const lines = history
+    .filter((entry) => entry.text)
+    .map((entry) => `${entry.role === "owner" ? "Owner" : "Robot"}: ${entry.text}`)
+    .join("\n");
+  if (!lines) return "";
+  return `The conversation so far — short follow-ups and corrections refer to it:\n${lines}\n\n`;
+}
 
 export type Emit = (message: RobotMessage) => void;
 
@@ -134,7 +151,9 @@ export class BrowserSimTransport {
         return;
 
       case "chat":
-        await this.run(() => this.teach(sim, message.text, message.model ?? model));
+        await this.run(() =>
+          this.teach(sim, message.text, message.model ?? model, message.history),
+        );
         return;
 
       case "run_skill":
@@ -164,16 +183,22 @@ export class BrowserSimTransport {
     }
   }
 
-  private async teach(sim: BrowserSim, text: string, model: string) {
+  private async teach(
+    sim: BrowserSim,
+    text: string,
+    model: string,
+    history?: ChatHistoryEntry[],
+  ) {
     this.emit({ type: "status", state: "teaching", detail: "Authoring a skill" });
 
     // Past failures carry lessons — the same first step the runtime's prompt
     // instructs, done here so the model sees them in its opening message.
     const episodes = await sim.callTool("recall_episodes", { query: text }, () => {});
-    const prompt =
+    const lessons =
       episodes && episodes !== "[]"
-        ? `Relevant past episodes (apply their lessons):\n${episodes}\n\nTask: ${text}`
-        : `No relevant past episodes.\n\nTask: ${text}`;
+        ? `Relevant past episodes (apply their lessons):\n${episodes}`
+        : "No relevant past episodes.";
+    const prompt = `${transcriptOf(history)}${lessons}\n\nTask: ${text}`;
 
     const before = new Set(sim.skills);
     const saved: string[] = [];

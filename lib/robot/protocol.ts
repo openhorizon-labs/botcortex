@@ -23,11 +23,16 @@ export type PlanStep = {
   runner: "primitive" | "policy" | "vla" | "human";
 };
 
+/** One prior line of the conversation, as the owner saw it. */
+export type ChatHistoryEntry = { role: "owner" | "robot"; text: string };
+
 /** Client → runtime */
 export type ClientMessage =
   /** `model` names the brain for THIS task; absent means the robot's own
-   *  configured default. */
-  | { type: "chat"; text: string; dryRun: boolean; model?: string }
+   *  configured default. `history` is the conversation so far — each teach is
+   *  a fresh model conversation, and without it "no, put it back" arrives
+   *  meaning nothing. */
+  | { type: "chat"; text: string; dryRun: boolean; model?: string; history?: ChatHistoryEntry[] }
   | { type: "run_skill"; name: string; dryRun: boolean }
   /** Sent once per page load so a refresh gives a clean scene. The runtime
    *  ignores it while busy, and backends with a physical arm never honour it. */

@@ -840,14 +840,23 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
 
   const sendChat = useCallback(
     (text: string, dryRun: boolean, model?: string | null) => {
+      // The transcript rides with the message: each teach is a fresh model
+      // conversation, and without it "keep the red block back" arrives
+      // meaning nothing — watched live, the agent re-ran the very skill it
+      // was being corrected about. Chat text only; the tool traces are the
+      // robot's own record and would drown the words.
+      const history = messages.slice(-12).map((m) => ({
+        role: m.from === "you" ? ("owner" as const) : ("robot" as const),
+        text: m.text,
+      }));
       // The chosen model rides with the message: the runtime bills whatever it
       // is handed, so the picker has to reach it rather than the robot's
       // startup default.
-      const sent = send({ type: "chat", text, dryRun, model: model ?? undefined });
+      const sent = send({ type: "chat", text, dryRun, model: model ?? undefined, history });
       if (sent) append("you", text);
       return sent;
     },
-    [send, append],
+    [send, append, messages],
   );
 
   const runSkill = useCallback(
