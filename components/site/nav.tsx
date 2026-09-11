@@ -11,9 +11,9 @@ function GithubMark({ className }: { className?: string }) {
 }
 
 const LINKS = [
-  { href: "#features", label: "Features" },
-  { href: "#how", label: "How it works" },
-  { href: "#pricing", label: "Pricing" },
+  { href: "/#features", label: "Features" },
+  { href: "/#how", label: "How it works" },
+  { href: "/#pricing", label: "Pricing" },
 ];
 
 export function Nav() {

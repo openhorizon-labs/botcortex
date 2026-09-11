@@ -39,10 +39,21 @@ const MUJOCO_URL = "/mujoco/mujoco.js";
 const WHEEL_URL = "/botcortex/botcortex-0.0.1-py3-none-any.whl";
 
 export type WorkerRequest =
-  | { id: number; type: "boot" }
+  /** `namespace` is the signed-in account's id, or null for a session-only
+   *  robot. Skills and episodes are mounted from IndexedDB under it, so two
+   *  accounts on one browser never read each other's files. */
+  | { id: number; type: "boot"; namespace: string | null }
   | { id: number; type: "callTool"; name: string; args: Record<string, unknown> }
   | { id: number; type: "reset" }
-  | { id: number; type: "seek"; state: Record<string, Record<string, number>> }
+  | {
+      id: number;
+      type: "seek";
+      state: Record<string, Record<string, number>>;
+      /** Where every object was DRAWN when STOP landed: [x, y, z, qw, qx,
+       *  qy, qz] per name. Restored with the arm, or the next tool would plan
+       *  around a block that physics had already carried somewhere else. */
+      objects?: Record<string, number[]>;
+    }
   | {
       id: number;
       type: "logEpisode";
@@ -65,9 +76,64 @@ let py: any;
 let mj: any;
 let session: any;
 
+/** Where the robot's files live. MEMFS by default; IDBFS when an account
+ *  namespace is mounted over it. The STOP latch deliberately lives OUTSIDE
+ *  this tree: a stop file that persisted would latch the NEXT session's
+ *  robot from a stop nobody pressed, and restoring storage must never
+ *  inherit another robot's latch. */
+const DATA_ROOT = "/data";
+const STOP_PATH = "/run/STOP";
+/** Whether `/data` is backed by IndexedDB. */
+let durable = false;
+
 const progress = (stage: string) => self.postMessage({ type: "progress", stage } as WorkerResponse);
 
-async function boot() {
+/** Flush IDBFS → IndexedDB, or MEMFS → nothing. Returns why it failed. */
+async function flush(): Promise<{ flushed: boolean; error?: string }> {
+  if (!durable) return { flushed: false, error: "session only" };
+  try {
+    await new Promise<void>((resolve, reject) =>
+      py.FS.syncfs(false, (error: unknown) => (error ? reject(error) : resolve())),
+    );
+    return { flushed: true };
+  } catch (error) {
+    return { flushed: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Mount the account's files before anything reads them.
+ *
+ * Pyodide's default filesystem is MEMFS — gone on reload (see the audit's
+ * B02 and Pyodide's own docs). IDBFS keeps a copy in IndexedDB per mount
+ * point, and the mount point is the account namespace, so account B mounts a
+ * different store from account A. Hydration is awaited: constructing the
+ * session over an empty directory and syncing afterwards would let the first
+ * `list_skills` report a robot that knows nothing.
+ */
+async function mountMemory(namespace: string | null) {
+  py.FS.mkdirTree(DATA_ROOT);
+  py.FS.mkdirTree("/run");
+  if (!namespace) return;
+  // A path segment, never raw: an id with a slash would mount somewhere else.
+  const safe = encodeURIComponent(namespace);
+  const mount = `${DATA_ROOT}/${safe}`;
+  py.FS.mkdirTree(mount);
+  try {
+    py.FS.mount(py.FS.filesystems.IDBFS, {}, mount);
+    await new Promise<void>((resolve, reject) =>
+      py.FS.syncfs(true, (error: unknown) => (error ? reject(error) : resolve())),
+    );
+    durable = true;
+  } catch (error) {
+    // Private browsing, a blocked IndexedDB, a quota problem: the robot
+    // still boots, session-only, and the hello says so.
+    durable = false;
+    throw error;
+  }
+}
+
+async function boot(namespace: string | null) {
   progress("Starting Python");
   const { loadPyodide } = await import(
     /* webpackIgnore: true */ /* turbopackIgnore: true */ PYODIDE_ENTRY
@@ -124,10 +190,21 @@ json.dumps([str(p) for p in pathlib.Path("${modelDir}").rglob("*") if p.is_file(
   }
   const model = mj.MjModel.from_xml_path(`/model/${worldFile}`);
 
+  progress("Opening the robot's memory");
+  let memoryError: string | undefined;
+  try {
+    await mountMemory(namespace);
+  } catch (error) {
+    memoryError = error instanceof Error ? error.message : String(error);
+  }
+  const dataDir = namespace ? `${DATA_ROOT}/${encodeURIComponent(namespace)}` : DATA_ROOT;
+
   progress("Waking the robot");
   py.globals.set("js_mujoco", mj);
   py.globals.set("js_model", model);
   py.globals.set("js_data", new mj.MjData(model));
+  py.globals.set("data_dir", dataDir);
+  py.globals.set("stop_path", STOP_PATH);
   py.runPython(`
 from pathlib import Path
 from botcortex.memory import EpisodeMemory
@@ -135,14 +212,16 @@ from botcortex.session import RobotSession
 from botcortex.skills import SkillStore
 from botcortex.wasm import WasmRobot
 
-Path("/data/skills").mkdir(parents=True, exist_ok=True)
-STOP_FILE = Path("/data/STOP")
+_data = Path(data_dir)
+(_data / "skills").mkdir(parents=True, exist_ok=True)
+STOP_FILE = Path(stop_path)
+STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
 session = RobotSession(
     # realtime=False: the trajectory is identical either way, and the main
     # thread paces PLAYBACK instead — see host.ts.
     WasmRobot(js_mujoco, js_model, js_data, stop_file=STOP_FILE, realtime=False),
-    store=SkillStore("/data/skills"),
-    memory=EpisodeMemory("/data/episodes.jsonl"),
+    store=SkillStore(_data / "skills"),
+    memory=EpisodeMemory(_data / "episodes.jsonl"),
 )
 `);
   session = py.globals.get("session");
@@ -153,9 +232,13 @@ session = RobotSession(
 import pathlib, botcortex
 (pathlib.Path(botcortex.__file__).parent / "agent_contract.json").read_text()
 `),
+    memory: { durable, error: memoryError },
     ...snapshot(),
   };
 }
+
+/** Tools whose side effects live in /data and must reach IndexedDB. */
+const PERSISTING_TOOLS = new Set(["save_skill", "run_skill", "log_lesson"]);
 
 /** Pose and skill list, as plain JSON. */
 function snapshot() {
@@ -227,10 +310,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     let result: unknown;
     switch (request.type) {
       case "boot":
-        result = await boot();
+        result = await boot(request.namespace);
         break;
       case "callTool": {
         const output = String(session.call_tool(request.name, py.toPy(request.args)));
+        // Flushed BEFORE the reply, so "saved" on screen means saved in
+        // IndexedDB — and a flush that fails rides back with the reply
+        // rather than being discovered on the next reload.
+        const memory = PERSISTING_TOOLS.has(request.name) ? await flush() : null;
         // `output` is written for the MODEL — primitive counts, rehearsal
         // bookkeeping, how to approach an obstacle next time. `plain` is the
         // same event for the person watching, rewritten by the runtime's own
@@ -243,7 +330,7 @@ for_owner(tool_output)
 `) as string;
         // The motion goes back with the result so the main thread can play it;
         // the agent does not see the frames, only what the tool returned.
-        result = { output, plain, motion: drainMotion(), ...snapshot() };
+        result = { output, plain, motion: drainMotion(), memory, ...snapshot() };
         break;
       }
       case "reset":
@@ -255,12 +342,22 @@ for_owner(tool_output)
         // behind the one physics finished. Rewind physics to the displayed
         // pose, or the next move would plan its delta from a position that was
         // never shown and the e-stop would have "moved" the arm.
+        // The objects too (audit B05): a stopped carry left the block where
+        // physics had finished while the owner looked at it mid-air, and the
+        // next move planned around the wrong scene. `place_objects` is the
+        // runtime's own reset path; a public snapshot API in the wheel is
+        // still the right long-term home for all of this.
         py.globals.set("seek_state", py.toPy(request.state));
+        py.globals.set("seek_objects", py.toPy(request.objects ?? {}));
         py.runPython(`
+from botcortex import scene as _scene
 for _arm, _joints in seek_state.items():
     for _joint, _deg in _joints.items():
         session.robot._write_target(_arm, _joint, _deg)
         session.robot._write_qpos(_arm, _joint, _deg)
+_known = {k: list(v) for k, v in seek_objects.items() if k in session.robot._object_addr and len(v) == 7}
+if _known:
+    _scene.place_objects(session.robot.data.qpos, session.robot._object_addr, _known)
 for _i in range(len(session.robot.data.qvel)):
     session.robot.data.qvel[_i] = 0.0
 js_mujoco.mj_forward(js_model, js_data)
@@ -281,7 +378,7 @@ session.memory.log(
     error=episode.get("error"),
 )
 `);
-        result = true;
+        result = await flush();
         break;
       case "beginTask":
         // A new task starts with no claims about it. Without this, a skill

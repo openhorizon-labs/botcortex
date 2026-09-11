@@ -7,7 +7,9 @@
     "build": "bun run vendor && next build",
     "start": "next start",
     "test": "bun test",
-    "vendor": "bun scripts/vendor-runtimes.ts"
+    "typecheck": "tsc --noEmit",
+    "vendor": "bun scripts/vendor-runtimes.ts",
+    "worker:watch": "bun scripts/worker-watch.ts"
   },
   "dependencies": {
     "@calcom/embed-react": "^1.5.3",

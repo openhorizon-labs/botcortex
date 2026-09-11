@@ -82,6 +82,8 @@ export function DeviceForm() {
         return;
       }
       setPhase(approve ? "approved" : "denied");
+    } catch {
+      setError("Could not reach BotCortex. Check your connection and retry.");
     } finally {
       setBusy(false);
     }

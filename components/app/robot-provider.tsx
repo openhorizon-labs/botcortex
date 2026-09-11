@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 
 import { BrowserSimTransport } from "@/lib/robot/browser-sim/transport";
+import { Outbox, type OutboxState } from "@/lib/robot/outbox";
 import {
   createContext,
   useCallback,
@@ -14,18 +15,19 @@ import {
 import {
   type ConnectionStatus,
   type JointState,
+  type RobotEndpoint,
   type RobotInfo,
   type RobotMessage,
   type SceneBodies,
   type ClientMessage,
   httpUrl,
   mixedContentBlocked,
-  normalizeHost,
+  parseRobotEndpoint,
+  parseRobotMessage,
   wsUrl,
 } from "@/lib/robot/protocol";
 
 const STORAGE_KEY = "botcortex.robot";
-const RETRY_DELAY_MS = 3000;
 /** Retries for a robot that has ALREADY answered once — a Wi-Fi blip, a
  *  runtime restart. Patience is right there: the robot is real and coming back. */
 const MAX_RETRIES = 5;
@@ -35,6 +37,10 @@ const MAX_RETRIES = 5;
  *  no idea whether the product was working. Failing fast is what surfaces the
  *  in-browser robot, which is the answer for anyone without hardware. */
 const MAX_RETRIES_BEFORE_FIRST_HELLO = 0;
+/** Bounded exponential backoff between retries: 1, 2, 4, 8, 15 seconds.
+ *  A fixed three seconds hammered a rebooting runtime at the worst moment
+ *  and gave up on it just as it came back. */
+const backoffMs = (attempt: number) => Math.min(15_000, 1000 * 2 ** (attempt - 1));
 /** How long one attempt may sit in TCP connect before we call it dead.
  *
  *  Cutting the retry COUNT was not enough, and it is worth recording why: an
@@ -42,12 +48,49 @@ const MAX_RETRIES_BEFORE_FIRST_HELLO = 0;
  *  the socket does not error — it hangs until the browser's own connect
  *  timeout, tens of seconds later. The count never dominated; this does. */
 const CONNECT_DEADLINE_MS = 4000;
+/** Liveness (audit B06). The runtime streams state at ~15 Hz, so a healthy
+ *  socket is never quiet; a ping every few seconds covers an idle backend
+ *  that does not stream, and silence past STALE_AFTER_MS means the socket is
+ *  half-open — "established" to the browser, dead on the wire. The
+ *  telemetry is then labelled stale, and past DEAD_AFTER_MS the socket is
+ *  closed so the retry path takes over instead of showing a frozen arm as
+ *  a live one indefinitely. */
+const PING_INTERVAL_MS = 5000;
+const STALE_AFTER_MS = 3000;
+const DEAD_AFTER_MS = 15_000;
+/** The api caps history at 500 rows per request (no cursor yet). Asking for
+ *  the cap and noticing when it is hit is what "older events not loaded"
+ *  rests on until pagination lands on the api side. */
+const HISTORY_LIMIT = 500;
 
 export type ChatMessage = {
   id: string;
   from: "you" | "robot";
   text: string;
   at: number;
+};
+
+/**
+ * The e-stop latch as this app can vouch for it (audit B07).
+ *
+ * "latched" is a runtime acknowledgement — an estop event, a hello that says
+ * so, or a 200 from the STOP endpoint. "pending" is a request in flight.
+ * "unknown" is a latch that was confirmed and then the socket went away:
+ * the CLI or another operator may have cleared it, and this tab cannot say.
+ */
+export type StopState = "clear" | "pending" | "latched" | "unknown";
+
+/** Whether the robot's skills and episodes outlive this session. */
+export type MemoryState = {
+  durable: boolean;
+  unsaved: boolean;
+  detail: string | null;
+};
+
+/** The run the robot is on, and the task it was started from (audit B01). */
+export type ActiveRun = {
+  runId: string;
+  conversationId: string | null;
 };
 
 type RobotContextValue = {
@@ -78,6 +121,8 @@ type RobotContextValue = {
   stop: () => Promise<boolean>;
   /** True while the e-stop is latched — motion stays blocked until cleared. */
   stopped: boolean;
+  /** The latch with its uncertainty kept: see StopState. */
+  stopState: StopState;
   /** Clears the e-stop file. Deliberately separate from stop() so the UI can
    *  make un-blocking a two-step, considered action. */
   resetStop: () => Promise<boolean>;
@@ -105,6 +150,22 @@ type RobotContextValue = {
   pairing: "paired" | "byo" | "half" | null;
   /** What the agent is doing right now, oldest first. */
   toolCalls: ToolCall[];
+  /** The run in progress (or the last one), and the task it belongs to —
+   *  so a running task stays discoverable from any view. */
+  activeRun: ActiveRun | null;
+  /** Writes to the transcript store that have not landed, and failures. */
+  persistence: OutboxState;
+  retryPersistence: () => Promise<void>;
+  /** True when the loaded task hit the api's row cap, so older events exist
+   *  that this tab has not loaded. */
+  historyTruncated: boolean;
+  /** How the connected robot keeps its files. Null until it says. */
+  memory: MemoryState | null;
+  /** Skills saved on the robot whose copy did not reach the registry. */
+  syncFailures: string[];
+  retrySync: (name: string) => boolean;
+  /** Socket open, nothing heard for a while: the arm on screen is old news. */
+  telemetryStale: boolean;
 
   /* Session-scoped UI choices. They live here rather than in the page because
      the first message navigates /app -> /app/tasks/<id>, which remounts the
@@ -130,8 +191,8 @@ export type Credit = {
   grantedDisplay: string;
 };
 
-/** One reach into the runtime, from call to result. Live-only: traces are not
- *  persisted, so reopening an old thread shows its words but not its workings. */
+/** One reach into the runtime, from call to result. Finished calls are also
+ *  persisted with the conversation and restored when the task is opened. */
 export type ToolCall = {
   id: string;
   name: string;
@@ -146,6 +207,23 @@ export type Conversation = {
   title: string | null;
   updatedAt: string;
   messages: number;
+};
+
+/**
+ * One run's binding to the task it started from.
+ *
+ * Made the instant the owner presses send, BEFORE the thread exists on the
+ * api: `thread` resolves to the id once the create round-trip lands, and
+ * `epoch` is the selection counter at that moment, so "is this run's task
+ * the one on screen" can be answered synchronously while the id is still
+ * in flight. Events file against `thread`, never against whatever the
+ * sidebar has selected by the time they arrive.
+ */
+type RunBinding = {
+  runId: string;
+  thread: Promise<string>;
+  threadId: string | null;
+  epoch: number;
 };
 
 const RobotContext = createContext<RobotContextValue | null>(null);
@@ -173,12 +251,18 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [activity, setActivity] = useState("idle");
   const [lastChat, setLastChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [stopped, setStopped] = useState(false);
+  const [stopState, setStopState] = useState<StopState>("clear");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credit, setCredit] = useState<Credit | null>(null);
   const [pairing, setPairing] = useState<RobotContextValue["pairing"]>(null);
   /** The model the last teach actually ran on, as the robot reported it. */
   const [ranModel, setRanModel] = useState<string | null>(null);
+  const [memory, setMemory] = useState<MemoryState | null>(null);
+  const [syncFailures, setSyncFailures] = useState<string[]>([]);
+  const [telemetryStale, setTelemetryStale] = useState(false);
+  const [historyTruncated, setHistoryTruncated] = useState(false);
+  const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
+  const [persistence, setPersistence] = useState<OutboxState>({ pending: 0, failed: 0, lastFailure: null });
   /** What is on the table. Refs for the same reason joints are: the 3D scene
    *  reads them every frame, and routing 15 Hz through React state would
    *  re-render the whole app at stream rate. */
@@ -191,7 +275,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const [simBooting, setSimBooting] = useState<string | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   /**
-   * The authoritative list, written synchronously.
+   * The authoritative list of what is ON SCREEN, written synchronously.
    *
    * `tool` and `tool_result` land milliseconds apart — often before React has
    * flushed a render — so a ref synced from state in an effect is still empty
@@ -204,6 +288,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     toolCallsRef.current = next;
     setToolCalls(next);
   }, []);
+  /** Every live call of every run, whether or not its task is on screen, so
+   *  a result arriving for a task the owner has switched away from can still
+   *  be filed with its arguments. */
+  const liveCallsRef = useRef<Map<string, { call: ToolCall; run: RunBinding | null }>>(new Map());
   const [simOpen, setSimOpen] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [model, setModel] = useState<string | null>(null);
@@ -224,79 +312,77 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   /** Set the instant anything is said, synchronously, so the rehydrate below
    *  can tell whether it would be trampling a live conversation. */
   const spokeRef = useRef(false);
+  const historyVersionRef = useRef(0);
 
-  /** Persist one message. Fire-and-forget: the transcript is a record, and
-   *  losing a line of it must never interrupt teaching a robot. */
-  const persist = useCallback(async (msg: ChatMessage) => {
+  /** The outbox outlives every callback below and reports into state. */
+  const outboxRef = useRef<Outbox | null>(null);
+  if (!outboxRef.current) {
+    outboxRef.current = new Outbox({ onChange: setPersistence });
+  }
+  const retryPersistence = useCallback(() => outboxRef.current!.retryFailed(), []);
+
+  /** Run bindings: the one in progress, and every one by id for events that
+   *  name theirs (protocol v2). */
+  const activeRunRef = useRef<RunBinding | null>(null);
+  const runsRef = useRef<Map<string, RunBinding>>(new Map());
+
+  /** Persist one message under an explicit thread. Fire-and-forget: the
+   *  transcript is a record, and losing a line of it must never interrupt
+   *  teaching a robot — but losing it SILENTLY is what the outbox ends. */
+  const persist = useCallback(async (msg: ChatMessage, thread: Promise<string>) => {
+    let id: string;
     try {
       // Creates the thread if this is the first thing said in it. Dropping the
       // message when no thread existed yet is how the opening line of a
       // conversation went missing.
-      const thread = await ensureConversationRef.current();
-      await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: msg.id,
-          conversationId: thread,
-          author: msg.from,
-          text: msg.text,
-        }),
-      });
-      await refreshConversationsRef.current();
+      id = await thread;
     } catch {
-      /* offline: the message is already on screen, just not filed */
+      // Offline at the moment of creation: there is no thread to file under,
+      // and inventing one client-side would be a row the api never owned.
+      return;
     }
+    const saved = await outboxRef.current!.post(msg.id, "/api/messages", {
+      id: msg.id,
+      conversationId: id,
+      author: msg.from,
+      text: msg.text,
+    });
+    if (saved) void refreshConversationsRef.current();
   }, []);
 
   /** Store a finished tool call alongside the conversation, so reopening a
    *  task shows HOW a skill was authored and not merely that it was. */
   const persistTool = useCallback(
-    async (call: { id: string; result?: string; ok?: boolean }) => {
-    try {
-      const live = toolCallsRef.current.find((c) => c.id === call.id);
-      if (!live) return;
-      // Await the task rather than bailing when it does not exist yet. The
-      // agent starts calling tools within a second of the message being sent,
-      // which is faster than the round-trip that creates the task — so a
-      // "skip if missing" check silently dropped the OPENING calls of every
-      // teach, which are the ones that show what it looked at first.
-      const thread = await ensureConversationRef.current();
-      await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          // Namespaced by task. The runtime's call id is 8 hex characters —
-          // a correlation handle for one teach, never meant to be a key
-          // across every conversation in the database. Used raw, repeats
-          // landed on rows belonging to other tasks, where onConflictDoNothing
-          // silently discarded them: the trace looked saved and was not.
-          // Still deterministic, so a retry updates rather than duplicates.
-          id: `${thread}:${call.id}`,
-          conversationId: thread,
-          author: "robot",
-          kind: "tool",
-          text: live.name,
-          payload: {
-            name: live.name,
-            input: live.input,
-            result: call.result,
-            ok: call.ok,
-          },
-        }),
+    async (call: { id: string; result?: string; ok?: boolean }, live: ToolCall, thread: Promise<string>) => {
+      let id: string;
+      try {
+        id = await thread;
+      } catch {
+        return;
+      }
+      // Namespaced by task. The runtime's call id is 8 hex characters —
+      // a correlation handle for one teach, never meant to be a key
+      // across every conversation in the database. Used raw, repeats
+      // landed on rows belonging to other tasks, where onConflictDoNothing
+      // silently discarded them: the trace looked saved and was not.
+      // Still deterministic, so a retry updates rather than duplicates.
+      const rowId = `${id}:${call.id}`;
+      await outboxRef.current!.post(rowId, "/api/messages", {
+        id: rowId,
+        conversationId: id,
+        author: "robot",
+        kind: "tool",
+        text: live.name,
+        payload: {
+          name: live.name,
+          input: live.input,
+          result: call.result,
+          ok: call.ok,
+        },
       });
-    } catch {
-      /* the trace is a record; losing one must not disturb teaching */
-    }
     },
     [],
   );
-
-
-  const persistToolRef = useRef(persistTool);
-  useEffect(() => {
-    persistToolRef.current = persistTool;
-  }, [persistTool]);
 
   /** open() is built once, so it reaches these through refs. */
   const putToolCallsRef = useRef(putToolCalls);
@@ -304,24 +390,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     putToolCallsRef.current = putToolCalls;
   }, [putToolCalls]);
 
-  const append = useCallback(
-    (from: ChatMessage["from"], text: string) => {
-      // crypto.randomUUID, not a timestamp+index: the id is the dedup key on
-      // the server, so it has to survive a reload and a retried POST.
-      spokeRef.current = true;
-      const msg: ChatMessage = {
-        id: crypto.randomUUID(),
-        from,
-        text,
-        at: Date.now(),
-      };
-      setMessages((prev) => [...prev, msg]);
-      void persist(msg);
-    },
-    [persist],
-  );
-
   const wsRef = useRef<WebSocket | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionEpochRef = useRef(0);
   const retriesRef = useRef(0);
   const intentionalCloseRef = useRef(false);
   const jointStateRef = useRef<JointState | null>(null);
@@ -332,15 +403,21 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const didLoadHistoryRef = useRef(false);
   /** Was the robot working on the last status? Drives the sim reveal. */
   const workingRef = useRef(false);
+  /** The validated address of the robot on the socket, for STOP over REST. */
+  const endpointRef = useRef<RobotEndpoint | null>(null);
+  /** Once the owner has chosen a robot (or the sim) by hand, late automatic
+   *  discovery — the saved host, the account's paired list — must not
+   *  override it (audit B06). */
+  const manualChoiceRef = useRef(false);
+  /** Liveness bookkeeping for the socket. */
+  const lastHeardRef = useRef(0);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  /** open() is built once with empty deps, so reaching append directly would
-   *  capture the first render's copy forever. */
-  const appendRef = useRef(append);
-  useEffect(() => {
-    appendRef.current = append;
-  }, [append]);
-
+  const threadEpochRef = useRef(0);
+  const creatingRef = useRef<Promise<string> | null>(null);
   const selectThread = useCallback((id: string | null) => {
+    threadEpochRef.current++;
+    creatingRef.current = null;
     conversationIdRef.current = id;
     setConversationId(id);
   }, []);
@@ -352,17 +429,20 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
    * every single load — and since the sidebar hides empty threads, those
    * orphans were invisible while they piled up.
    */
-  const creatingRef = useRef<Promise<string> | null>(null);
   const ensureConversation = useCallback(async (): Promise<string> => {
     const existing = conversationIdRef.current;
     if (existing) return existing;
     // One in-flight create at a time: two messages sent together must land in
     // the same thread, not race into two.
     if (!creatingRef.current) {
-      creatingRef.current = (async () => {
+      const epoch = threadEpochRef.current;
+      const creation = (async () => {
         const res = await fetch("/api/conversations", { method: "POST" });
         if (!res.ok) throw new Error("could not start a conversation");
         const { id } = (await res.json()) as { id: string };
+        // Still file the original message, but do not navigate back after the
+        // owner has selected another task while this POST was in flight.
+        if (threadEpochRef.current !== epoch) return id;
         conversationIdRef.current = id;
         setConversationId(id);
         // The native History API, NOT router.replace.
@@ -382,17 +462,79 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         window.history.replaceState(null, "", `/app/tasks/${id}`);
         return id;
       })();
-      creatingRef.current.finally(() => {
-        creatingRef.current = null;
-      });
+      creatingRef.current = creation;
+      const settled = () => {
+        if (creatingRef.current === creation) creatingRef.current = null;
+      };
+      void creation.then(settled, settled);
     }
     return creatingRef.current;
-  }, [router]);
+  }, []);
 
-  const ensureConversationRef = useRef(ensureConversation);
-  useEffect(() => {
-    ensureConversationRef.current = ensureConversation;
+  /**
+   * Bind a new run to the task on screen, right now.
+   *
+   * The thread promise is captured HERE, so every event the run emits files
+   * against the task the owner pressed send in — even after they open
+   * another one. Resolution is recorded so later events can compare ids
+   * synchronously.
+   */
+  const startRun = useCallback((): RunBinding => {
+    const thread = ensureConversation();
+    const run: RunBinding = {
+      runId: crypto.randomUUID(),
+      thread,
+      threadId: conversationIdRef.current,
+      epoch: threadEpochRef.current,
+    };
+    void thread.then((id) => { run.threadId = id; }, () => {});
+    runsRef.current.set(run.runId, run);
+    activeRunRef.current = run;
+    // Bounded: only the runs that could still have late events matter.
+    if (runsRef.current.size > 20) {
+      const oldest = runsRef.current.keys().next().value;
+      if (oldest) runsRef.current.delete(oldest);
+    }
+    setActiveRun({ runId: run.runId, conversationId: run.threadId });
+    void thread.then((id) => setActiveRun((current) =>
+      current?.runId === run.runId ? { runId: run.runId, conversationId: id } : current), () => {});
+    return run;
   }, [ensureConversation]);
+
+  /** Which run an event belongs to: the one it names, else the one in progress. */
+  const runFor = useCallback((runId?: string): RunBinding | null => {
+    if (runId) {
+      const named = runsRef.current.get(runId);
+      if (named) return named;
+    }
+    return activeRunRef.current;
+  }, []);
+
+  /** Whether a run's task is the one on screen — answerable before the
+   *  thread id exists, via the selection epoch. */
+  const onScreen = useCallback((run: RunBinding | null): boolean => {
+    if (!run) return true;
+    if (run.threadId) return run.threadId === conversationIdRef.current;
+    return run.epoch === threadEpochRef.current;
+  }, []);
+
+  const appendTo = useCallback(
+    (from: ChatMessage["from"], text: string, run: RunBinding | null) => {
+      historyVersionRef.current++;
+      // crypto.randomUUID, not a timestamp+index: the id is the dedup key on
+      // the server, so it has to survive a reload and a retried POST.
+      spokeRef.current = true;
+      const msg: ChatMessage = {
+        id: crypto.randomUUID(),
+        from,
+        text,
+        at: Date.now(),
+      };
+      if (onScreen(run)) setMessages((prev) => [...prev, msg]);
+      void persist(msg, run ? run.thread : ensureConversation());
+    },
+    [persist, ensureConversation, onScreen],
+  );
 
   const refreshCredit = useCallback(async () => {
     try {
@@ -433,8 +575,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   }, [refreshConversations]);
 
   const loadMessages = useCallback(async (id: string) => {
+    const version = ++historyVersionRef.current;
     try {
-      const res = await fetch(`/api/messages?conversation=${encodeURIComponent(id)}&limit=200`);
+      const res = await fetch(`/api/messages?conversation=${encodeURIComponent(id)}&limit=${HISTORY_LIMIT}`);
       if (!res.ok) return;
       const { messages: history } = (await res.json()) as {
         messages: {
@@ -451,6 +594,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           createdAt: string;
         }[];
       };
+      // An older request must not replace a newly selected task or live words.
+      if (version !== historyVersionRef.current || conversationIdRef.current !== id) return;
+      setHistoryTruncated(history.length >= HISTORY_LIMIT);
       // Words and workings come back on the same query, split apart here:
       // the transcript renders them merged on timestamp.
       setMessages(
@@ -478,18 +624,19 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* signed out, or the api is unreachable */
     }
-  }, []);
+  }, [putToolCalls]);
 
   const openConversation = useCallback(
     async (id: string) => {
       selectThread(id);
       setMessages([]);
+      setHistoryTruncated(false);
       // Cleared so the previous task's workings never bleed through; the
       // load below refills them from what was stored.
       putToolCalls([]);
       await loadMessages(id);
     },
-    [loadMessages, selectThread],
+    [loadMessages, selectThread, putToolCalls],
   );
 
   /**
@@ -497,7 +644,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
    * outright, so clicking "New task" cost you every previous conversation.
    */
   const newConversation = useCallback(async () => {
+    historyVersionRef.current++;
     setMessages([]);
+    setHistoryTruncated(false);
     putToolCalls([]);
     // Nothing is created until something is said — so clicking "New task"
     // twice cannot leave two empty threads behind.
@@ -511,14 +660,15 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     // all: there is no resetting a real arm by teleporting it.
     sendRef.current?.({ type: "reset_sim" });
     await refreshConversations();
-  }, [refreshConversations, selectThread]);
+  }, [refreshConversations, selectThread, putToolCalls]);
 
   const deleteConversation = useCallback(
     async (id: string) => {
       try {
-        await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+        const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (!response.ok) return;
       } catch {
-        /* ignore */
+        return;
       }
       const rows = await refreshConversations();
       if (conversationIdRef.current === id) {
@@ -530,7 +680,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         // deleting the open task ALWAYS dumped you on a blank one, with the
         // URL still pointing at the id you had just deleted.
         const next = rows.find((row) => row.id !== id);
-        if (next) await openConversation(next.id);
+        if (next) {
+          await openConversation(next.id);
+          router.replace(`/app/tasks/${next.id}`);
+        }
         else {
           await newConversation();
           router.replace("/app");
@@ -572,7 +725,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           setSkills(msg.skills);
           setUnproven(msg.unproven ?? []);
           // A page loaded while the robot is already stopped must say so.
-          setStopped(Boolean(msg.stopped));
+          setStopState(msg.stopped ? "latched" : "clear");
           // Older runtimes send neither field. Treating that as "paired"
           // would reinstate exactly the silent lie this exists to end, so
           // absent means unknown and the credit row stays quiet.
@@ -584,28 +737,35 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           fixturesRef.current = msg.fixtures ?? null;
           break;
         case "estop":
-          setStopped(msg.stopped);
+          setStopState(msg.stopped ? "latched" : "clear");
           break;
-        case "tool":
-          putToolCallsRef.current([
-            ...toolCallsRef.current,
-            { id: msg.id, name: msg.name, input: msg.input, at: Date.now() },
-          ]);
+        case "tool": {
+          const run = runFor(msg.runId);
+          const call: ToolCall = { id: msg.id, name: msg.name, input: msg.input, at: Date.now() };
+          liveCallsRef.current.set(msg.id, { call, run });
+          if (onScreen(run)) putToolCallsRef.current([...toolCallsRef.current, call]);
           break;
+        }
         case "tool_result": {
           const finished = msg;
-          putToolCallsRef.current(
-            toolCallsRef.current.map((call) =>
-              call.id === finished.id
-                ? { ...call, result: finished.result, ok: finished.ok }
-                : call,
-            ),
-          );
+          const live = liveCallsRef.current.get(finished.id);
+          if (!live) break;
+          liveCallsRef.current.delete(finished.id);
+          if (onScreen(live.run)) {
+            putToolCallsRef.current(
+              toolCallsRef.current.map((call) =>
+                call.id === finished.id
+                  ? { ...call, result: finished.result, ok: finished.ok }
+                  : call,
+              ),
+            );
+          }
           // Filed once it has an outcome, so a stored trace is one row per
-          // call in its final state. Done HERE rather than inside the updater
-          // above — React may invoke an updater more than once, and a write
-          // hidden in one is a trap for whoever touches it next.
-          void persistToolRef.current(finished);
+          // call in its final state — against the run's task, not the
+          // selected one. Done HERE rather than inside the updater above:
+          // React may invoke an updater more than once, and a write hidden
+          // in one is a trap for whoever touches it next.
+          void persistTool(finished, live.call, live.run ? live.run.thread : ensureConversation());
           break;
         }
         case "skills":
@@ -630,7 +790,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         }
         case "chat":
           setLastChat(msg.text);
-          appendRef.current("robot", msg.text);
+          appendTo("robot", msg.text, runFor(msg.runId));
           break;
         case "state":
           jointStateRef.current = msg.arms;
@@ -645,11 +805,14 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           break;
         case "sync":
           // A skill saved locally but not copied to the registry is not a
-          // failure worth interrupting a teach for — it still runs. Worth
-          // knowing about, so it goes to the console rather than nowhere.
-          if (!msg.ok) {
-            console.warn(`[botcortex] skill ${msg.skill} did not reach the registry`);
-          }
+          // failure worth interrupting a teach for — it still runs. It IS
+          // worth a visible mark and a retry, which is what this list is.
+          setSyncFailures((prev) =>
+            msg.ok ? prev.filter((name) => name !== msg.skill)
+              : prev.includes(msg.skill) ? prev : [...prev, msg.skill]);
+          break;
+        case "memory":
+          setMemory({ durable: msg.durable, unsaved: msg.unsaved, detail: msg.detail ?? null });
           break;
         case "plan":
         case "step":
@@ -669,45 +832,59 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           console.warn("[botcortex] unhandled runtime message", unhandled);
         }
       }
-  }, []);
+  }, [appendTo, ensureConversation, onScreen, persistTool, runFor]);
   const handleMessageRef = useRef(handleMessage);
   handleMessageRef.current = handleMessage;
 
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    heartbeatRef.current = null;
+    setTelemetryStale(false);
+  }, []);
+
   const teardown = useCallback(() => {
+    connectionEpochRef.current++;
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    stopHeartbeat();
     simRef.current?.close();
     simRef.current = null;
     intentionalCloseRef.current = true;
     wsRef.current?.close();
     wsRef.current = null;
-  }, []);
+    jointStateRef.current = null;
+    objectsRef.current = null;
+    fixturesRef.current = null;
+    workingRef.current = false;
+    liveCallsRef.current.clear();
+  }, [stopHeartbeat]);
 
-  const open = useCallback((cleanHost: string) => {
+  useEffect(() => () => teardown(), [teardown]);
+
+  const open = useCallback((endpoint: RobotEndpoint) => {
     intentionalCloseRef.current = false;
     setStatus("connecting");
     setError(null);
 
     let ws: WebSocket;
+    let receivedHello = false;
     try {
-      ws = new WebSocket(wsUrl(cleanHost));
+      ws = new WebSocket(wsUrl(endpoint));
     } catch {
       setStatus("error");
       setError("Invalid robot address.");
       return;
     }
     wsRef.current = ws;
+    endpointRef.current = endpoint;
 
     // A silent host never fires onerror, so nothing else ends this attempt.
     const deadline = setTimeout(() => {
-      if (wsRef.current === ws && ws.readyState === WebSocket.CONNECTING) ws.close();
+      if (wsRef.current === ws && !receivedHello) ws.close();
     }, CONNECT_DEADLINE_MS);
 
     ws.onopen = () => {
-      clearTimeout(deadline);
-      retriesRef.current = 0;
-      setStatus("connected");
-      setHost(cleanHost);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ host: cleanHost }));
-
+      if (wsRef.current !== ws) return;
       // A refresh should give a clean scene. Guarded by a ref so it fires once
       // per page load and NOT on the reconnects this socket does after a
       // network blip — those would snap the arm home mid-session. The runtime
@@ -719,11 +896,32 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     };
 
     ws.onmessage = (ev) => {
-      let msg: RobotMessage;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch {
-        return;
+      if (wsRef.current !== ws || typeof ev.data !== "string") return;
+      lastHeardRef.current = Date.now();
+      const msg = parseRobotMessage(ev.data);
+      if (!msg || (!receivedHello && msg.type !== "hello")) return;
+      if (msg?.type === "hello") {
+        receivedHello = true;
+        clearTimeout(deadline);
+        retriesRef.current = 0;
+        setStatus("connected");
+        setHost(endpoint.host);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ host: endpoint.host, secure: endpoint.secure, explicitScheme: endpoint.explicitScheme })); } catch { /* optional */ }
+        // Liveness from here on: see the constants at the top.
+        stopHeartbeat();
+        heartbeatRef.current = setInterval(() => {
+          if (wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
+          const quiet = Date.now() - lastHeardRef.current;
+          setTelemetryStale(quiet > STALE_AFTER_MS);
+          if (quiet > DEAD_AFTER_MS) {
+            // Half-open: the browser thinks it is connected, nothing has
+            // arrived in a long while. Closing hands over to the retry path,
+            // which is the only honest thing to show.
+            ws.close();
+            return;
+          }
+          ws.send(JSON.stringify({ type: "ping" } satisfies ClientMessage));
+        }, PING_INTERVAL_MS);
       }
       handleMessageRef.current(msg);
     };
@@ -732,10 +930,14 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(deadline);
       if (wsRef.current !== ws) return;
       wsRef.current = null;
+      stopHeartbeat();
       setRobot(null);
       // Whose wallet is unknowable with nothing on the other end. Keeping the
       // last robot's answer would label the NEXT one wrongly on reconnect.
       setPairing(null);
+      // A latch confirmed before the socket dropped may since have been
+      // cleared by someone at the robot; this tab can no longer say.
+      setStopState((current) => (current === "latched" ? "unknown" : current));
       if (intentionalCloseRef.current) {
         setStatus("disconnected");
         return;
@@ -744,9 +946,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       if (retriesRef.current < budget) {
         retriesRef.current += 1;
         setStatus("connecting");
-        setTimeout(() => {
-          if (!intentionalCloseRef.current && !wsRef.current) open(cleanHost);
-        }, RETRY_DELAY_MS);
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          if (!intentionalCloseRef.current && !wsRef.current) open(endpoint);
+        }, backoffMs(retriesRef.current));
       } else {
         setStatus("error");
         setError("Lost connection to the robot.");
@@ -754,41 +957,68 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     };
 
     ws.onerror = () => {
+      if (wsRef.current !== ws) return;
       // onclose follows; first-attempt failures surface a clearer message.
-      if (retriesRef.current === 0 && status !== "connected") {
-        setError("Could not reach the robot at that address.");
+      if (retriesRef.current === 0 && !receivedHello) {
+        setError(endpoint.secure
+          ? `Could not reach the robot at ${endpoint.host} over TLS (wss). If the runtime serves plain ws, type ws:// in front of the address.`
+          : `Could not reach the robot at ${endpoint.host}.`);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stopHeartbeat]);
 
   const connect = useCallback(
     (rawHost: string) => {
+      manualChoiceRef.current = true;
       greetedRef.current = false;
-      const cleanHost = normalizeHost(rawHost);
-      if (!cleanHost) return;
-      if (mixedContentBlocked(cleanHost)) {
+      const parsed = parseRobotEndpoint(rawHost);
+      if (!parsed.ok) {
+        setStatus("error");
+        setError(parsed.error);
+        return;
+      }
+      const endpoint = parsed.endpoint;
+      if (mixedContentBlocked(endpoint)) {
         setStatus("error");
         setError(
-          "This page is served over https, so the browser blocks a direct connection to a local robot. Open the app from the robot itself, or use a pairing token once the relay is live.",
+          endpoint.explicitScheme
+            ? "This page is served over https, so the browser blocks a plain ws:// connection to that address. Use wss://, or a robot on localhost."
+            : "This page is served over https, so the browser blocks a direct connection to a local robot. Use a tunnel with a certificate (wss://), or use a pairing token once the relay is live.",
         );
         return;
       }
       teardown();
+      setRobot(null);
+      setSkills(null);
+      setHost(null);
+      setStopState("clear");
+      setActivity("idle");
+      setPairing(null);
+      setSimBooting(null);
+      setMemory(null);
+      setSyncFailures([]);
       retriesRef.current = 0;
-      open(cleanHost);
+      open(endpoint);
     },
     [open, teardown],
   );
 
   const disconnect = useCallback(() => {
+    manualChoiceRef.current = true;
     teardown();
+    endpointRef.current = null;
     setStatus("disconnected");
     setRobot(null);
+    setHost(null);
+    setStopState("clear");
+    setSimBooting(null);
     setSkills(null);
     setPairing(null);
+    setMemory(null);
+    setSyncFailures([]);
     setActivity("idle");
-    localStorage.removeItem(STORAGE_KEY);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* optional */ }
   }, [teardown]);
 
   /**
@@ -799,13 +1029,42 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
    * happens only when someone asks for it.
    */
   const connectBrowserSim = useCallback(async () => {
+    manualChoiceRef.current = true;
     teardown();
+    endpointRef.current = null;
     setError(null);
     setStatus("connecting");
-    const transport = new BrowserSimTransport((msg) => handleMessageRef.current(msg));
+    setHost(null);
+    setRobot(null);
+    setSkills(null);
+    setStopState("clear");
+    setPairing(null);
+    setMemory(null);
+    setSyncFailures([]);
+    setActivity("idle");
+    const transport = new BrowserSimTransport(
+      (msg) => {
+        if (simRef.current === transport) handleMessageRef.current(msg);
+      },
+      {
+        // The worker hung past its deadline or crashed (audit B05). The
+        // transport has already closed it; this is the connection dying.
+        onDead: (reason) => {
+          if (simRef.current !== transport) return;
+          simRef.current = null;
+          workingRef.current = false;
+          setActivity("idle");
+          setStatus("error");
+          setError(`${reason}.`);
+        },
+      },
+    );
     simRef.current = transport;
     try {
-      await transport.open((stage) => setSimBooting(stage));
+      await transport.open((stage) => {
+        if (simRef.current === transport) setSimBooting(stage);
+      });
+      if (simRef.current !== transport) return;
       setSimBooting(null);
       setStatus("connected");
       setHost("this browser");
@@ -813,6 +1072,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       // booting 14 MB of WASM on the next visit is not a decision to make on
       // someone's behalf.
     } catch (e) {
+      if (simRef.current !== transport) return;
+      transport.close();
       console.error("[botcortex] browser sim failed to start", e);
       simRef.current = null;
       setSimBooting(null);
@@ -849,64 +1110,114 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         role: m.from === "you" ? ("owner" as const) : ("robot" as const),
         text: m.text,
       }));
+      // Bound BEFORE sending, so the thread this run files under is the one
+      // on screen at the moment of pressing send — whatever gets selected
+      // while the robot works.
+      const run = startRun();
       // The chosen model rides with the message: the runtime bills whatever it
       // is handed, so the picker has to reach it rather than the robot's
       // startup default.
-      const sent = send({ type: "chat", text, dryRun, model: model ?? undefined, history });
-      if (sent) append("you", text);
+      const sent = send({ type: "chat", text, dryRun, model: model ?? undefined, history, runId: run.runId });
+      if (sent) appendTo("you", text, run);
+      else {
+        runsRef.current.delete(run.runId);
+        if (activeRunRef.current === run) activeRunRef.current = null;
+      }
       return sent;
     },
-    [send, append, messages],
+    [send, appendTo, messages, startRun],
   );
 
   const runSkill = useCallback(
     (name: string, dryRun: boolean) => {
-      const sent = send({ type: "run_skill", name, dryRun });
-      if (sent) append("you", `Run ${name}`);
+      const run = startRun();
+      const sent = send({ type: "run_skill", name, dryRun, runId: run.runId });
+      if (sent) appendTo("you", `Run ${name}`, run);
+      else {
+        runsRef.current.delete(run.runId);
+        if (activeRunRef.current === run) activeRunRef.current = null;
+      }
       return sent;
     },
-    [send, append],
+    [send, appendTo, startRun],
   );
+
+  /** Ask the browser sim to copy a saved skill to the registry again. */
+  const retrySync = useCallback((name: string) => send({ type: "sync_skill", name }), [send]);
 
   /** STOP goes over plain REST — never queued behind WebSocket traffic. */
   const stop = useCallback(async (): Promise<boolean> => {
-    // In-page: no host to POST to, and the same latch either way — a file the
-    // primitives check before every frame.
-    if (simRef.current) {
-      simRef.current.stop();
-      setStopped(true);
-      return true;
-    }
-    if (!host) return false;
+    const epoch = connectionEpochRef.current;
+    setStopState((current) => (current === "latched" ? current : "pending"));
+    const settle = (ok: boolean) => {
+      if (connectionEpochRef.current !== epoch) return;
+      setStopState((current) => (ok ? "latched" : current === "pending" ? "clear" : current));
+    };
+    // In-page: playback aborts immediately; confirmation waits for the worker.
     try {
-      const res = await fetch(`${httpUrl(host)}/stop`, { method: "POST" });
+      if (simRef.current) {
+        const ok = await simRef.current.stop();
+        settle(ok);
+        return ok;
+      }
+      const endpoint = endpointRef.current;
+      if (!endpoint) {
+        settle(false);
+        return false;
+      }
+      const res = await fetch(`${httpUrl(endpoint)}/stop`, {
+        method: "POST", signal: AbortSignal.timeout(4000),
+      });
+      settle(res.ok);
       return res.ok;
     } catch {
+      settle(false);
       return false;
     }
-  }, [host]);
+  }, []);
 
   const resetStop = useCallback(async (): Promise<boolean> => {
-    if (simRef.current) {
-      simRef.current.resetStop();
-      setStopped(false);
-      return true;
-    }
-    if (!host) return false;
+    const epoch = connectionEpochRef.current;
     try {
-      const res = await fetch(`${httpUrl(host)}/stop/reset`, { method: "POST" });
+      if (simRef.current) {
+        const ok = await simRef.current.resetStop();
+        if (ok && connectionEpochRef.current === epoch) setStopState("clear");
+        return ok;
+      }
+      const endpoint = endpointRef.current;
+      if (!endpoint) return false;
+      const res = await fetch(`${httpUrl(endpoint)}/stop/reset`, {
+        method: "POST", signal: AbortSignal.timeout(4000),
+      });
       // The runtime also broadcasts an estop event; setting it here means the
       // button responds even if that event is delayed.
-      if (res.ok) setStopped(false);
+      if (res.ok && connectionEpochRef.current === epoch) setStopState("clear");
       return res.ok;
     } catch {
       return false;
     }
-  }, [host]);
+  }, []);
 
-  /* Auto-connect: same-origin first (robot-served page), then saved host. */
+  /* Auto-connect: same-origin first (robot-served page), then saved host,
+     then the account's paired robots. Every step defers to a choice the
+     owner has made by hand in the meantime. */
   useEffect(() => {
     let cancelled = false;
+    const tryConnect = (raw: string) => {
+      if (cancelled || manualChoiceRef.current) return;
+      // Automatic, not manual: leave the flag alone so a later manual choice
+      // still wins, but do not let a later automatic one override this.
+      const parsed = parseRobotEndpoint(raw);
+      if (!parsed.ok) return;
+      connectAuto(parsed.endpoint);
+    };
+    const connectAuto = (endpoint: RobotEndpoint) => {
+      if (mixedContentBlocked(endpoint)) return;
+      greetedRef.current = false;
+      teardown();
+      retriesRef.current = 0;
+      open(endpoint);
+    };
     (async () => {
       try {
         const ctrl = new AbortController();
@@ -914,19 +1225,22 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch("/api/status", { signal: ctrl.signal });
         clearTimeout(t);
         if (!cancelled && res.ok) {
-          connect(window.location.host);
+          tryConnect(window.location.host);
           return;
         }
       } catch {
         /* not robot-served — fall through */
       }
       if (cancelled) return;
-      const saved = localStorage.getItem(STORAGE_KEY);
+      let saved: string | null = null;
+      try { saved = localStorage.getItem(STORAGE_KEY); } catch { /* optional */ }
       if (saved) {
         try {
-          const { host: savedHost } = JSON.parse(saved);
-          if (savedHost) {
-            connect(savedHost);
+          const remembered = JSON.parse(saved) as { host?: string; secure?: boolean; explicitScheme?: boolean };
+          if (remembered.host) {
+            // Re-dial exactly what worked, scheme included.
+            const scheme = remembered.explicitScheme ? (remembered.secure ? "wss://" : "ws://") : "";
+            tryConnect(`${scheme}${remembered.host}`);
             return;
           }
         } catch {
@@ -944,7 +1258,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           robots: { address: string | null }[];
         };
         const reachable = robots.find((r) => r.address);
-        if (reachable?.address) connect(reachable.address);
+        if (reachable?.address) tryConnect(reachable.address);
       } catch {
         /* not signed in, or the api is unreachable — the Connect dialog remains */
       }
@@ -961,7 +1275,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         status,
         robot,
         skills,
-      unproven,
+        unproven,
         host,
         error,
         activity,
@@ -975,7 +1289,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         sendChat,
         runSkill,
         stop,
-        stopped,
+        stopped: stopState === "latched" || stopState === "unknown",
+        stopState,
         resetStop,
         conversations,
         conversationId,
@@ -988,6 +1303,14 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         credit,
         pairing,
         toolCalls,
+        activeRun,
+        persistence,
+        retryPersistence,
+        historyTruncated,
+        memory,
+        syncFailures,
+        retrySync,
+        telemetryStale,
         simOpen,
         setSimOpen,
         dryRun,

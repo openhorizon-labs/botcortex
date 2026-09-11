@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, Sparkles, Zap } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useRobot } from "@/components/app/robot-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +55,12 @@ export function ModelPicker({
   onChange: (id: string) => void;
 }) {
   const [models, setModels] = useState<CatalogueModel[]>([]);
+  // Affordability is a function of the balance, and the balance moves every
+  // time a teach finishes. Loaded once, the picker kept offering a model the
+  // account could no longer pay for (audit B09); re-asking whenever the
+  // balance changes keeps the disabled rows honest.
+  const { credit } = useRobot();
+  const balance = credit?.balanceMicros ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -68,8 +75,10 @@ export function ModelPicker({
     return () => {
       cancelled = true;
     };
+    // `value`/`onChange` are deliberately not deps: the default is applied
+    // once, and re-applying it on every pick would undo the pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [balance]);
 
   const current = models.find((m) => m.id === value);
   const families = Array.from(new Set(models.map((m) => m.family)));

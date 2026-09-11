@@ -32,6 +32,8 @@ export function Composer({
   onModelChange: (id: string) => void;
   className?: string;
 }) {
+  const { activity, stopped } = useRobot();
+  const blocked = stopped || activity.startsWith("teaching") || activity.startsWith("running");
   return (
     <div
       className={cn(
@@ -43,12 +45,13 @@ export function Composer({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            onSend();
+            if (!blocked) onSend();
           }
         }}
         placeholder='Teach it: "sort the red parts into the left bin"'
+        aria-label="Describe a robot task"
         className="min-h-9 resize-none border-0 bg-transparent px-4 pt-3.5 text-[15px] shadow-none focus-visible:ring-0"
         rows={1}
       />
@@ -86,7 +89,7 @@ export function Composer({
         </div>
         <Button
           size="icon"
-          disabled={!value.trim()}
+          disabled={!value.trim() || blocked}
           onClick={onSend}
           className="size-7 rounded-full"
           aria-label="Send"

@@ -7,7 +7,7 @@ import { RunnerBadge, type Runner } from "@/components/kit/runner-badge";
 const TASK = "sort the red parts into the left bin";
 
 const STEPS: { label: string; runner: Runner; detail: string }[] = [
-  { label: "Locate red parts on tray", runner: "policy", detail: "act_tiny · 8 ms" },
+  { label: "Read where the red parts sit", runner: "primitive", detail: "describe_scene" },
   { label: "Move right arm above part", runner: "primitive", detail: "move_to · 20 Hz" },
   { label: "Close gripper, confirm grasp", runner: "primitive", detail: "gripper · −42°" },
   { label: "Carry to left bin, release", runner: "primitive", detail: "move_to · clamped" },
@@ -60,12 +60,12 @@ export function HeroCard() {
         {/* product visual on the gray panel */}
         <div className="rounded-2xl bg-surface-3 p-4 sm:p-6">
           <div className="mb-4 flex items-center justify-between">
-            <span className="font-mono text-xs text-muted-foreground">robot.local</span>
+            <span className="font-mono text-xs text-muted-foreground">control room</span>
             <span className="flex items-center gap-3">
               <span className="hidden font-mono text-[11px] text-muted-foreground sm:inline">
-                connected · offline ok
+                connected · simulation
               </span>
-              <span className="rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-bold tracking-wide text-white">
+              <span className="rounded-md bg-destructive px-2.5 py-1 text-[10px] font-bold tracking-wide text-white">
                 STOP
               </span>
             </span>
@@ -86,7 +86,7 @@ export function HeroCard() {
           <div className="mt-4 space-y-2">
             <div className="mb-1 flex items-center justify-between">
               <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                plan · review before run
+                steps · live as it works
               </span>
               <span className="font-mono text-[11px] text-muted-foreground">
                 {revealed}/{STEPS.length}
@@ -131,10 +131,10 @@ export function HeroCard() {
             Type it. Your robot learns it.
           </h2>
           <p className="mt-3 max-w-md text-base leading-relaxed text-muted-foreground">
-            Describe the task in plain English. The agent plans it step by step, shows
-            you the plan before anything moves, and saves the skill on the robot — where
-            it runs at control rate, with or without internet. Every run is logged to
-            episodic memory, so your robot gets better at your tasks.
+            Describe the task in plain English. The agent works it out step by step
+            while you watch each one land, then saves the skill on the runtime — where
+            it runs as deterministic code with zero model calls. Every attempt is logged
+            to episodic memory, so your robot gets better at your tasks.
           </p>
         </div>
       </div>

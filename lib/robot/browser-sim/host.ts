@@ -12,10 +12,9 @@
  * move, never of wall-clock, so executing fast and replaying at 20 Hz produces
  * exactly the trajectory a real-time run would, displayed at the same speed.
  *
- * Splitting it this way is also what makes STOP work. The worker is idle
- * between tool calls (each is ~100 ms), so a stop message lands within one
- * call, and playback — the thing an owner is actually watching — halts on the
- * very next frame.
+ * STOP cuts playback before another frame is shown. Its worker message is
+ * processed only after the current synchronous Python call returns; long or
+ * hung calls still need the interrupt/deadline work documented in the audit.
  */
 
 import { type AgentContract, parseContract } from "@/lib/robot/agent/contract";
@@ -26,6 +25,36 @@ import type { WorkerRequest, WorkerResponse } from "@/lib/robot/browser-sim/work
 /** Control rate, mirrored from botcortex.config.CONTROL_HZ. Paces PLAYBACK
  *  only — the trajectory itself is computed by the Python. */
 const CONTROL_HZ = 20;
+
+/**
+ * How long each kind of request may take before the worker is declared
+ * hung (audit B05). Generous, because they bound a WORKING robot's slowest
+ * honest case: a cold boot downloads ~14 MB, and a skill that loops over
+ * every block runs its physics as fast as the CPU allows but still runs it.
+ * A request that outlives its deadline settles with an error that names
+ * the deadline, and the worker is terminated — there is no interrupting a
+ * synchronous Pyodide call from outside, so a fresh worker is the recovery.
+ */
+export const DEADLINES_MS: Record<WorkerRequest["type"], number> = {
+  boot: 240_000,
+  callTool: 120_000,
+  reset: 15_000,
+  seek: 15_000,
+  logEpisode: 15_000,
+  beginTask: 15_000,
+  verify: 15_000,
+  stop: 15_000,
+  resetStop: 15_000,
+};
+
+export type MemoryReport = {
+  /** Backed by IndexedDB under the account, or session-only. */
+  durable: boolean;
+  /** Why it is session-only, when it was meant not to be. */
+  error?: string;
+};
+
+export type FlushReport = { flushed: boolean; error?: string };
 
 export type SimProgress = (stage: string) => void;
 
@@ -57,7 +86,18 @@ interface ToolReply {
   skills: string[];
   unproven: string[];
   stopped: boolean;
+  /** Present after a tool that changes /data: whether the change reached
+   *  storage. Null for tools with nothing to save. */
+  memory: FlushReport | null;
 }
+
+export type BrowserSimOptions = {
+  /** The account to mount memory under, or null for session-only. */
+  namespace?: string | null;
+  /** Called once if the worker dies or hangs past a deadline, after every
+   *  pending call has been rejected. The transport reports it upward. */
+  onDead?: (reason: string) => void;
+};
 
 export class BrowserSim {
   private worker!: Worker;
@@ -66,6 +106,7 @@ export class BrowserSim {
   private onProgress: SimProgress = () => {};
   /** Cuts playback short when STOP lands. */
   private aborted = false;
+  private closed = false;
 
   /** Latest joint state, read by the R3F view every frame. */
   state: JointState = {};
@@ -81,15 +122,25 @@ export class BrowserSim {
   scene: { objects: SceneBodies; fixtures: SceneBodies } = { objects: {}, fixtures: {} };
   /** Read out of the installed wheel, never from a copy in this repo. */
   contract!: AgentContract;
+  /** How the robot's files are kept, as the worker reported at boot. */
+  memory: MemoryReport = { durable: false };
+  private onDead: (reason: string) => void = () => {};
+  private deadReported = false;
 
-  static async boot(onProgress: SimProgress = () => {}): Promise<BrowserSim> {
+  static async boot(onProgress: SimProgress = () => {}, options: BrowserSimOptions = {}): Promise<BrowserSim> {
     const sim = new BrowserSim();
-    await sim.init(onProgress);
-    return sim;
+    try {
+      await sim.init(onProgress, options);
+      return sim;
+    } catch (error) {
+      sim.close();
+      throw error;
+    }
   }
 
-  private async init(onProgress: SimProgress) {
+  private async init(onProgress: SimProgress, options: BrowserSimOptions) {
     this.onProgress = onProgress;
+    this.onDead = options.onDead ?? (() => {});
     // A URL, not new URL(..., import.meta.url): letting the app bundler emit
     // the worker produces a CLASSIC one even when asked for a module, and
     // Pyodide refuses to run in a classic worker. scripts/vendor-runtimes.ts
@@ -110,13 +161,10 @@ export class BrowserSim {
     this.worker.onerror = (event) => {
       // A worker that dies takes every outstanding call with it; failing them
       // loudly beats a teach that hangs forever with no explanation.
-      for (const waiter of this.pending.values()) {
-        waiter.reject(new Error(event.message || "the robot's thread stopped"));
-      }
-      this.pending.clear();
+      this.die(event.message || "the robot's thread stopped");
     };
 
-    const booted = await this.ask({ type: "boot" });
+    const booted = await this.ask({ type: "boot", namespace: options.namespace ?? null });
     this.contract = parseContract(booted.contract);
     this.state = booted.state;
     this.skills = booted.skills;
@@ -124,12 +172,37 @@ export class BrowserSim {
     this.stopped = booted.stopped;
     this.gripper = booted.gripper;
     this.scene = booted.scene;
+    this.memory = booted.memory ?? { durable: false };
+  }
+
+  /** Reject everything in flight, terminate, and say so once. */
+  private die(reason: string) {
+    const waiters = [...this.pending.values()];
+    this.pending.clear();
+    for (const waiter of waiters) waiter.reject(new Error(reason));
+    const first = !this.closed && !this.deadReported;
+    this.close();
+    if (first) {
+      this.deadReported = true;
+      this.onDead(reason);
+    }
   }
 
   private ask(request: PendingRequest): Promise<any> {
+    if (this.closed) return Promise.reject(new Error("the in-browser robot was disconnected"));
     const id = this.nextId++;
+    const deadline = DEADLINES_MS[request.type];
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        // Everything else in flight dies with the worker, with the same
+        // explanation — one hung call is one hung thread.
+        this.die(`the in-browser robot did not answer "${request.type}" within ${Math.round(deadline / 1000)} s and was shut down`);
+      }, deadline);
+      this.pending.set(id, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       this.worker.postMessage({ ...request, id } as WorkerRequest);
     });
   }
@@ -173,7 +246,7 @@ export class BrowserSim {
       // finished at — teleported the arm to the END of the move the owner had
       // just stopped, which is the exact opposite of stopping. Hold what was
       // shown, and rewind the worker to match so the next move plans from it.
-      await this.ask({ type: "seek", state: this.state });
+      await this.seekToShown();
       onFrame(this.state);
     }
     return reply;
@@ -181,6 +254,7 @@ export class BrowserSim {
 
   /** Returns false if STOP cut it short. */
   private async play(reply: ToolReply, onFrame: (state: JointState) => void): Promise<boolean> {
+    if (this.aborted) return false;
     if (reply.motion.length === 0) return true;
     // A recorded frame names ONE arm; the other holds its pose, so each
     // displayed frame is the whole robot rather than half of it.
@@ -213,7 +287,20 @@ export class BrowserSim {
       const wait = next - performance.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
-    return true;
+    return !this.aborted;
+  }
+
+  /**
+   * Rewind physics to what the owner is looking at: the arm AND the objects.
+   * The scene held here is the one displayed frame by frame during playback,
+   * so it is exactly the pose a STOP froze on screen.
+   */
+  private async seekToShown(): Promise<void> {
+    const objects: Record<string, number[]> = {};
+    for (const [name, body] of Object.entries(this.scene.objects)) {
+      objects[name] = [...body.position, ...body.orientation];
+    }
+    await this.ask({ type: "seek", state: this.state, objects });
   }
 
   /** Start a task with no claims about it. See `verify`. */
@@ -241,19 +328,21 @@ export class BrowserSim {
     skills: string[],
     outcome: "ok" | "fail",
     error?: string,
-  ): Promise<void> {
-    await this.ask({ type: "logEpisode", task, skills, outcome, error });
+  ): Promise<FlushReport> {
+    return (await this.ask({ type: "logEpisode", task, skills, outcome, error })) as FlushReport;
   }
 
   /** The e-stop, through the same file every other backend checks. */
-  stop() {
+  async stop() {
     this.aborted = true;
-    void this.ask({ type: "stop" });
+    await this.ask({ type: "stop" });
+    this.stopped = true;
   }
 
-  resetStop() {
+  async resetStop() {
+    await this.ask({ type: "resetStop" });
+    this.stopped = false;
     this.aborted = false;
-    void this.ask({ type: "resetStop" });
   }
 
   /** Snap the arm home — a page refresh should give a clean scene. */
@@ -270,6 +359,8 @@ export class BrowserSim {
   }
 
   close() {
+    this.closed = true;
+    this.aborted = true;
     this.worker?.terminate();
     // Reject, don't just drop: terminate() kills every in-flight call, and a
     // cleared map left `teach()` awaiting a promise that could never settle —

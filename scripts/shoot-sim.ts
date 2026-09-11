@@ -31,6 +31,10 @@ await page
         .filter((e) => e.name.endsWith(".glb"));
       return glbs.length >= 11;
     },
+    // Playwright's signature is (pageFunction, arg, options). The options
+    // object used to sit in the `arg` slot, so the 45 s timeout was silently
+    // ignored and the default 30 s applied.
+    undefined,
     { timeout: 45000 },
   )
   .catch(() => errors.push("TIMEOUT waiting for 11 glbs"));

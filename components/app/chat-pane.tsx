@@ -27,6 +27,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useRobot } from "@/components/app/robot-provider";
 import { ToolTrace } from "@/components/app/tool-trace";
 import { SkillText } from "@/components/app/skill-text";
+import { TaskEvidence } from "@/components/app/task-evidence";
 
 export function ChatPane() {
   const { messages, toolCalls, activity, status, skills } = useRobot();
@@ -34,8 +35,7 @@ export function ChatPane() {
   const busy = activity.startsWith("teaching") || activity.startsWith("running");
 
   // Merged on timestamp so the agent's workings land between the words that
-  // prompted them and the reply they produced. Traces are live-only, so a
-  // rehydrated thread is simply all messages.
+  // prompted them and the reply they produced, including rehydrated traces.
   const timeline = [
     ...messages.map((m) => ({
       at: m.at,
@@ -71,6 +71,7 @@ export function ChatPane() {
             </MessageContent>
           </Message>
         )}
+        <TaskEvidence />
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>

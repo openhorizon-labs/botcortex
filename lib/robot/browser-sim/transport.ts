@@ -13,7 +13,8 @@
 
 import type { ChatHistoryEntry, ClientMessage, RobotMessage } from "@/lib/robot/protocol";
 import { teach } from "@/lib/robot/agent/loop";
-import { BrowserSim } from "@/lib/robot/browser-sim/host";
+import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
+import { explain } from "@/lib/robot/agent/explain";
 
 /**
  * The conversation so far, rendered for the model. Each teach is a fresh
@@ -37,34 +38,72 @@ export type Emit = (message: RobotMessage) => void;
 /** ~15 Hz, matching the runtime's state stream. */
 const STATE_INTERVAL_MS = 66;
 
+/** The Web Locks name one tab holds while it owns the account's memory. */
+const MEMORY_LEASE = "botcortex.sim.memory";
+
+/** Events that belong to a run and carry its id (protocol v2). */
+const RUN_SCOPED = new Set<RobotMessage["type"]>(["status", "chat", "tool", "tool_result", "model", "plan", "step"]);
+
+/** A saved skill, kept so a failed registry sync can be retried without a
+ *  racing `list_skills` call later (audit B04). */
+type SavedSkill = { code: string; description: string };
+
 /**
  * Push one saved skill to the account registry, through the same-origin
- * rewrite the inference calls use. The description comes from the sim's own
- * list_skills rather than being parsed out of save_skill's reply — the reply
- * is prose for the model, and prose formats drift.
+ * rewrite the inference calls use.
  */
-async function persistSkill(sim: BrowserSim, name: string, code: string) {
+async function persistSkill(name: string, skill: SavedSkill): Promise<boolean> {
   try {
-    const listed = await sim.callTool("list_skills", {}, () => {});
-    const meta = (JSON.parse(listed) as { name: string; description?: string }[]).find(
-      (skill) => skill.name === name,
-    );
-    await fetch("/api/skills", {
+    const response = await fetch("/api/skills", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name,
-        description: meta?.description ?? "",
-        code,
+        description: skill.description,
+        code: skill.code,
         // The wheel the sim boots is the openarm_v1 build; when a second
         // platform ships, this should ride in the agent contract instead.
         platform: "openarm_v1",
       }),
     });
+    return response.ok;
   } catch {
     // The sim's local copy is the one that runs; the registry copy arrives
     // late or not at all, exactly like a robot with a flaky uplink.
+    return false;
   }
+}
+
+/**
+ * Whose robot this is — the account id, or null when signed out or the api
+ * is away. Memory is mounted under it, so two accounts on one browser never
+ * read each other's skills (audit B02).
+ */
+async function accountNamespace(): Promise<string | null> {
+  try {
+    const response = await fetch("/api/me", { signal: AbortSignal.timeout(4000) });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { user?: { id?: unknown } };
+    return typeof body.user?.id === "string" && body.user.id ? body.user.id : null;
+  } catch {
+    return null;
+  }
+}
+
+export type TransportOptions = {
+  /** The worker died or hung past its deadline; the sim is already closed. */
+  onDead?: (reason: string) => void;
+};
+
+/**
+ * The description a skill declares in its META block, read from the code
+ * being saved rather than from a later `list_skills` reply. A regex, not a
+ * parser: META is a dict literal the runtime validates on save, and this
+ * only needs the one string out of it for the registry card.
+ */
+function describedAs(code: string): string {
+  const match = /["']description["']\s*:\s*(["'])((?:\\.|(?!\1).)*)\1/.exec(code);
+  return match ? match[2] : "";
 }
 
 export class BrowserSimTransport {
@@ -72,12 +111,85 @@ export class BrowserSimTransport {
   private ticker: ReturnType<typeof setInterval> | null = null;
   private abort: AbortController | null = null;
   private busy = false;
+  private closed = false;
+  private opening = false;
+  private readonly deliver: Emit;
+  private readonly onDead: (reason: string) => void;
+  /** The run whose events are being emitted, stamped onto each one. */
+  private currentRun: string | undefined;
+  /** Releases the memory lease; set only when this tab holds it. */
+  private releaseLease: (() => void) | null = null;
+  /** Skills saved this session, by name, for registry retries. */
+  private readonly saved = new Map<string, SavedSkill>();
+  /** Whether something taught is not yet in durable storage. */
+  private unsaved = false;
 
-  constructor(private emit: Emit) {}
+  constructor(emit: Emit, options: TransportOptions = {}) {
+    this.deliver = emit;
+    this.onDead = options.onDead ?? (() => {});
+  }
+
+  private emit: Emit = (message) => {
+    if (this.closed) return;
+    if (this.currentRun && RUN_SCOPED.has(message.type) && !("runId" in message && message.runId)) {
+      this.deliver({ ...message, runId: this.currentRun } as RobotMessage);
+      return;
+    }
+    this.deliver(message);
+  };
+
+  /**
+   * One tab writes the account's memory at a time. Two tabs with the same
+   * IDBFS mount would each flush their own view of /data and the last one
+   * to write would win — silently dropping the other's skill. The second
+   * tab boots session-only instead, and says so.
+   */
+  private async acquireLease(): Promise<boolean> {
+    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+    if (!locks) return true; // no lock manager: assume a single tab
+    return new Promise<boolean>((decide) => {
+      void locks.request(MEMORY_LEASE, { ifAvailable: true }, (lock) => {
+        if (!lock) {
+          decide(false);
+          return;
+        }
+        decide(true);
+        // Held until close(): the lock lives as long as this promise.
+        return new Promise<void>((release) => { this.releaseLease = release; });
+      }).catch(() => decide(true));
+    });
+  }
 
   /** Boot the sim and send the same hello a runtime would. */
   async open(onProgress: (stage: string) => void = () => {}) {
-    this.sim = await BrowserSim.boot(onProgress);
+    if (this.closed || this.opening || this.sim) throw new Error("Simulator already opened or closed.");
+    this.opening = true;
+    let sim: BrowserSim;
+    let namespace: string | null = null;
+    let leaseHeld = false;
+    try {
+      onProgress("Checking who you are");
+      namespace = await accountNamespace();
+      leaseHeld = namespace ? await this.acquireLease() : false;
+      sim = await BrowserSim.boot((stage) => {
+        if (!this.closed) onProgress(stage);
+      }, {
+        namespace: leaseHeld ? namespace : null,
+        onDead: (reason) => {
+          if (this.closed) return;
+          this.emit({ type: "chat", text: `${reason}. Reconnect the in-browser robot to continue.` });
+          this.close();
+          this.onDead(reason);
+        },
+      });
+    } finally {
+      this.opening = false;
+    }
+    if (this.closed) {
+      sim.close();
+      throw new Error("Simulator closed while starting.");
+    }
+    this.sim = sim;
 
     this.emit({
       type: "hello",
@@ -98,6 +210,18 @@ export class BrowserSimTransport {
       fixtures: this.sim.scene.fixtures,
     });
     this.emit({ type: "status", state: "idle" });
+    this.emit({
+      type: "memory",
+      durable: sim.memory.durable,
+      unsaved: false,
+      detail: sim.memory.durable
+        ? "Skills and episodes are kept in this browser, under your account."
+        : namespace === null
+          ? "Not signed in, so skills and episodes last for this session only."
+          : !leaseHeld
+            ? "Another tab holds this robot's memory; this one is session-only."
+            : `Browser storage is unavailable (${sim.memory.error ?? "unknown"}); session only.`,
+    });
 
     // The joint stream the sim view consumes. A timer rather than an event per
     // frame: the renderer wants the CURRENT pose at its own cadence, and
@@ -110,8 +234,11 @@ export class BrowserSimTransport {
   }
 
   close() {
+    this.closed = true;
     if (this.ticker) clearInterval(this.ticker);
     this.ticker = null;
+    this.releaseLease?.();
+    this.releaseLease = null;
     this.abort?.abort();
     // Terminates the worker: Pyodide and MuJoCo are ~100 MB of resident WASM,
     // and leaking a thread per connect would be felt within a few reconnects.
@@ -120,20 +247,25 @@ export class BrowserSimTransport {
   }
 
   /** The runtime's REST STOP, which has no host here — same latch either way. */
-  stop() {
-    this.sim?.stop();
+  async stop() {
+    const sim = this.sim;
+    if (!sim || this.closed) return false;
     this.abort?.abort();
+    await sim.stop();
     this.emit({ type: "estop", stopped: true });
+    return true;
   }
 
-  resetStop() {
-    this.sim?.resetStop();
+  async resetStop() {
+    if (!this.sim || this.closed || this.busy) return false;
+    await this.sim.resetStop();
     this.emit({ type: "estop", stopped: false });
+    return true;
   }
 
   async send(message: ClientMessage, model: string) {
     const sim = this.sim;
-    if (!sim) return;
+    if (!sim || this.closed) return;
 
     switch (message.type) {
       case "ping":
@@ -144,26 +276,38 @@ export class BrowserSimTransport {
         // Never mid-teach: teleporting the arm under a running skill would
         // corrupt what the agent is verifying. Same rule as the runtime.
         if (!this.busy) {
-          void sim
-            .reset()
-            .then(() => this.emit({ type: "state", arms: sim.state, objects: sim.scene.objects }));
+          await this.run(async () => {
+            await sim.reset();
+            this.emit({ type: "state", arms: sim.state, objects: sim.scene.objects });
+          });
         }
         return;
 
       case "chat":
         await this.run(() =>
           this.teach(sim, message.text, message.model ?? model, message.history),
+          message.runId,
         );
         return;
 
       case "run_skill":
-        await this.run(() => this.runSkill(sim, message.name));
+        await this.run(() => this.runSkill(sim, message.name), message.runId);
         return;
+
+      case "sync_skill": {
+        const skill = this.saved.get(message.name);
+        if (!skill) {
+          this.emit({ type: "sync", skill: message.name, ok: false });
+          return;
+        }
+        this.emit({ type: "sync", skill: message.name, ok: await persistSkill(message.name, skill) });
+        return;
+      }
     }
   }
 
   /** One job at a time, exactly as the runtime refuses a second. */
-  private async run(job: () => Promise<void>) {
+  private async run(job: () => Promise<void>, runId?: string) {
     if (this.busy) {
       this.emit({
         type: "chat",
@@ -172,15 +316,44 @@ export class BrowserSimTransport {
       return;
     }
     this.busy = true;
+    this.currentRun = runId;
     this.abort = new AbortController();
     this.sim?.clearAbort();
     try {
       await job();
+    } catch (error) {
+      if (!this.closed) {
+        console.error("[botcortex] simulator task failed", error);
+        this.emit({ type: "chat", text: explain(error) });
+      }
     } finally {
       this.busy = false;
       this.abort = null;
       this.emit({ type: "status", state: "idle" });
+      this.currentRun = undefined;
     }
+  }
+
+  /**
+   * What a tool did to the robot's files, reported the moment it is known.
+   * Durable and flushed: nothing to say. Anything else is unsaved state the
+   * owner must see before closing the tab.
+   */
+  private reportFlush(sim: BrowserSim, report: FlushReport | null) {
+    if (!report) return;
+    const unsaved = !report.flushed;
+    if (unsaved === this.unsaved && !unsaved) return;
+    this.unsaved = unsaved;
+    this.emit({
+      type: "memory",
+      durable: sim.memory.durable,
+      unsaved,
+      detail: unsaved
+        ? sim.memory.durable
+          ? `The last change could not be saved to this browser (${report.error ?? "unknown"}).`
+          : "Taught this session only — it will not survive a reload."
+        : undefined,
+    });
   }
 
   private async teach(
@@ -215,9 +388,11 @@ export class BrowserSimTransport {
       // The gate on saying "done" — the runtime's, not a second copy of it.
       verify: () => sim.verify(),
       dispatch: async (name, args) => {
-        const out = await sim.callTool(name, args, (arms) =>
+        const reply = await sim.runTool(name, args, (arms) =>
           this.emit({ type: "state", arms, objects: sim.scene.objects }),
         );
+        const out = reply.output;
+        this.reportFlush(sim, reply.memory);
         // The skill list can change under save_skill; the sidebar watches this.
         this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
         for (const skill of sim.skills) {
@@ -228,7 +403,17 @@ export class BrowserSimTransport {
         // not awaited — best-effort like the runtime's cloud.sync_skill; the
         // teach must not slow down or fail because the registry is away.
         if (name === "save_skill" && out.startsWith("saved ")) {
-          void persistSkill(sim, String(args.name ?? ""), String(args.code ?? ""));
+          const skill = String(args.name ?? "");
+          // The revision captured NOW, at save time, is what any retry
+          // sends: a later list_skills could describe a newer save.
+          const revision: SavedSkill = {
+            code: String(args.code ?? ""),
+            description: describedAs(String(args.code ?? "")),
+          };
+          this.saved.set(skill, revision);
+          void persistSkill(skill, revision).then((ok) =>
+            this.emit({ type: "sync", skill, ok }),
+          );
         }
         return out;
       },
@@ -237,7 +422,7 @@ export class BrowserSimTransport {
     // The other half of the failure-memory loop. Written even when the teach
     // fails — especially then, since a failed attempt is what carries a lesson
     // worth recalling.
-    await sim.logEpisode(text, saved, result.outcome, result.error);
+    this.reportFlush(sim, await sim.logEpisode(text, saved, result.outcome, result.error));
   }
 
   private async runSkill(sim: BrowserSim, name: string) {
@@ -247,11 +432,13 @@ export class BrowserSimTransport {
       { name, params_json: "{}" },
       (arms) => this.emit({ type: "state", arms, objects: sim.scene.objects }),
     );
+    this.reportFlush(sim, reply.memory);
     // The owner-facing wording, not the model's. What run_skill returns is
     // written for something that has to repair a skill — primitive counts,
     // rehearsal bookkeeping, advice on approaching an obstacle. The rule that
     // rewrites it is the runtime's, so this button and the robot's own say the
     // same thing.
     this.emit({ type: "chat", text: reply.plain });
+    this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
   }
 }

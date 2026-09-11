@@ -9,9 +9,9 @@ const TIERS = [
     price: "$0",
     note: "everything included",
     features: [
-      "The full runtime, chat app, and SDK on your robot",
-      "Skills and episodic memory stored locally — no account needed",
-      "Bring your own API key; we never resell inference",
+      "The full runtime, hosted chat app, and SDK for one robot",
+      "Skills and episodic memory stored on your runtime",
+      "Bring your own model key, or teach with metered BotCortex credit — taught skills run free",
     ],
     cta: "Join the waitlist",
     href: "/signup",
@@ -37,7 +37,7 @@ export function Pricing() {
     <section id="pricing" className="scroll-mt-16">
       <div className="mx-auto w-full max-w-[1368px] px-6 pb-24 lg:px-10">
         <h2 className="text-[26px] font-medium tracking-tight sm:text-[32px]">
-          Priced per robot. Never per attempt.
+          Priced per robot. Taught skills run free.
         </h2>
         <p className="mt-3 max-w-2xl text-base text-muted-foreground">
           The old way is an integrator quote: $19,000–$80,000 per task. This is the new way.
@@ -91,8 +91,8 @@ export function Pricing() {
         </div>
 
         <p className="mt-6 text-sm text-muted-foreground">
-          Hard tasks fail sometimes — we never charge for attempts, and an expired
-          subscription never stops your robot.
+          Teaching with BotCortex credit is metered by model usage; running a taught
+          skill costs nothing. An expired subscription never stops your robot.
         </p>
       </div>
     </section>

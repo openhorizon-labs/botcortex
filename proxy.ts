@@ -40,17 +40,19 @@ function toSignin(request: NextRequest, from: string) {
   return NextResponse.redirect(signin);
 }
 
-/** Ask the api whether this cookie is still anybody. Failure is treated as
- *  "no" — an auth gate that opens when its check breaks is not a gate. */
-async function hasValidSession(request: NextRequest): Promise<boolean> {
+/** A rejected session is invalid; an unavailable service leaves it unknown.
+ * Both deny entry to /app, but only a rejection should erase the cookie. */
+async function sessionState(request: NextRequest): Promise<"valid" | "invalid" | "unavailable"> {
   try {
     const res = await fetch(`${API_URL}/api/me`, {
       headers: { cookie: request.headers.get("cookie") ?? "" },
       cache: "no-store",
+      signal: AbortSignal.timeout(4000),
     });
-    return res.ok;
+    if (res.ok) return "valid";
+    return res.status === 401 || res.status === 403 ? "invalid" : "unavailable";
   } catch {
-    return false;
+    return "unavailable";
   }
 }
 
@@ -64,7 +66,17 @@ export async function proxy(request: NextRequest) {
     return insideApp ? toSignin(request, `${pathname}${search}`) : NextResponse.next();
   }
 
-  if (await hasValidSession(request)) {
+  const session = await sessionState(request);
+  if (session === "unavailable") {
+    // An outage is not a revoked login. Keep the cookie, but keep /app closed.
+    return insideApp
+      ? new NextResponse("Sign-in service is temporarily unavailable. Please retry shortly.", {
+          status: 503,
+          headers: { "Retry-After": "5", "Cache-Control": "no-store" },
+        })
+      : NextResponse.next();
+  }
+  if (session === "valid") {
     return insideApp
       ? NextResponse.next()
       : NextResponse.redirect(new URL(APP_ROOT, request.url));
@@ -83,5 +95,5 @@ export const config = {
   // Skip /api (rewritten to botcortex-api — redirecting those would break
   // auth itself), Next's internals, and anything with a file extension
   // (icon.svg, robots.txt, sitemap.xml).
-  matcher: ["/((?!api/|_next/|.*\\.).*)"],
+  matcher: ["/app/:path*", "/((?!api/|_next/|.*\\.).*)"],
 };

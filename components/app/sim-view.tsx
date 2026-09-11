@@ -26,11 +26,13 @@ import {
   DoubleSide,
   type Group,
   LoadingManager,
+  type Material,
   MathUtils,
   Mesh,
   MeshStandardMaterial,
   type Object3D,
   Quaternion,
+  type Texture,
   Vector3,
 } from "three";
 import URDFLoader, { type URDFRobot } from "urdf-loader";
@@ -102,6 +104,34 @@ function gripperDegToMeters(deg: number, map: GripperMap): number {
 }
 
 /**
+ * Platforms drawn with the OpenArm URDF below. The browser sim reports `wasm`
+ * and the mock runtime `mock`; both are twins of openarm_v1. Any other
+ * platform gets the workcell and grid but NOT this arm — a robot that is not
+ * an OpenArm must not be silently rendered as one.
+ */
+const ARM_PLATFORMS = new Set(["openarm_v1", "wasm", "mock"]);
+
+/** Free every GPU object an Object3D tree owns. three.js never does this on
+ *  its own: removing a mesh from the scene leaves its buffers on the GPU. */
+function disposeTree(root: Object3D) {
+  root.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    child.geometry?.dispose();
+    const materials: Material[] = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) {
+      if (!material) continue;
+      for (const value of Object.values(material)) {
+        if (value && typeof value === "object" && (value as Texture).isTexture) (value as Texture).dispose();
+      }
+      material.dispose();
+    }
+  });
+}
+
+const sameTriple = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length && a.every((value, i) => value === b[i]);
+
+/**
  * The workcell: table, trays, blocks.
  *
  * Boxes, posed straight from the robot's own report — position, orientation,
@@ -118,18 +148,40 @@ function Workcell({
   fixturesRef: React.RefObject<SceneBodies | null>;
 }) {
   const group = useRef<Group>(null);
-  const drawn = useRef<Map<string, Mesh>>(new Map());
+  /** Each drawn body with the size/colour it was built from, so a changed
+   *  report replaces the geometry instead of keeping a stale box. */
+  const drawn = useRef<Map<string, { mesh: Mesh; size: number[]; colour: number[] }>>(new Map());
+
+  // Everything in the map is owned here; free it when the scene goes away.
+  useEffect(() => {
+    const owned = drawn.current;
+    return () => {
+      for (const { mesh } of owned.values()) {
+        mesh.removeFromParent();
+        disposeTree(mesh);
+      }
+      owned.clear();
+    };
+  }, []);
 
   useFrame((_, delta) => {
     if (!group.current) return;
     const bodies = { ...(fixturesRef.current ?? {}), ...(objectsRef.current ?? {}) };
+    // A body the robot no longer reports — a different scene, a reset that
+    // removed a block — leaves the view too, GPU buffers included.
+    for (const [name, entry] of drawn.current) {
+      if (name in bodies) continue;
+      entry.mesh.removeFromParent();
+      disposeTree(entry.mesh);
+      drawn.current.delete(name);
+    }
     for (const [name, body] of Object.entries(bodies)) {
-      let mesh = drawn.current.get(name);
-      const fresh = !mesh;
-      if (!mesh) {
+      let entry = drawn.current.get(name);
+      const fresh = !entry;
+      if (!entry) {
         // Built on first sight rather than from a fixed list: a platform with
         // a different workcell needs no change here.
-        mesh = new Mesh(
+        const mesh = new Mesh(
           new BoxGeometry(...body.size_m),
           new MeshStandardMaterial({
             color: new Color(body.colour[0], body.colour[1], body.colour[2]),
@@ -139,9 +191,21 @@ function Workcell({
         );
         mesh.castShadow = true;
         mesh.receiveShadow = true;
-        drawn.current.set(name, mesh);
+        entry = { mesh, size: [...body.size_m], colour: [...body.colour] };
+        drawn.current.set(name, entry);
         group.current.add(mesh);
+      } else {
+        if (!sameTriple(entry.size, body.size_m)) {
+          entry.mesh.geometry.dispose();
+          entry.mesh.geometry = new BoxGeometry(...body.size_m);
+          entry.size = [...body.size_m];
+        }
+        if (!sameTriple(entry.colour, body.colour)) {
+          (entry.mesh.material as MeshStandardMaterial).color.setRGB(body.colour[0], body.colour[1], body.colour[2]);
+          entry.colour = [...body.colour];
+        }
       }
+      const mesh = entry.mesh;
       // MuJoCo quaternions are wxyz; three.js wants xyzw.
       const [w, x, y, z] = body.orientation;
       TARGET.set(...body.position);
@@ -172,13 +236,21 @@ function Workcell({
 function ArmModel({
   stateRef,
   gripper,
+  onError,
 }: {
   stateRef: React.RefObject<JointState | null>;
   gripper: GripperMap;
+  /** A mesh or the URDF failed to load — reported once, outside the canvas. */
+  onError: () => void;
 }) {
   const [robot, setRobot] = useState<URDFRobot | null>(null);
 
   useEffect(() => {
+    // Closing and reopening the panel remounts this scene. Without cleanup
+    // every mount left its Draco decoder worker and 6 MB of GPU buffers
+    // behind, and a URDF still in flight would set state on a dead component.
+    let cancelled = false;
+    let loaded: URDFRobot | null = null;
     // One manager shared by the URDF and every mesh: urdf-loader's own callback
     // fires as soon as the XML is parsed, while meshes are still in flight, so
     // anything that needs real geometry (like fitting the robot to the floor)
@@ -211,16 +283,26 @@ function ArmModel({
         undefined,
         (err) => {
           console.error("[sim] mesh failed:", path, err);
+          if (!cancelled) onError();
           done(null, err as Error);
         },
       );
     };
     loader.loadMeshCb = loadMesh as unknown as typeof loader.loadMeshCb;
+    manager.onError = () => {
+      if (!cancelled) onError();
+    };
 
-    loader.load(URDF, (loaded) => {
+    loader.load(URDF, (result) => {
+      if (cancelled) {
+        disposeTree(result);
+        return;
+      }
+      loaded = result;
       loaded.rotation.x = -Math.PI / 2; // URDF is Z-up; three.js is Y-up
 
       manager.onLoad = () => {
+        if (cancelled || !loaded) return;
         loaded.traverse((child: Object3D) => {
           if (child instanceof Mesh) {
             child.castShadow = true;
@@ -248,7 +330,26 @@ function ArmModel({
         if (Number.isFinite(box.min.y)) loaded.position.y -= box.min.y;
         setRobot(loaded);
       };
+    }, undefined, (err) => {
+      console.error("[sim] urdf failed:", err);
+      if (!cancelled) onError();
     });
+
+    return () => {
+      cancelled = true;
+      // Late callbacks see `cancelled` and bail; anything already built is
+      // freed here. Meshes that land AFTER this runs are disposed by the
+      // cancelled branch above, so nothing arrives with no owner.
+      manager.onLoad = () => {};
+      if (loaded) {
+        loaded.removeFromParent();
+        disposeTree(loaded);
+        loaded = null;
+      }
+      draco.dispose();
+      setRobot(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Where each joint is DRAWN, which trails where the robot says it is. */
@@ -302,9 +403,29 @@ export default function SimView() {
   // Read OUTSIDE the R3F Canvas boundary — the scene is its own React root.
   const { jointStateRef, objectsRef, fixturesRef, robot } = useRobot();
   const gripper = robot?.gripper ?? ASSUMED_GRIPPER;
+  // No robot yet: draw the arm as before. A robot that named a platform this
+  // model does not describe: draw its workcell, say so, and leave the arm out.
+  const armSupported = !robot || ARM_PLATFORMS.has(robot.platform);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   return (
-    <div ref={containerRef} className="h-full w-full">
+    <div ref={containerRef} className="relative h-full w-full">
+      {!armSupported && (
+        <p
+          role="status"
+          className="pointer-events-none absolute left-3 top-3 z-10 rounded-lg border border-border bg-background/90 px-2.5 py-1.5 text-xs text-muted-foreground"
+        >
+          No 3D model for platform {robot?.platform}
+        </p>
+      )}
+      {armSupported && loadFailed && (
+        <p
+          role="status"
+          className="pointer-events-none absolute left-3 top-3 z-10 rounded-lg border border-border bg-background/90 px-2.5 py-1.5 text-xs text-muted-foreground"
+        >
+          3D model failed to load
+        </p>
+      )}
       <Canvas
         shadows
         // Pulled back and swung round to the working side: the table occupies
@@ -333,7 +454,9 @@ export default function SimView() {
         />
         <directionalLight position={[-2.5, 2, -1.5]} intensity={0.35} />
         <directionalLight position={[0, 1.5, -3]} intensity={0.25} />
-        <ArmModel stateRef={jointStateRef} gripper={gripper} />
+        {armSupported && (
+          <ArmModel stateRef={jointStateRef} gripper={gripper} onError={() => setLoadFailed(true)} />
+        )}
         <Workcell objectsRef={objectsRef} fixturesRef={fixturesRef} />
         <Grid
           args={[4, 4]}

@@ -27,6 +27,11 @@ const CONTRACT: AgentContract = {
       description: "Save a skill.",
       parameters: { type: "object", properties: { name: { type: "string" } } },
     },
+    {
+      name: "report",
+      description: "Report the task outcome.",
+      parameters: { type: "object", properties: { summary: { type: "string" } } },
+    },
   ],
 };
 
@@ -64,6 +69,44 @@ test("a plain reply ends the run and reaches the owner", async () => {
   expect(result.outcome).toBe("ok");
   expect(result.text).toBe("Taught it to wave.");
   expect(events.some((e) => e.type === "chat" && e.text === "Taught it to wave.")).toBe(true);
+});
+
+test("the model the api SAYS it served is the one announced, not the one asked for", async () => {
+  globalThis.fetch = mock(async () => new Response(JSON.stringify({
+    model: "gpt-5.6-terra", provider: "azure", choices: [{ message: { content: "done" } }],
+  }), { status: 200 })) as any;
+  const { events, emit } = collect();
+  const result = await teach({ contract: CONTRACT, model: "gpt-5.6-sol", prompt: "wave", dispatch: async () => "", emit });
+  expect(events.find((e) => e.type === "model")).toEqual({ type: "model", name: "gpt-5.6-terra", provider: "azure" });
+  expect(result.ranOn).toEqual({ model: "gpt-5.6-terra", provider: "azure" });
+  // Announced from the reply: nothing is claimed before it arrives.
+  expect(events[0]?.type).toBe("model");
+});
+
+test("a malformed envelope becomes one actionable sentence, not a crash", async () => {
+  globalThis.fetch = mock(async () => new Response(JSON.stringify({
+    choices: [{ message: { content: null, tool_calls: [{ id: "x" }] } }],
+  }), { status: 200 })) as any;
+  const { events, emit } = collect();
+  const result = await teach({ contract: CONTRACT, model: "gpt-5.6-luna", prompt: "wave", dispatch: async () => "", emit });
+  expect(result.outcome).toBe("fail");
+  expect(result.error).toContain("malformed tool call");
+  expect(result.ranOn).toBeNull();
+  expect(events.some((e) => e.type === "chat")).toBe(true);
+});
+
+test("arguments that fail the wheel's schema never reach dispatch", async () => {
+  stubModel([
+    { content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "move_to", arguments: JSON.stringify({ arm: 7 }) } }] },
+    { content: "ok" },
+  ]);
+  const { events, emit } = collect();
+  const dispatch = mock(async () => "moved");
+  await teach({ contract: CONTRACT, model: "gpt-5.6-luna", prompt: "move", dispatch, emit });
+  expect(dispatch).not.toHaveBeenCalled();
+  const result = events.find((e) => e.type === "tool_result") as any;
+  expect(result.ok).toBe(false);
+  expect(result.result).toContain("arguments.arm must be string, got integer");
 });
 
 test("the model that was asked for is the one announced", async () => {
@@ -210,7 +253,8 @@ test("it stops at the iteration limit rather than looping forever", async () => 
     emit,
   });
 
-  expect(result.outcome).toBe("ok");
+  expect(result.outcome).toBe("fail");
+  expect(result.error).toBe("iteration_limit");
   expect(events.filter((e) => e.type === "tool").length).toBe(3);
 });
 
@@ -309,7 +353,7 @@ test("the system prompt sent is the runtime's, verbatim", async () => {
   expect(seen.messages[0]).toEqual({ role: "system", content: CONTRACT.system_prompt });
   expect(seen.messages[1]).toEqual({ role: "user", content: "the task" });
   // The tools offered are the contract's, in the vendor's envelope.
-  expect(seen.tools.map((t: any) => t.function.name)).toEqual(["move_to", "save_skill"]);
+  expect(seen.tools.map((t: any) => t.function.name)).toEqual(["move_to", "save_skill", "report"]);
 });
 
 // --- the gate on saying "done" ---------------------------------------------
@@ -473,4 +517,49 @@ test("a final verdict is not argued with", async () => {
   expect(asked).toBe(1);
   expect(result.outcome).toBe("fail");
   expect(result.text).toBe("Stopped: the e-stop is latched. Clear it to continue.");
+});
+
+test.each(["{", "null", "[]", "42", "\"right\"", ""])("invalid tool args %s never reach the executor", async (args) => {
+  stubModel([
+    { tool_calls: [{ id: "bad", type: "function", function: { name: "move_to", arguments: args } }] },
+    { content: "I need to correct the arguments." },
+  ]);
+  const dispatch = mock(async () => "moved");
+  const { events, emit } = collect();
+  await teach({ contract: CONTRACT, model: "test", prompt: "move", dispatch, emit });
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(events.find((event) => event.type === "tool_result")).toMatchObject({ ok: false });
+});
+
+test("a tool outside the runtime contract cannot dispatch", async () => {
+  stubModel([
+    { tool_calls: [{ id: "bad", type: "function", function: { name: "unoffered_tool", arguments: "{}" } }] },
+    { content: "Unavailable." },
+  ]);
+  const dispatch = mock(async () => "ok");
+  await teach({ contract: CONTRACT, model: "test", prompt: "x", dispatch, emit: () => {} });
+  expect(dispatch).not.toHaveBeenCalled();
+});
+
+test("STOP in the last tool of the last turn still fails as aborted", async () => {
+  const abort = new AbortController();
+  stubModel([{ tool_calls: [{ id: "last", type: "function", function: { name: "move_to", arguments: "{}" } }] }]);
+  const result = await teach({
+    contract: { ...CONTRACT, max_iterations: 1 }, model: "test", prompt: "move",
+    dispatch: async () => { abort.abort(); return "ok"; }, emit: () => {}, signal: abort.signal,
+    verify: async () => null,
+  });
+  expect(result).toMatchObject({ outcome: "fail", error: "aborted" });
+});
+
+test("STOP during verification cannot emit a success claim", async () => {
+  const abort = new AbortController();
+  stubModel([{ content: "Done!" }]);
+  const { events, emit } = collect();
+  const result = await teach({
+    contract: CONTRACT, model: "test", prompt: "move", dispatch: async () => "ok", emit,
+    signal: abort.signal, verify: async () => { abort.abort(); return null; },
+  });
+  expect(result).toMatchObject({ outcome: "fail", error: "aborted" });
+  expect(events.some((event) => event.type === "chat" && event.text === "Done!")).toBe(false);
 });

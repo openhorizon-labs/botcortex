@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 /* ---------- the 4-column strip ---------- */
 
 const STRIP = [
-  { icon: TeachIso, title: "Teach", body: "A chat window served from the robot — type the task, review the plan, run." },
-  { icon: RememberIso, title: "Remember", body: "On-device episodic memory: every attempt logged, every failure a lesson the agent recalls." },
-  { icon: RunLocalIso, title: "Run local", body: "Skills execute as deterministic code on the robot, online or not." },
-  { icon: OwnItIso, title: "Own it", body: "Your skills, your data, your API key. Open source, BYO everything." },
+  { icon: TeachIso, title: "Teach", body: "A hosted chat window for your robot — type the task, watch every step as the agent works." },
+  { icon: RememberIso, title: "Remember", body: "Episodic memory on the runtime: every attempt logged, every failure a lesson the agent recalls." },
+  { icon: RunLocalIso, title: "Run local", body: "Taught skills execute as deterministic code on the runtime, with zero model calls per run." },
+  { icon: OwnItIso, title: "Own it", body: "Your skills, your data, your model key. Bring your own model, VLA backend, and robot." },
 ] as const;
 
 export function FeatureStrip() {
@@ -45,8 +45,8 @@ function ChatVisual() {
       <div className="flex justify-start">
         <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-background px-3.5 py-2 text-[13px] leading-relaxed shadow-[0_1px_2px_rgb(0_0_0/0.05)]">
           Two skills, then. I already know <span className="font-mono">wipe_surface</span> —
-          I&rsquo;ll reuse it and author <span className="font-mono">stack_cups</span>. Plan is
-          ready for review.
+          I&rsquo;ll reuse it and author <span className="font-mono">stack_cups</span>. Watch
+          each step in the trace as I work.
         </div>
       </div>
       <div className="flex items-center gap-2 rounded-xl bg-background px-3.5 py-2.5 shadow-[0_1px_2px_rgb(0_0_0/0.05)]">
@@ -93,7 +93,8 @@ function MemoryVisual() {
           ))}
         </ul>
         <p className="border-t border-border px-4 py-2.5 font-mono text-[11px] text-muted-foreground">
-          recalled at teach time → +35% success (RoboInspector, ACM TIST 2026)
+          recalled at teach time · up to +35% in RoboInspector&rsquo;s evaluated setting
+          (arXiv 2508.21378) — not a BotCortex measurement
         </p>
       </div>
     </div>
@@ -112,28 +113,28 @@ function LocalVisual() {
           <div className="h-full w-full rounded-full bg-foreground/60" />
         </div>
         <div className="mt-4 mb-1.5 flex items-baseline justify-between text-[12px]">
-          <span className="text-muted-foreground">BotCortex control loop, on-device</span>
-          <span className="font-mono">12–20 ms</span>
+          <span className="text-muted-foreground">taught skill, model calls per run</span>
+          <span className="font-mono">0</span>
         </div>
         <div className="h-1.5 w-full rounded-full bg-surface-3">
-          <div className="h-full w-[2%] min-w-1.5 rounded-full bg-foreground" />
+          <div className="h-full w-0 min-w-1.5 rounded-full bg-foreground" />
         </div>
       </div>
       <div className="flex items-center justify-between rounded-xl bg-background px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0/0.05)]">
         <span className="font-mono text-[11px] text-muted-foreground">
-          network unplugged · skills still running
+          deterministic code on the runtime · STOP always on screen
         </span>
-        <span className="rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-bold tracking-wide text-white">
+        <span className="rounded-md bg-destructive px-2.5 py-1 text-[10px] font-bold tracking-wide text-white">
           STOP
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 px-1">
-        {(["primitive", "policy", "vla", "human"] as Runner[]).map((r) => (
+        <span className="font-mono text-[10px] text-muted-foreground">today:</span>
+        <RunnerBadge runner="primitive" />
+        <span className="ml-1 font-mono text-[10px] text-muted-foreground">planned:</span>
+        {(["policy", "vla", "human"] as Runner[]).map((r) => (
           <RunnerBadge key={r} runner={r} />
         ))}
-        <span className="ml-1 font-mono text-[10px] text-muted-foreground">
-          the LLM plans; these run it
-        </span>
       </div>
     </div>
   );
@@ -164,8 +165,8 @@ const CARDS = [
   {
     id: "teach",
     chip: "Teach",
-    headline: "Type the task. Review the plan. Run.",
-    body: "BotCortex serves a chat window from the robot itself — no code editor, no API, no robot programmer. The agent writes the skill once, and you see every step it plans before anything moves.",
+    headline: "Type the task. Watch it work. Run.",
+    body: "BotCortex is a hosted chat window for your robot — no code editor, no API, no robot programmer. The agent writes the skill once, and you watch every step it takes, generated code included, as it works.",
     link: { href: "/demo", label: "See it live" },
     visual: ChatVisual,
   },
@@ -173,7 +174,7 @@ const CARDS = [
     id: "remember",
     chip: "Remember",
     headline: "Every failure makes the next attempt smarter.",
-    body: "Every attempt is written to on-device episodic memory — what ran, what broke, what the lesson was — and recalled the next time you teach. Feeding failures back like this improves manipulation success by up to 35%.",
+    body: "Every attempt is written to episodic memory on the runtime — what ran, what broke, what the lesson was — and recalled the next time you teach. In RoboInspector's evaluated setting, feeding failure diagnostics back improved manipulation success by up to 35%; we have not yet measured our own uplift.",
     link: { href: "https://arxiv.org/abs/2508.21378", label: "Read the research" },
     visual: MemoryVisual,
   },
@@ -181,15 +182,15 @@ const CARDS = [
     id: "run-local",
     chip: "Run local",
     headline: "No cloud in the control loop.",
-    body: "A control loop needs 12–20 milliseconds; cloud round-trips can spike to seconds. Taught skills run as deterministic code on the robot — dry-run by default, joint limits clamped, STOP always on screen.",
+    body: "Cloud round-trips can spike to seconds, so the model never sits in the control loop. Taught skills run as deterministic code on the runtime with zero model calls — joint limits clamped, STOP always on screen. Every robot today is a simulation twin; hardware motion is not yet wired.",
     link: { href: "/demo", label: "Book a demo" },
     visual: LocalVisual,
   },
   {
     id: "own-it",
     chip: "Own it",
-    headline: "Your skills, your data, your API key.",
-    body: "Skills and failure logs live on your hardware and belong to you — not to a shared library in someone else's cloud. Bring your own model, your own VLA backend, your own robot — free on a single machine.",
+    headline: "Your skills, your data, your model key.",
+    body: "Skills and failure logs live on your runtime and belong to you — not to a shared library in someone else's cloud. Bring your own model key or teach with metered BotCortex credit; bring your own VLA backend and your own robot — free on a single machine.",
     link: { href: "https://github.com/openhorizon-labs", label: "Follow on GitHub" },
     visual: OwnVisual,
   },

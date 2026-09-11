@@ -23,7 +23,7 @@ import { useRobot } from "@/components/app/robot-provider";
 const SimView = dynamic(() => import("@/components/app/sim-view"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+    <div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground">
       loading simulation…
     </div>
   ),

@@ -96,9 +96,26 @@ export function RobotKeysPanel() {
     }
   }
 
+  /** Which keys are mid-revocation, so the row can say so. */
+  const [revoking, setRevoking] = useState<Set<string>>(new Set());
+
   async function revoke(id: string) {
-    await fetch(`/api/keys/${id}`, { method: "DELETE" });
-    await load();
+    setError(null);
+    setRevoking((prev) => new Set(prev).add(id));
+    try {
+      // Checked, not assumed (audit B04): a 401 or a dropped request used to
+      // reload the list and, if the reload also failed, leave the key looking
+      // revoked — which is the one state a credential must never be shown in
+      // while it still works.
+      const res = await fetch(`/api/keys/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`The key was NOT revoked (api said ${res.status}). It still works — retry, or revoke it from the robot.`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error && e.message.includes("revoked") ? e.message
+        : "The key was NOT revoked — the api could not be reached. It still works; retry when you are back online.");
+    } finally {
+      setRevoking((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
   }
 
   const live = keys.filter((k) => !k.revokedAt);
@@ -180,9 +197,10 @@ export function RobotKeysPanel() {
                   size="icon"
                   className="cursor-pointer text-muted-foreground hover:text-destructive"
                   aria-label={`Revoke ${key.name}`}
+                  disabled={revoking.has(key.id)}
                   onClick={() => revoke(key.id)}
                 >
-                  <Trash2 className="size-4" />
+                  {revoking.has(key.id) ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                 </Button>
               </div>
             ))

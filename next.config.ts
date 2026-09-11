@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: { root: process.cwd() },
   // Normal Vercel deployment (static export dropped Aug 2, Sai's call) —
   // the hosted app is the front door; robots and botcortex-api sit behind it.
   // Auth is proxied same-origin so session cookies stay first-party

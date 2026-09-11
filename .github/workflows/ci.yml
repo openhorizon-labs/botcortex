@@ -1,0 +1,48 @@
+# The same checks a clean checkout runs locally (docs/ARCHITECTURE_AUDIT.md §8):
+# frozen install, unit/regression tests, TypeScript, production build.
+#
+# Not run here: `bun scripts/audit-smoke.ts`, the Chrome integration smoke.
+# It needs an installed Chrome, a running `bun dev` on :3000 and a free :8787
+# for its loopback fixture; run it manually before merging anything that
+# touches the provider, transport, STOP or the browser simulator.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The build only needs the rewrite destination to be a URL; nothing is
+      # contacted at build time.
+      API_URL: http://localhost:8787
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      # Includes lib/robot/wheel-manifest.test.ts: the committed wheel must
+      # match public/botcortex/MANIFEST.json (SHA-256 + contract version).
+      - name: Unit and regression tests
+        run: bun test
+
+      - name: TypeScript
+        run: bun run typecheck
+
+      # `bun run build` first runs `bun run vendor`, which copies Pyodide and
+      # MuJoCo out of node_modules and builds public/sim-worker.js.
+      - name: Production build
+        run: bun run build

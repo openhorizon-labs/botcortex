@@ -87,6 +87,13 @@ function badge(call: ToolCall) {
       </>
     );
   }
+  if (call.ok === undefined) {
+    return (
+      <>
+        <ClockIcon className="size-4" /> Outcome unknown
+      </>
+    );
+  }
   if (call.name === "log_lesson") {
     return (
       <>

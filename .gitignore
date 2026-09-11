@@ -21,3 +21,6 @@ next-env.d.ts
 /public/pyodide/
 /public/mujoco/
 /public/sim-worker.js
+
+# Local research captures; source links and conclusions live in docs/.
+.firecrawl/

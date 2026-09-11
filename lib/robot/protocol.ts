@@ -31,9 +31,14 @@ export type ClientMessage =
   /** `model` names the brain for THIS task; absent means the robot's own
    *  configured default. `history` is the conversation so far — each teach is
    *  a fresh model conversation, and without it "no, put it back" arrives
-   *  meaning nothing. */
-  | { type: "chat"; text: string; dryRun: boolean; model?: string; history?: ChatHistoryEntry[] }
-  | { type: "run_skill"; name: string; dryRun: boolean }
+   *  meaning nothing. `runId` is minted by the client and binds every event
+   *  the run emits to the conversation it started from — see the B01 note on
+   *  RobotMessage. Older runtimes ignore it. */
+  | { type: "chat"; text: string; dryRun: boolean; model?: string; history?: ChatHistoryEntry[]; runId?: string }
+  | { type: "run_skill"; name: string; dryRun: boolean; runId?: string }
+  /** Retry copying a saved skill to the account registry. Honoured by the
+   *  browser sim, which holds the code; a runtime syncs on its own. */
+  | { type: "sync_skill"; name: string }
   /** Sent once per page load so a refresh gives a clean scene. The runtime
    *  ignores it while busy, and backends with a physical arm never honour it. */
   | { type: "reset_sim" }
@@ -85,13 +90,19 @@ export type RobotMessage =
     }
   /** Latch changes, including a stop file created outside this app. */
   | { type: "estop"; stopped: boolean }
-  | { type: "status"; state: "idle" | "teaching" | "running"; detail?: string }
-  | { type: "chat"; text: string }
-  | { type: "plan"; steps: PlanStep[] }
-  | { type: "step"; id: string; state: "start" | "ok" | "fail"; error?: string }
+  /* Execution events carry an optional `runId`, echoed from the client
+     message that started the run (protocol version 2). The app files an
+     event under the conversation that STARTED its run, not the one that
+     happens to be open, so switching tasks mid-teach cannot move history.
+     Absent on older runtimes, in which case events bind to the most recent
+     run this client started. */
+  | { type: "status"; state: "idle" | "teaching" | "running"; detail?: string; runId?: string }
+  | { type: "chat"; text: string; runId?: string }
+  | { type: "plan"; steps: PlanStep[]; runId?: string }
+  | { type: "step"; id: string; state: "start" | "ok" | "fail"; error?: string; runId?: string }
   | { type: "skills"; skills: string[]; unproven?: string[] }
   /** Which model a teach actually ran on — echoed back, never assumed. */
-  | { type: "model"; name: string; provider: string }
+  | { type: "model"; name: string; provider: string; runId?: string }
   /** The agent reaching into the runtime — emitted as it happens, so an owner
    *  can watch it read positions, write a skill, and run it. */
   | {
@@ -99,8 +110,9 @@ export type RobotMessage =
       id: string;
       name: string;
       input: Record<string, unknown>;
+      runId?: string;
     }
-  | { type: "tool_result"; id: string; ok: boolean; result: string }
+  | { type: "tool_result"; id: string; ok: boolean; result: string; runId?: string }
   /** Joints, plus anything on the table that can move. */
   | { type: "state"; arms: JointState; objects?: SceneBodies }
   /** A saved skill's copy reaching the account registry, or failing to.
@@ -108,7 +120,17 @@ export type RobotMessage =
    *  entirely — a cross-repo shape mismatch that typechecked only because
    *  nothing handled it. */
   | { type: "sync"; skill: string; ok: boolean }
+  /** Whether the robot's skills and episodes outlive this session, and
+   *  whether the latest change reached that storage. `durable: false` with
+   *  `unsaved: true` is the state the owner must see: something was taught
+   *  and it exists only in memory. Emitted by the browser sim; a runtime's
+   *  own disk is durable by construction and it need not send this. */
+  | { type: "memory"; durable: boolean; unsaved: boolean; detail?: string }
   | { type: "pong" };
+
+/** Bumped when a field is added to an existing message. Additive only: a
+ *  version-1 peer ignores the new fields, so both directions keep working. */
+export const PROTOCOL_VERSION = 2;
 
 export type ConnectionStatus =
   | "disconnected"
@@ -116,24 +138,139 @@ export type ConnectionStatus =
   | "connected"
   | "error";
 
-/** Accepts "192.168.1.42:9090", "thor.local:9090", or a full URL. */
+const record = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+const strings = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const vector = (value: unknown, length: number) =>
+  Array.isArray(value) && value.length === length && value.every(finite);
+const scene = (value: unknown): boolean => record(value) && Object.values(value).every((body) =>
+  record(body) && vector(body.position, 3) && vector(body.orientation, 4) &&
+  vector(body.size_m, 3) && vector(body.colour, 4),
+);
+
+/** WebSocket JSON is untrusted at runtime, regardless of its TypeScript type. */
+export function parseRobotMessage(raw: string): RobotMessage | null {
+  let msg: unknown;
+  try { msg = JSON.parse(raw); } catch { return null; }
+  if (!record(msg)) return null;
+  const optional = (key: string, valid: (value: unknown) => boolean) =>
+    msg[key] === undefined || valid(msg[key]);
+  const text = (value: unknown) => typeof value === "string";
+  const bool = (value: unknown) => typeof value === "boolean";
+  let valid = false;
+  switch (msg.type) {
+    case "hello":
+      valid = record(msg.robot) && text(msg.robot.name) && text(msg.robot.platform) &&
+        (msg.robot.version === undefined || text(msg.robot.version)) &&
+        (msg.robot.gripper === undefined || (record(msg.robot.gripper) &&
+          finite(msg.robot.gripper.minDeg) && finite(msg.robot.gripper.maxDeg) &&
+          msg.robot.gripper.maxDeg > msg.robot.gripper.minDeg &&
+          finite(msg.robot.gripper.travelM) && msg.robot.gripper.travelM > 0)) &&
+        strings(msg.skills) && optional("unproven", strings) && optional("fixtures", scene) &&
+        ["stopped", "resettable", "paired", "halfPaired"].every((key) => optional(key, bool));
+      break;
+    case "estop": valid = bool(msg.stopped); break;
+    case "status": valid = ["idle", "teaching", "running"].includes(String(msg.state)) && optional("detail", text) && optional("runId", text); break;
+    case "chat": valid = text(msg.text) && optional("runId", text); break;
+    case "skills": valid = strings(msg.skills) && optional("unproven", strings); break;
+    case "model": valid = text(msg.name) && text(msg.provider) && optional("runId", text); break;
+    case "tool": valid = text(msg.id) && text(msg.name) && record(msg.input) && optional("runId", text); break;
+    case "tool_result": valid = text(msg.id) && bool(msg.ok) && text(msg.result) && optional("runId", text); break;
+    case "state":
+      valid = record(msg.arms) && Object.values(msg.arms).every((joints) =>
+        record(joints) && Object.values(joints).every(finite)) && optional("objects", scene);
+      break;
+    case "sync": valid = text(msg.skill) && bool(msg.ok); break;
+    case "memory": valid = bool(msg.durable) && bool(msg.unsaved) && optional("detail", text); break;
+    case "plan":
+      valid = Array.isArray(msg.steps) && msg.steps.every((step) => record(step) &&
+        text(step.id) && text(step.label) && ["primitive", "policy", "vla", "human"].includes(String(step.runner))) &&
+        optional("runId", text);
+      break;
+    case "step":
+      valid = text(msg.id) && ["start", "ok", "fail"].includes(String(msg.state)) && optional("error", text) &&
+        optional("runId", text);
+      break;
+    case "pong": valid = true; break;
+  }
+  return valid ? msg as RobotMessage : null;
+}
+
+/**
+ * Where a robot is, as a validated structure rather than a bare string.
+ *
+ * `normalizeHost` used to strip any scheme and path and let the PAGE decide
+ * TLS: a https control room dialled `wss://` at everything, so a plain
+ * `ws://localhost:9090` runtime — an address the helper accepted — was
+ * unreachable with no explanation. An explicit scheme now wins; only an
+ * address typed without one inherits the page's. Credentials, queries and
+ * fragments are rejected outright: a robot address is a host and a port.
+ */
+export type RobotEndpoint = {
+  /** `host` or `host:port`, IPv6 in brackets, exactly as a URL would print it. */
+  host: string;
+  /** TLS for both the WebSocket and the STOP endpoint. */
+  secure: boolean;
+  /** Whether the owner spelled the scheme out, or the page chose it. */
+  explicitScheme: boolean;
+};
+
+const SCHEME = /^(wss?|https?):\/\//i;
+
+/** A full account of why an address was refused, for the connect dialog. */
+export function parseRobotEndpoint(
+  raw: string,
+  pageProtocol: string | undefined = typeof window !== "undefined" ? window.location.protocol : undefined,
+): { ok: true; endpoint: RobotEndpoint } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: false, error: "Enter the robot's address." };
+  const scheme = SCHEME.exec(trimmed)?.[1]?.toLowerCase() ?? null;
+  const rest = scheme ? trimmed.slice(scheme.length + 3) : trimmed;
+  // A trailing slash is what a copied URL carries; anything past it is not
+  // an address. Refused rather than silently trimmed, so "thor.local/ws" —
+  // someone pasting the socket path — is told what to remove.
+  const slash = rest.indexOf("/");
+  if (slash !== -1 && rest.slice(slash) !== "/") {
+    return { ok: false, error: "Enter just the host and port — no path." };
+  }
+  const authority = slash === -1 ? rest : rest.slice(0, slash);
+  if (authority.includes("@")) return { ok: false, error: "Credentials do not belong in a robot address." };
+  if (/[?#]/.test(authority)) return { ok: false, error: "Enter just the host and port — no query or fragment." };
+  if (/\s/.test(authority)) return { ok: false, error: "Robot addresses cannot contain spaces." };
+  let url: URL;
+  try {
+    url = new URL(`http://${authority}`);
+  } catch {
+    return { ok: false, error: "That is not a valid host or IP address." };
+  }
+  // The URL parser normalises (lower-cases, compresses IPv6, drops a default
+  // port). Anything it had to REWRITE beyond that is suspect, and comparing
+  // hosts case-insensitively catches the rest.
+  if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
+    return { ok: false, error: "That is not a valid host or IP address." };
+  }
+  const explicit = scheme !== null;
+  const secure = explicit
+    ? scheme === "wss" || scheme === "https"
+    : pageProtocol === "https:";
+  return { ok: true, endpoint: { host: url.host, secure, explicitScheme: explicit } };
+}
+
+/** Accepts "192.168.1.42:9090", "thor.local:9090", or a full URL. Kept for
+ *  callers that want a display string; empty when the address is invalid. */
 export function normalizeHost(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^(https?|wss?):\/\//, "")
-    .replace(/\/.*$/, "");
+  const parsed = parseRobotEndpoint(raw);
+  return parsed.ok ? parsed.endpoint.host : "";
 }
 
-export function wsUrl(host: string): string {
-  const secure =
-    typeof window !== "undefined" && window.location.protocol === "https:";
-  return `${secure ? "wss" : "ws"}://${host}/ws`;
+export function wsUrl(endpoint: RobotEndpoint): string {
+  return `${endpoint.secure ? "wss" : "ws"}://${endpoint.host}/ws`;
 }
 
-export function httpUrl(host: string): string {
-  const secure =
-    typeof window !== "undefined" && window.location.protocol === "https:";
-  return `${secure ? "https" : "http"}://${host}`;
+export function httpUrl(endpoint: RobotEndpoint): string {
+  return `${endpoint.secure ? "https" : "http"}://${endpoint.host}`;
 }
 
 /** Addresses that cannot hold a public certificate, so a https page can only
@@ -141,8 +278,11 @@ export function httpUrl(host: string): string {
 function isPrivateAddress(bare: string): boolean {
   const host = bare.toLowerCase();
   if (host === "localhost" || host.endsWith(".localhost")) return false; // secure context
-  if (host === "127.0.0.1" || host === "::1" || host === "[::1]") return false;
+  if (host === "127.0.0.1" || host === "[::1]") return false;
   if (host.endsWith(".local")) return true; // mDNS: thor.local
+  // Private, link-local and unique-local IPv6, in the brackets the URL
+  // parser leaves them in.
+  if (host.startsWith("[")) return /^\[(fe80:|fc|fd)/i.test(host);
   return (
     /^10\./.test(host) ||
     /^192\.168\./.test(host) ||
@@ -150,6 +290,11 @@ function isPrivateAddress(bare: string): boolean {
     /^169\.254\./.test(host) ||
     /^127\./.test(host)
   );
+}
+
+/** The host without its port, brackets kept on an IPv6 literal. */
+function bareHost(host: string): string {
+  return host.startsWith("[") ? host.replace(/\]:\d+$/, "]") : host.replace(/:\d+$/, "");
 }
 
 /**
@@ -163,10 +308,20 @@ function isPrivateAddress(bare: string): boolean {
  * was ever attempted.
  *
  * localhost and 127.0.0.1 are exempt because browsers treat them as secure
- * contexts. Robot-served pages are same-origin, so they never reach here.
+ * contexts. An explicit plain scheme on a https page is blocked for every
+ * other host: the browser will refuse it, so say so before trying.
  */
-export function mixedContentBlocked(host: string): boolean {
-  if (typeof window === "undefined") return false;
-  if (window.location.protocol !== "https:") return false;
-  return isPrivateAddress(host.replace(/:\d+$/, ""));
+export function mixedContentBlocked(
+  endpoint: RobotEndpoint | string,
+  pageProtocol: string | undefined = typeof window !== "undefined" ? window.location.protocol : undefined,
+): boolean {
+  if (pageProtocol !== "https:") return false;
+  const target = typeof endpoint === "string"
+    ? { host: endpoint, secure: false, explicitScheme: false }
+    : endpoint;
+  const bare = bareHost(target.host);
+  const loopback = bare === "localhost" || bare.endsWith(".localhost") || bare === "127.0.0.1" || bare === "[::1]";
+  if (loopback) return false;
+  if (target.explicitScheme) return !target.secure;
+  return isPrivateAddress(bare);
 }

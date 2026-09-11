@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
+import { signInDestination } from "@/lib/auth-redirect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -13,10 +14,7 @@ export function SignInForm() {
   const params = useSearchParams();
   // Only ever an in-app path — an absolute URL here would make this an open
   // redirect, and the value arrives from the query string.
-  const nextParam = params.get("next");
-  const destination = nextParam?.startsWith("/") && !nextParam.startsWith("//")
-    ? nextParam
-    : "/app";
+  const destination = signInDestination(params.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,13 +23,18 @@ export function SignInForm() {
   async function submit() {
     setBusy(true);
     setError(null);
-    const result = await authClient.signIn.email({ email, password });
-    setBusy(false);
-    if (result.error) {
-      setError(result.error.message ?? "Sign-in failed — check your credentials.");
-      return;
+    try {
+      const result = await authClient.signIn.email({ email, password });
+      if (result.error) {
+        setError(result.error.message ?? "Sign-in failed — check your credentials.");
+        return;
+      }
+      router.push(destination);
+    } catch {
+      setError("Could not reach BotCortex. Check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    router.push(destination);
   }
 
   return (
@@ -47,6 +50,7 @@ export function SignInForm() {
         onChange={(e) => setEmail(e.target.value)}
         placeholder="you@lab.dev"
         type="email"
+        aria-label="Email"
         autoComplete="email"
         className="h-11"
         autoFocus
@@ -56,6 +60,7 @@ export function SignInForm() {
         onChange={(e) => setPassword(e.target.value)}
         placeholder="Password"
         type="password"
+        aria-label="Password"
         autoComplete="current-password"
         className="h-11"
       />

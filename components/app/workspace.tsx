@@ -21,7 +21,6 @@ import {
   Plus,
   Search,
   SquarePen,
-  ShieldCheck,
   Shuffle,
   Trash2,
   Wrench,
@@ -82,7 +81,7 @@ import { ConnectRobotDialog } from "@/components/app/connect-robot-dialog";
 import { SettingsDialog } from "@/components/app/settings-dialog";
 import { ChatPane } from "@/components/app/chat-pane";
 import { Composer } from "@/components/app/composer";
-import { StopControl } from "@/components/app/stop-control";
+import { StatusStrip } from "@/components/app/status-strip";
 import { SimPanel } from "@/components/app/sim-panel";
 import { LiveDot } from "@/components/kit/live-dot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -137,6 +136,7 @@ function AppInner() {
     credit,
     stopped,
     pairing,
+    historyTruncated,
     // Session-scoped so the navigation the first message triggers doesn't
     // reset them out from under the owner.
     simOpen, setSimOpen, dryRun, setDryRun, model, setModel,
@@ -178,7 +178,7 @@ function AppInner() {
     // A teach with the e-stop latched authors a skill and then cannot run it,
     // so the owner pays for something that was never verified. The banner is
     // right there; refusing here is what makes it mean something.
-    if (stopped) return;
+    if (stopped || busy) return;
     if (sendChat(text, dryRun, model)) setInput("");
   }
 
@@ -199,7 +199,7 @@ function AppInner() {
     // The runtime refuses this too — that is the real guard, since a second
     // tab can send it. Here it just stops the button lying about what will
     // happen.
-    if (busy) return;
+    if (busy || stopped) return;
     if (connected) runSkill(name, dryRun);
     else setInput(`Run ${name}`);
   }
@@ -534,7 +534,7 @@ function AppInner() {
                     >
                       <Avatar className="size-7 rounded-lg">
                         <AvatarFallback className="rounded-lg bg-foreground text-xs font-medium text-background">
-                          {(session.user.name || session.user.email)[0]?.toUpperCase()}
+                          {(session.user.name || session.user.email || "?")[0]?.toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div className="grid flex-1 text-left leading-tight">
@@ -576,9 +576,10 @@ function AppInner() {
 
       <SidebarInset className="min-h-0 flex-row overflow-hidden rounded-lg border border-border shadow-none">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-between px-3">
+        <header className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
           <SidebarTrigger className="text-muted-foreground" />
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <StatusStrip />
             {!simOpen && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -601,6 +602,11 @@ function AppInner() {
         <div className="mx-auto flex min-h-0 w-full max-w-[768px] flex-1 flex-col px-4 pb-3">
           {hasMessages ? (
             <>
+              {historyTruncated && (
+                <p role="status" className="shrink-0 pt-3 text-center text-xs text-muted-foreground">
+                  This task has more history than the api returns at once — only the most recent 500 events are shown and exported.
+                </p>
+              )}
               <ChatPane />
               <Composer
                 className="mt-3 shrink-0"
@@ -736,7 +742,7 @@ function AppInner() {
             {skillList.map((s) => (
               <CommandItem
                 key={s}
-                disabled={busy}
+                        disabled={busy || stopped}
                 onSelect={() => {
                   handleRunSkill(s);
                   setCmdOpen(false);
@@ -783,14 +789,10 @@ function AppInner() {
             >
               <SquarePen /> New task
             </CommandItem>
-            <CommandItem
-              onSelect={() => {
-                setDryRun((d) => !d);
-                setCmdOpen(false);
-              }}
-            >
-              <ShieldCheck /> Toggle dry run
-            </CommandItem>
+            {/* "Toggle dry run" used to live here. No backend reads dryRun
+                today (see composer.tsx), so a palette action that flipped a
+                hidden state promised a safety mode that did not exist —
+                removed until the runtime defines it (audit B03). */}
             <CommandItem
               onSelect={() => {
                 setCmdOpen(false);
@@ -804,7 +806,6 @@ function AppInner() {
         </Command>
       </CommandDialog>
 
-      <StopControl />
       <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </SidebarProvider>

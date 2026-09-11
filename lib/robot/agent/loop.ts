@@ -20,6 +20,7 @@
 import type { RobotMessage } from "@/lib/robot/protocol";
 import { type AgentContract, toolsForOpenAI } from "@/lib/robot/agent/contract";
 import { explain } from "@/lib/robot/agent/explain";
+import { type JsonSchema, validateArguments } from "@/lib/robot/agent/schema";
 
 /** Runs one tool and returns whatever the runtime would have returned — a
  *  string, always, because that is what the model is handed back. */
@@ -67,6 +68,45 @@ export interface TeachOutcome {
   text: string;
   outcome: "ok" | "fail";
   error?: string;
+  /** What the inference api said actually served the run — null when it
+   *  never answered, which is not the same as "the model that was asked for". */
+  ranOn: { model: string; provider: string } | null;
+}
+
+/** The subset of a chat-completions reply the loop reads, checked at the
+ *  boundary. The api is ours, but it forwards vendor envelopes, and a vendor
+ *  that returns `tool_calls: null` or an id-less call used to crash the
+ *  loop with a TypeError the owner saw as "teach failed" and nothing more. */
+interface ModelReply {
+  model: string | null;
+  provider: string | null;
+  content: string | null;
+  toolCalls: ToolCall[];
+}
+
+function readReply(data: unknown): ModelReply {
+  const record = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === "object" && !Array.isArray(value);
+  if (!record(data)) throw new Error("The agent returned a malformed response (not an object).");
+  const choice = Array.isArray(data.choices) && record(data.choices[0]) ? data.choices[0].message : undefined;
+  if (!record(choice)) throw new Error("The agent produced no response.");
+  const content = typeof choice.content === "string" ? choice.content : null;
+  const rawCalls = choice.tool_calls ?? [];
+  if (!Array.isArray(rawCalls)) throw new Error("The agent returned a malformed response (tool_calls).");
+  const toolCalls = rawCalls.map((call, index): ToolCall => {
+    const fn = record(call) ? call.function : undefined;
+    if (!record(call) || typeof call.id !== "string" || !call.id || !record(fn) ||
+        typeof fn.name !== "string" || typeof fn.arguments !== "string") {
+      throw new Error(`The agent returned a malformed tool call (#${index + 1}).`);
+    }
+    return { id: call.id, type: "function", function: { name: fn.name, arguments: fn.arguments } };
+  });
+  return {
+    model: typeof data.model === "string" ? data.model : null,
+    provider: typeof data.provider === "string" ? data.provider : null,
+    content,
+    toolCalls,
+  };
 }
 
 interface ChatMessage {
@@ -120,12 +160,21 @@ export async function teach({
   signal,
   endpoint = "/api/inference/chat",
 }: TeachOptions): Promise<TeachOutcome> {
-  // Echoed back rather than assumed: an owner who picked an expensive model
-  // and was quietly downgraded has been charged for something they did not
-  // choose.
-  emit({ type: "model", name: model, provider: "openai" });
+  // Announced from the REPLY, never from the request: an owner who picked an
+  // expensive model and was quietly routed to another has been charged for
+  // something they did not choose, and a notice built from the request would
+  // have told them the opposite. Until the api answers, nothing is claimed.
+  let ranOn: TeachOutcome["ranOn"] = null;
+  const attribute = (reply: ModelReply) => {
+    if (ranOn) return;
+    ranOn = { model: reply.model ?? model, provider: reply.provider ?? "openai" };
+    emit({ type: "model", name: ranOn.model, provider: ranOn.provider });
+  };
 
   const tools = toolsForOpenAI(contract);
+  const schemaOf = new Map<string, JsonSchema>(
+    contract.tools.map((tool) => [tool.name, tool.parameters as unknown as JsonSchema]),
+  );
   const messages: ChatMessage[] = [
     { role: "system", content: contract.system_prompt },
     { role: "user", content: prompt },
@@ -144,17 +193,16 @@ export async function teach({
     const spoken = (pushback ? pushback.owner : said).trim();
     if (spoken) emit({ type: "chat", text: spoken });
     return pushback
-      ? { text: spoken, outcome: "fail", error: "unverified" }
-      : { text: spoken, outcome: "ok" };
+      ? { text: spoken, outcome: "fail", error: "unverified", ranOn }
+      : { text: spoken, outcome: "ok", ranOn };
   };
+  const stopped = (): TeachOutcome => ({ text: "Stopped.", outcome: "fail", error: "aborted", ranOn });
 
   let text = "";
   let followUps = contract.max_follow_ups ?? 2;
   try {
     for (let turn = 0; turn < contract.max_iterations; turn++) {
-      if (signal?.aborted) {
-        return { text: "Stopped.", outcome: "fail", error: "aborted" };
-      }
+      if (signal?.aborted) return stopped();
 
       const request: Record<string, unknown> = { model, messages, tools };
       if (needsEffortNone.has(model)) request.reasoning_effort = "none";
@@ -176,21 +224,22 @@ export async function teach({
         }
       }
 
-      const choice = data.choices?.[0]?.message;
-      if (!choice) return { text: "The agent produced no response.", outcome: "fail" };
+      const reply = readReply(data);
+      attribute(reply);
 
-      if (choice.content) text = choice.content;
+      if (reply.content) text = reply.content;
 
-      const calls: ToolCall[] = choice.tool_calls ?? [];
+      const calls = reply.toolCalls;
       if (calls.length === 0) {
         // The model believes it is finished. Whether it is, is not its call —
         // hence nothing emitted above: "Done, the block is in the tray!" must
         // not reach the chat pane one turn before the robot is sent back to
         // try again.
         const pushback = (await verify?.()) ?? null;
+        if (signal?.aborted) return stopped();
         if (pushback && followUps > 0 && !pushback.final) {
           followUps--;
-          messages.push({ role: "assistant", content: choice.content ?? "" });
+          messages.push({ role: "assistant", content: reply.content ?? "" });
           messages.push({ role: "user", content: pushback.agent });
           continue;
         }
@@ -199,11 +248,11 @@ export async function teach({
 
       // A turn that also calls tools is the agent narrating its work, and goes
       // straight through to the owner.
-      if (choice.content) emit({ type: "chat", text: choice.content });
+      if (reply.content) emit({ type: "chat", text: reply.content });
 
       messages.push({
         role: "assistant",
-        content: choice.content ?? null,
+        content: reply.content,
         tool_calls: calls,
       });
 
@@ -211,23 +260,36 @@ export async function teach({
         // Checked per CALL, not just per turn. A model routinely asks for
         // several tools in one turn; aborting only at the top of the loop let
         // every remaining one dispatch after STOP, each moving the arm.
-        if (signal?.aborted) {
-          return { text: "Stopped.", outcome: "fail", error: "aborted" };
-        }
+        if (signal?.aborted) return stopped();
         // Sequential, matching the runtime: two tools moving the same arm at
         // once is not something the primitives are built for, and the trace an
         // owner watches would interleave into nonsense.
         let args: Record<string, unknown> = {};
+        let argumentError: string | null = null;
         try {
-          args = JSON.parse(call.function.arguments || "{}");
+          const parsed: unknown = JSON.parse(call.function.arguments);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("Tool arguments must be a JSON object.");
+          }
+          args = parsed as Record<string, unknown>;
         } catch {
-          /* a malformed arg list is the model's problem to fix; tell it so */
+          argumentError = "Tool arguments must be a valid JSON object. Correct the arguments and retry.";
         }
         emit({ type: "tool", id: call.id, name: call.function.name, input: args });
 
         let result: string;
         let ok = true;
         try {
+          if (argumentError) throw new Error(argumentError);
+          if (!schemaOf.has(call.function.name)) {
+            throw new Error(`Tool ${call.function.name} is not offered by this runtime.`);
+          }
+          // Against the wheel's own schema, before the primitives see it. The
+          // runtime still checks values (limits, arm names); this refuses the
+          // SHAPES it would have had to throw on — a string where an object
+          // was required never reaches a motion primitive.
+          const shape = validateArguments(schemaOf.get(call.function.name), args);
+          if (shape) throw new Error(`${shape}. Correct the arguments and retry.`);
           result = await dispatch(call.function.name, args);
           // Tool bodies report failure by RETURNING it, not by throwing — the
           // model has to read what went wrong to repair it. Classified with
@@ -261,14 +323,20 @@ export async function teach({
 
     // Out of turns. Checked too — running out of iterations is not evidence
     // that anything worked, and it used to be reported as a success.
-    return finish(text || "Stopped after the iteration limit.", (await verify?.()) ?? null);
+    if (signal?.aborted) return stopped();
+    const pushback = (await verify?.()) ?? null;
+    if (signal?.aborted) return stopped();
+    if (pushback) return finish(text, pushback);
+    const limited = "Stopped after the iteration limit. Task completion was not confirmed.";
+    emit({ type: "chat", text: limited });
+    return { text: limited, outcome: "fail", error: "iteration_limit", ranOn };
   } catch (error) {
-    if (signal?.aborted) return { text: "Stopped.", outcome: "fail", error: "aborted" };
+    if (signal?.aborted) return stopped();
     // Full detail to the console for whoever is debugging; one actionable
     // sentence to the owner.
     console.error("[botcortex] teach failed", error);
     const friendly = explain(error);
     emit({ type: "chat", text: friendly });
-    return { text: friendly, outcome: "fail", error: String(error) };
+    return { text: friendly, outcome: "fail", error: String(error), ranOn };
   }
 }

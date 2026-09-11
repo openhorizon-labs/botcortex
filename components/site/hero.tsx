@@ -14,9 +14,9 @@ export function Hero() {
             Teach your robot by typing.
           </h1>
           <p className="mt-6 max-w-xl text-base leading-6 text-foreground/80">
-            The LLM harness and runtime for real robots — the agent writes each skill
-            once, episodic memory sharpens it with every attempt, and it runs on-device
-            forever.
+            The LLM harness and runtime for robots — the agent writes each skill
+            once, episodic memory sharpens it with every attempt, and it runs on the
+            runtime with zero model calls.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-2.5">
             <Button
@@ -35,9 +35,9 @@ export function Hero() {
           <div className="flex items-start gap-3">
             <span className="mt-1 h-10 w-px bg-border" />
             <div>
-              <p className="text-xl font-medium tracking-tight text-foreground">12–20 ms</p>
+              <p className="text-xl font-medium tracking-tight text-foreground">0 model calls</p>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                Control loop, on-device.
+                when a taught skill runs.
                 <br />
                 The cloud never drives.
               </p>
