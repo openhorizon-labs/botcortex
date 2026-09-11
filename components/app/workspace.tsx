@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
   Blocks,
@@ -822,33 +822,26 @@ function AppInner() {
  */
 export function Workspace({ conversationId }: { conversationId?: string }) {
   const { conversationId: open, openConversation, newConversation } = useRobot();
+  const pathname = usePathname();
 
-  // URL -> state.
+  // Native history changes update usePathname even when route props still
+  // describe the previous task. This includes New task -> re-open that same
+  // task, which otherwise left the new draft displayed under the old URL.
   useEffect(() => {
-    if (conversationId) {
-      if (conversationId !== open) void openConversation(conversationId);
+    const id = pathname
+      ? pathname.startsWith("/app/tasks/") ? decodeURIComponent(pathname.slice("/app/tasks/".length)) : undefined
+      : conversationId;
+    if (id) {
+      if (id !== open) void openConversation(id);
       return;
     }
-    // Landing on /app means starting fresh, not showing the last task — but
-    // ONLY if the URL still says /app.
-    //
-    // `conversationId` is a PROP from the route segment, and the provider
-    // rewrites the address bar with history.replaceState when a task is born,
-    // which deliberately does not re-render this. So a moment after the first
-    // message the URL reads /app/tasks/<id> while this prop is still
-    // undefined, and any re-render of this component then read that as
-    // "landing on /app" and wiped the task out from under the teach in
-    // progress. The rest of that teach's messages were filed into a SECOND
-    // conversation: one prompt, two tasks, the same history split across them.
-    //
-    // The real question is what the URL says now, so ask it.
-    if (open && window.location.pathname === "/app") {
+    if (open && pathname === "/app") {
       void newConversation();
     }
     // Only the URL drives this; reacting to `open` too would fight the effect
     // below and bounce between the two.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId]);
+  }, [pathname, conversationId]);
 
   // Giving a new task its URL is the provider's job — it outlives this
   // component across route segments, which this does not.

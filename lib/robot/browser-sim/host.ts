@@ -94,6 +94,7 @@ interface ToolReply {
 export type BrowserSimOptions = {
   /** The account to mount memory under, or null for session-only. */
   namespace?: string | null;
+  signal?: AbortSignal;
   /** Called once if the worker dies or hangs past a deadline, after every
    *  pending call has been rejected. The transport reports it upward. */
   onDead?: (reason: string) => void;
@@ -126,6 +127,7 @@ export class BrowserSim {
   memory: MemoryReport = { durable: false };
   private onDead: (reason: string) => void = () => {};
   private deadReported = false;
+  private detachAbort: (() => void) | null = null;
 
   static async boot(onProgress: SimProgress = () => {}, options: BrowserSimOptions = {}): Promise<BrowserSim> {
     const sim = new BrowserSim();
@@ -139,6 +141,7 @@ export class BrowserSim {
   }
 
   private async init(onProgress: SimProgress, options: BrowserSimOptions) {
+    options.signal?.throwIfAborted();
     this.onProgress = onProgress;
     this.onDead = options.onDead ?? (() => {});
     // A URL, not new URL(..., import.meta.url): letting the app bundler emit
@@ -146,6 +149,12 @@ export class BrowserSim {
     // Pyodide refuses to run in a classic worker. scripts/vendor-runtimes.ts
     // builds the real module to /sim-worker.js.
     this.worker = new Worker("/sim-worker.js", { type: "module" });
+    if (options.signal) {
+      const signal = options.signal;
+      const cancel = () => this.close();
+      signal.addEventListener("abort", cancel, { once: true });
+      this.detachAbort = () => signal.removeEventListener("abort", cancel);
+    }
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const message = event.data;
       if ("type" in message) {
@@ -361,6 +370,8 @@ export class BrowserSim {
   close() {
     this.closed = true;
     this.aborted = true;
+    this.detachAbort?.();
+    this.detachAbort = null;
     this.worker?.terminate();
     // Reject, don't just drop: terminate() kills every in-flight call, and a
     // cleared map left `teach()` awaiting a promise that could never settle —

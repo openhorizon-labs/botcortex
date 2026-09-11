@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 
 import { BrowserSimTransport } from "@/lib/robot/browser-sim/transport";
 import { Outbox, type OutboxState } from "@/lib/robot/outbox";
+import { accountFetcher } from "@/lib/robot/account";
+import { ConversationDraft } from "@/lib/robot/conversation-draft";
+import { ConnectionHealth, PING_INTERVAL_MS } from "@/lib/robot/connection-health";
 import {
   createContext,
   useCallback,
@@ -48,16 +51,8 @@ const backoffMs = (attempt: number) => Math.min(15_000, 1000 * 2 ** (attempt - 1
  *  the socket does not error — it hangs until the browser's own connect
  *  timeout, tens of seconds later. The count never dominated; this does. */
 const CONNECT_DEADLINE_MS = 4000;
-/** Liveness (audit B06). The runtime streams state at ~15 Hz, so a healthy
- *  socket is never quiet; a ping every few seconds covers an idle backend
- *  that does not stream, and silence past STALE_AFTER_MS means the socket is
- *  half-open — "established" to the browser, dead on the wire. The
- *  telemetry is then labelled stale, and past DEAD_AFTER_MS the socket is
- *  closed so the retry path takes over instead of showing a frozen arm as
- *  a live one indefinitely. */
-const PING_INTERVAL_MS = 5000;
-const STALE_AFTER_MS = 3000;
-const DEAD_AFTER_MS = 15_000;
+/** Liveness thresholds live in connection-health.ts: idle ping responses
+ *  and a streaming backend's joint telemetry are checked independently. */
 /** The api caps history at 500 rows per request (no cursor yet). Asking for
  *  the cap and noticing when it is hit is what "older events not loaded"
  *  rests on until pagination lands on the api side. */
@@ -234,7 +229,7 @@ export function useRobot() {
   return ctx;
 }
 
-export function RobotProvider({ children }: { children: React.ReactNode }) {
+export function RobotProvider({ children, accountId = null }: { children: React.ReactNode; accountId?: string | null }) {
   // The provider lives in the layout, so it survives moving between /app and
   // /app/tasks/[id]. That is precisely why the "a task was just born, give it
   // a URL" navigation belongs HERE: the page component remounts across those
@@ -315,11 +310,50 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   const historyVersionRef = useRef(0);
 
   /** The outbox outlives every callback below and reports into state. */
+  const accountLifetimeRef = useRef(new AbortController());
+  const draftsRef = useRef(new Set<ConversationDraft>());
   const outboxRef = useRef<Outbox | null>(null);
+  const reportPersistence = useCallback(() => {
+    const state = outboxRef.current?.state ?? { pending: 0, failed: 0, lastFailure: null };
+    const drafts = [...draftsRef.current];
+    setPersistence({
+      pending: state.pending + drafts.filter((draft) => draft.pending).length,
+      failed: state.failed + drafts.filter((draft) => draft.failure).length,
+      lastFailure: drafts.find((draft) => draft.failure)?.failure ?? state.lastFailure,
+    });
+  }, []);
+  const accountChanged = useCallback(() => {
+    accountLifetimeRef.current.abort();
+    outboxRef.current?.dispose();
+    for (const draft of draftsRef.current) draft.dispose();
+    simRef.current?.close();
+    wsRef.current?.close();
+    // Re-enter the server auth gate rather than carrying the previous owner's
+    // scene, history or retry queue into the replacement session.
+    window.location.reload();
+  }, []);
+  const scopedFetch = useCallback((url: string, init: RequestInit = {}) =>
+    accountFetcher(accountId, accountLifetimeRef.current.signal, accountChanged)(url, init),
+  [accountId, accountChanged]);
   if (!outboxRef.current) {
-    outboxRef.current = new Outbox({ onChange: setPersistence });
+    outboxRef.current = new Outbox({ onChange: reportPersistence, fetch: scopedFetch });
   }
-  const retryPersistence = useCallback(() => outboxRef.current!.retryFailed(), []);
+  const retryPersistence = useCallback(async () => {
+    await Promise.all([...draftsRef.current].filter((draft) => draft.failure).map((draft) => draft.retry()));
+    await outboxRef.current!.retryFailed();
+  }, []);
+
+  useEffect(() => {
+    // React Strict Mode replays setup/cleanup during development.
+    if (accountLifetimeRef.current.signal.aborted) accountLifetimeRef.current = new AbortController();
+    if (outboxRef.current?.disposed) outboxRef.current = new Outbox({ onChange: reportPersistence, fetch: scopedFetch });
+    return () => {
+      accountLifetimeRef.current.abort();
+      outboxRef.current?.dispose();
+      for (const draft of draftsRef.current) draft.dispose();
+      draftsRef.current.clear();
+    };
+  }, [reportPersistence, scopedFetch]);
 
   /** Run bindings: the one in progress, and every one by id for events that
    *  name theirs (protocol v2). */
@@ -337,10 +371,11 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       // conversation went missing.
       id = await thread;
     } catch {
-      // Offline at the moment of creation: there is no thread to file under,
-      // and inventing one client-side would be a row the api never owned.
+      // The owning provider was disposed. Transient creation failures keep
+      // this binding pending until its visible retry succeeds.
       return;
     }
+    if (accountLifetimeRef.current.signal.aborted) return;
     const saved = await outboxRef.current!.post(msg.id, "/api/messages", {
       id: msg.id,
       conversationId: id,
@@ -353,20 +388,17 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   /** Store a finished tool call alongside the conversation, so reopening a
    *  task shows HOW a skill was authored and not merely that it was. */
   const persistTool = useCallback(
-    async (call: { id: string; result?: string; ok?: boolean }, live: ToolCall, thread: Promise<string>) => {
+    async (call: { id: string; result?: string; ok?: boolean }, live: ToolCall, thread: Promise<string>, runId?: string) => {
       let id: string;
       try {
         id = await thread;
       } catch {
         return;
       }
-      // Namespaced by task. The runtime's call id is 8 hex characters —
-      // a correlation handle for one teach, never meant to be a key
-      // across every conversation in the database. Used raw, repeats
-      // landed on rows belonging to other tasks, where onConflictDoNothing
-      // silently discarded them: the trace looked saved and was not.
-      // Still deterministic, so a retry updates rather than duplicates.
-      const rowId = `${id}:${call.id}`;
+      if (accountLifetimeRef.current.signal.aborted) return;
+      // Call ids are scoped to a run, not a whole conversation. Include both
+      // identities so a later run may safely reuse the runtime's call id.
+      const rowId = `${id}:${runId ?? "legacy"}:${call.id}`;
       await outboxRef.current!.post(rowId, "/api/messages", {
         id: rowId,
         conversationId: id,
@@ -410,7 +442,6 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
    *  override it (audit B06). */
   const manualChoiceRef = useRef(false);
   /** Liveness bookkeeping for the socket. */
-  const lastHeardRef = useRef(0);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const threadEpochRef = useRef(0);
@@ -436,13 +467,20 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     // the same thread, not race into two.
     if (!creatingRef.current) {
       const epoch = threadEpochRef.current;
-      const creation = (async () => {
-        const res = await fetch("/api/conversations", { method: "POST" });
+      const draft = new ConversationDraft(async (signal) => {
+        const res = await scopedFetch("/api/conversations", { method: "POST", signal });
         if (!res.ok) throw new Error("could not start a conversation");
-        const { id } = (await res.json()) as { id: string };
+        const { id } = await res.json();
+        if (typeof id !== "string" || !id) throw new Error("No task id returned");
+        return id;
+      }, reportPersistence);
+      draftsRef.current.add(draft);
+      const creation = draft.thread.then((id) => {
+        draftsRef.current.delete(draft);
+        reportPersistence();
         // Still file the original message, but do not navigate back after the
         // owner has selected another task while this POST was in flight.
-        if (threadEpochRef.current !== epoch) return id;
+        if (threadEpochRef.current !== epoch || accountLifetimeRef.current.signal.aborted) return id;
         conversationIdRef.current = id;
         setConversationId(id);
         // The native History API, NOT router.replace.
@@ -461,15 +499,16 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         // navigation still resolves the URL through the server route.
         window.history.replaceState(null, "", `/app/tasks/${id}`);
         return id;
-      })();
+      });
       creatingRef.current = creation;
       const settled = () => {
         if (creatingRef.current === creation) creatingRef.current = null;
       };
       void creation.then(settled, settled);
+      void draft.retry();
     }
     return creatingRef.current;
-  }, []);
+  }, [scopedFetch, reportPersistence]);
 
   /**
    * Bind a new run to the task on screen, right now.
@@ -502,11 +541,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
   }, [ensureConversation]);
 
   /** Which run an event belongs to: the one it names, else the one in progress. */
-  const runFor = useCallback((runId?: string): RunBinding | null => {
-    if (runId) {
-      const named = runsRef.current.get(runId);
-      if (named) return named;
-    }
+  const runFor = useCallback((runId?: string): RunBinding | null | undefined => {
+    // Missing id is legacy protocol. An explicitly unknown id is UNBOUND,
+    // never permission to file someone else's event into the current task.
+    if (runId !== undefined) return runsRef.current.get(runId);
     return activeRunRef.current;
   }, []);
 
@@ -520,7 +558,6 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
 
   const appendTo = useCallback(
     (from: ChatMessage["from"], text: string, run: RunBinding | null) => {
-      historyVersionRef.current++;
       // crypto.randomUUID, not a timestamp+index: the id is the dedup key on
       // the server, so it has to survive a reload and a retried POST.
       spokeRef.current = true;
@@ -530,7 +567,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         text,
         at: Date.now(),
       };
-      if (onScreen(run)) setMessages((prev) => [...prev, msg]);
+      if (onScreen(run)) {
+        historyVersionRef.current++;
+        setMessages((prev) => [...prev, msg]);
+      }
       void persist(msg, run ? run.thread : ensureConversation());
     },
     [persist, ensureConversation, onScreen],
@@ -741,20 +781,25 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           break;
         case "tool": {
           const run = runFor(msg.runId);
-          const call: ToolCall = { id: msg.id, name: msg.name, input: msg.input, at: Date.now() };
-          liveCallsRef.current.set(msg.id, { call, run });
+          if (run === undefined) break;
+          const key = `${run?.runId ?? "legacy"}:${msg.id}`;
+          const call: ToolCall = { id: key, name: msg.name, input: msg.input, at: Date.now() };
+          liveCallsRef.current.set(key, { call, run });
           if (onScreen(run)) putToolCallsRef.current([...toolCallsRef.current, call]);
           break;
         }
         case "tool_result": {
           const finished = msg;
-          const live = liveCallsRef.current.get(finished.id);
+          const run = runFor(msg.runId);
+          if (run === undefined) break;
+          const key = `${run?.runId ?? "legacy"}:${finished.id}`;
+          const live = liveCallsRef.current.get(key);
           if (!live) break;
-          liveCallsRef.current.delete(finished.id);
+          liveCallsRef.current.delete(key);
           if (onScreen(live.run)) {
             putToolCallsRef.current(
               toolCallsRef.current.map((call) =>
-                call.id === finished.id
+                call.id === key
                   ? { ...call, result: finished.result, ok: finished.ok }
                   : call,
               ),
@@ -765,7 +810,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           // selected one. Done HERE rather than inside the updater above:
           // React may invoke an updater more than once, and a write hidden
           // in one is a trap for whoever touches it next.
-          void persistTool(finished, live.call, live.run ? live.run.thread : ensureConversation());
+          void persistTool(finished, live.call, live.run ? live.run.thread : ensureConversation(), live.run?.runId);
           break;
         }
         case "skills":
@@ -773,6 +818,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           setUnproven(msg.unproven ?? []);
           break;
         case "status": {
+          if (msg.runId !== undefined && runFor(msg.runId) !== activeRunRef.current) break;
           setActivity(msg.state + (msg.detail ? ` — ${msg.detail}` : ""));
           // Anything that moves the arm is worth watching — authoring a skill
           // or replaying a saved one. Only on the transition INTO working, so
@@ -788,15 +834,19 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
           if (!working) void refreshCreditRef.current();
           break;
         }
-        case "chat":
+        case "chat": {
+          const run = runFor(msg.runId);
+          if (run === undefined) break;
           setLastChat(msg.text);
-          appendTo("robot", msg.text, runFor(msg.runId));
+          appendTo("robot", msg.text, run);
           break;
+        }
         case "state":
           jointStateRef.current = msg.arms;
           if (msg.objects) objectsRef.current = msg.objects;
           break;
         case "model":
+          if (msg.runId !== undefined && runFor(msg.runId) !== activeRunRef.current) break;
           // Which brain ACTUALLY ran. Both backends go out of their way to
           // echo this because it is what gets billed, and the client dropped
           // it — so an owner who picked one model and was served another had
@@ -857,6 +907,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
     fixturesRef.current = null;
     workingRef.current = false;
     liveCallsRef.current.clear();
+    runsRef.current.clear();
+    activeRunRef.current = null;
+    setActiveRun(null);
   }, [stopHeartbeat]);
 
   useEffect(() => () => teardown(), [teardown]);
@@ -868,6 +921,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
 
     let ws: WebSocket;
     let receivedHello = false;
+    const health = new ConnectionHealth();
     try {
       ws = new WebSocket(wsUrl(endpoint));
     } catch {
@@ -897,9 +951,10 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
 
     ws.onmessage = (ev) => {
       if (wsRef.current !== ws || typeof ev.data !== "string") return;
-      lastHeardRef.current = Date.now();
       const msg = parseRobotMessage(ev.data);
       if (!msg || (!receivedHello && msg.type !== "hello")) return;
+      health.hear(msg.type);
+      setTelemetryStale(health.check().stale);
       if (msg?.type === "hello") {
         receivedHello = true;
         clearTimeout(deadline);
@@ -911,9 +966,9 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         stopHeartbeat();
         heartbeatRef.current = setInterval(() => {
           if (wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
-          const quiet = Date.now() - lastHeardRef.current;
-          setTelemetryStale(quiet > STALE_AFTER_MS);
-          if (quiet > DEAD_AFTER_MS) {
+          const checked = health.check();
+          setTelemetryStale(checked.stale);
+          if (checked.dead) {
             // Half-open: the browser thinks it is connected, nothing has
             // arrived in a long while. Closing hands over to the retry path,
             // which is the only honest thing to show.
@@ -1047,6 +1102,8 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
         if (simRef.current === transport) handleMessageRef.current(msg);
       },
       {
+        accountId,
+        onAccountChanged: accountChanged,
         // The worker hung past its deadline or crashed (audit B05). The
         // transport has already closed it; this is the connection dying.
         onDead: (reason) => {
@@ -1080,7 +1137,7 @@ export function RobotProvider({ children }: { children: React.ReactNode }) {
       setStatus("error");
       setError("The in-browser robot could not start. Reload and try again.");
     }
-  }, [teardown]);
+  }, [teardown, accountId, accountChanged]);
 
   const send = useCallback((msg: ClientMessage): boolean => {
     // The sim answers the identical protocol, so everything above this line —

@@ -239,9 +239,14 @@ export function parseRobotEndpoint(
   if (authority.includes("@")) return { ok: false, error: "Credentials do not belong in a robot address." };
   if (/[?#]/.test(authority)) return { ok: false, error: "Enter just the host and port — no query or fragment." };
   if (/\s/.test(authority)) return { ok: false, error: "Robot addresses cannot contain spaces." };
+  const explicit = scheme !== null;
+  const secure = explicit
+    ? scheme === "wss" || scheme === "https"
+    : pageProtocol === "https:";
   let url: URL;
   try {
-    url = new URL(`http://${authority}`);
+    // Default ports may only be stripped for the scheme actually in use.
+    url = new URL(`${secure ? "https" : "http"}://${authority}`);
   } catch {
     return { ok: false, error: "That is not a valid host or IP address." };
   }
@@ -251,10 +256,6 @@ export function parseRobotEndpoint(
   if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
     return { ok: false, error: "That is not a valid host or IP address." };
   }
-  const explicit = scheme !== null;
-  const secure = explicit
-    ? scheme === "wss" || scheme === "https"
-    : pageProtocol === "https:";
   return { ok: true, endpoint: { host: url.host, secure, explicitScheme: explicit } };
 }
 

@@ -103,7 +103,7 @@ export function StatusStrip() {
         <Chip
           icon={CloudOff}
           tone="warn"
-          title={`${persistence.failed} transcript ${persistence.failed === 1 ? "row" : "rows"} could not be saved${persistence.lastFailure ? ` — ${persistence.lastFailure}` : ""}. What you see is still on screen; it is not in your history yet.`}
+          title={`${persistence.failed} task/history ${persistence.failed === 1 ? "write" : "writes"} could not be saved${persistence.lastFailure ? ` — ${persistence.lastFailure}` : ""}. Pending data is held in this tab until saved; reloading drops it.`}
           action={{ label: "retry", onClick: () => void retryPersistence() }}
         >
           {persistence.failed} unsaved

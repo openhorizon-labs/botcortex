@@ -28,3 +28,23 @@ test("valid sessions enter the app", async () => {
   globalThis.fetch = mock(async () => new Response("{}")) as unknown as typeof fetch;
   expect((await proxy(request())).headers.get("x-middleware-next")).toBe("1");
 });
+
+test("a queued write cannot switch account between browser lookup and POST", async () => {
+  globalThis.fetch = mock(async () => Response.json({ user: { id: "B" } })) as unknown as typeof fetch;
+  const request = new NextRequest("http://localhost:3000/api/skills", {
+    method: "POST", headers: { cookie: "better-auth.session_token=B", "x-botcortex-account": "A" },
+  });
+  const response = await proxy(request);
+  expect(response.status).toBe(409);
+  expect(response.headers.get("x-botcortex-account-mismatch")).toBe("1");
+  expect(response.headers.get("x-middleware-next")).toBeNull();
+});
+
+test("matching account writes continue without a page redirect", async () => {
+  globalThis.fetch = mock(async () => Response.json({ user: { id: "A" } })) as unknown as typeof fetch;
+  const response = await proxy(new NextRequest("http://localhost:3000/api/messages", {
+    method: "POST", headers: { cookie: "better-auth.session_token=A", "x-botcortex-account": "A" },
+  }));
+  expect(response.headers.get("x-middleware-next")).toBe("1");
+  expect(response.headers.get("location")).toBeNull();
+});

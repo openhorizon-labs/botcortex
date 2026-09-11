@@ -16,11 +16,14 @@
  * the unsaved count says so before the tab closes.
  */
 
+import { AccountChangedError } from "./account";
+
 export type OutboxItem = {
   /** The api's de-dup key: the message id. One key, one row, however many tries. */
   key: string;
   url: string;
   body: unknown;
+  serialized: string;
   attempts: number;
   /** Set once the item is given up on, with the reason a person can act on. */
   failure?: string;
@@ -46,6 +49,7 @@ export type OutboxOptions = {
   backoff?: (attempt: number) => number;
   onChange?: (state: OutboxState) => void;
   sleep?: (ms: number) => Promise<void>;
+  attemptTimeoutMs?: number;
 };
 
 /** Statuses worth retrying: the request may succeed unchanged next time. */
@@ -60,13 +64,23 @@ export class Outbox {
   private readonly onChange: (state: OutboxState) => void;
   private readonly sleep: (ms: number) => Promise<void>;
   private lastFailure: string | null = null;
+  private readonly lifetime = new AbortController();
+  private readonly attemptTimeoutMs: number;
 
   constructor(options: OutboxOptions = {}) {
     this.fetcher = options.fetch ?? ((url, init) => fetch(url, init));
     this.maxAttempts = options.maxAttempts ?? 5;
     this.backoff = options.backoff ?? ((attempt) => Math.min(15_000, 1000 * 2 ** (attempt - 1)));
     this.onChange = options.onChange ?? (() => {});
-    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.sleep = options.sleep ?? ((ms) => delay(ms, this.lifetime.signal));
+    this.attemptTimeoutMs = options.attemptTimeoutMs ?? 10000;
+  }
+
+  get disposed() { return this.lifetime.signal.aborted; }
+
+  dispose() {
+    this.lifetime.abort();
+    this.items.clear();
   }
 
   get state(): OutboxState {
@@ -84,9 +98,13 @@ export class Outbox {
    * has been given up on. Never rejects: callers are fire-and-forget.
    */
   async post(key: string, url: string, body: unknown): Promise<boolean> {
+    if (this.disposed) return false;
     const existing = this.items.get(key);
-    if (existing && !existing.failure) return this.drive(existing);
-    const item: OutboxItem = { key, url, body, attempts: 0 };
+    if (existing) return existing.failure ? false : this.drive(existing);
+    let serialized: string;
+    try { serialized = JSON.stringify(body); } catch { return false; }
+    if (serialized === undefined) return false;
+    const item: OutboxItem = { key, url, body: JSON.parse(serialized), serialized, attempts: 0 };
     this.items.set(key, item);
     this.notify();
     return this.drive(item);
@@ -94,6 +112,7 @@ export class Outbox {
 
   /** Try every failed item again, from a clean attempt count. */
   async retryFailed(): Promise<void> {
+    if (this.disposed) return;
     const failed = [...this.items.values()].filter((item) => item.failure);
     for (const item of failed) {
       item.failure = undefined;
@@ -105,23 +124,28 @@ export class Outbox {
   }
 
   private async drive(item: OutboxItem): Promise<boolean> {
-    if (this.inFlight.has(item.key)) return false;
+    if (this.disposed || this.inFlight.has(item.key)) return false;
     this.inFlight.add(item.key);
     try {
-      while (item.attempts < this.maxAttempts) {
+      while (!this.disposed && item.attempts < this.maxAttempts) {
         item.attempts++;
         const verdict = await this.attempt(item);
+        if (this.disposed) return false;
         if (verdict === "saved") {
           this.items.delete(item.key);
           this.notify();
           return true;
         }
         if (verdict === "rejected") break;
-        if (item.attempts < this.maxAttempts) await this.sleep(this.backoff(item.attempts));
+        if (item.attempts < this.maxAttempts) {
+          await abortable(this.sleep(this.backoff(item.attempts)), this.lifetime.signal);
+        }
       }
       if (!item.failure) item.failure = `gave up after ${item.attempts} attempts`;
       this.lastFailure = item.failure;
       this.notify();
+      return false;
+    } catch {
       return false;
     } finally {
       this.inFlight.delete(item.key);
@@ -129,12 +153,16 @@ export class Outbox {
   }
 
   private async attempt(item: OutboxItem): Promise<"saved" | "transient" | "rejected"> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.attemptTimeoutMs);
+    const signal = AbortSignal.any([controller.signal, this.lifetime.signal]);
     try {
-      const response = await this.fetcher(item.url, {
+      const response = await abortable(this.fetcher(item.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(item.body),
-      });
+        body: item.serialized,
+        signal,
+      }), signal);
       if (response.ok) return "saved";
       if (TRANSIENT.has(response.status)) return "transient";
       // A 4xx the api will give again: the row is wrong, or the session is
@@ -145,12 +173,40 @@ export class Outbox {
         ? "signed out — sign in again to save"
         : `rejected by the api (${response.status})`;
       return "rejected";
-    } catch {
+    } catch (error) {
+      if (error instanceof AccountChangedError) {
+        item.failure = error.message;
+        return "rejected";
+      }
       return "transient";
+    } finally {
+      clearTimeout(timer);
     }
   }
 
   private notify() {
-    this.onChange(this.state);
+    if (!this.disposed) this.onChange(this.state);
   }
+}
+
+/** Also bounds custom fetchers that ignore their signal. */
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    if (signal.aborted) { reject(signal.reason); return; }
+    signal.addEventListener("abort", aborted, { once: true });
+    void promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", aborted));
+  });
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason); return; }
+    const cancelled = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", cancelled);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", cancelled, { once: true });
+  });
 }

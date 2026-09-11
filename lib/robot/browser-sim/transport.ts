@@ -15,6 +15,7 @@ import type { ChatHistoryEntry, ClientMessage, RobotMessage } from "@/lib/robot/
 import { teach } from "@/lib/robot/agent/loop";
 import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
 import { explain } from "@/lib/robot/agent/explain";
+import { AccountChangedError, accountFetcher, currentAccount } from "@/lib/robot/account";
 
 /**
  * The conversation so far, rendered for the model. Each teach is a fresh
@@ -52,9 +53,9 @@ type SavedSkill = { code: string; description: string };
  * Push one saved skill to the account registry, through the same-origin
  * rewrite the inference calls use.
  */
-async function persistSkill(name: string, skill: SavedSkill): Promise<boolean> {
+async function persistSkill(name: string, skill: SavedSkill, request: ReturnType<typeof accountFetcher>): Promise<boolean> {
   try {
-    const response = await fetch("/api/skills", {
+    const response = await request("/api/skills", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -79,13 +80,11 @@ async function persistSkill(name: string, skill: SavedSkill): Promise<boolean> {
  * is away. Memory is mounted under it, so two accounts on one browser never
  * read each other's skills (audit B02).
  */
-async function accountNamespace(): Promise<string | null> {
+async function accountNamespace(signal: AbortSignal): Promise<string | null> {
   try {
-    const response = await fetch("/api/me", { signal: AbortSignal.timeout(4000) });
-    if (!response.ok) return null;
-    const body = (await response.json()) as { user?: { id?: unknown } };
-    return typeof body.user?.id === "string" && body.user.id ? body.user.id : null;
+    return await currentAccount(signal);
   } catch {
+    signal.throwIfAborted();
     return null;
   }
 }
@@ -93,6 +92,9 @@ async function accountNamespace(): Promise<string | null> {
 export type TransportOptions = {
   /** The worker died or hung past its deadline; the sim is already closed. */
   onDead?: (reason: string) => void;
+  /** Identity of the provider that owns this transport, when available. */
+  accountId?: string | null;
+  onAccountChanged?: () => void;
 };
 
 /**
@@ -123,10 +125,16 @@ export class BrowserSimTransport {
   private readonly saved = new Map<string, SavedSkill>();
   /** Whether something taught is not yet in durable storage. */
   private unsaved = false;
+  private readonly lifetime = new AbortController();
+  private readonly accountId: string | null | undefined;
+  private readonly onAccountChanged: () => void;
+  private request!: ReturnType<typeof accountFetcher>;
 
   constructor(emit: Emit, options: TransportOptions = {}) {
     this.deliver = emit;
     this.onDead = options.onDead ?? (() => {});
+    this.accountId = options.accountId;
+    this.onAccountChanged = options.onAccountChanged ?? (() => this.onDead(new AccountChangedError().message));
   }
 
   private emit: Emit = (message) => {
@@ -144,19 +152,24 @@ export class BrowserSimTransport {
    * to write would win — silently dropping the other's skill. The second
    * tab boots session-only instead, and says so.
    */
-  private async acquireLease(): Promise<boolean> {
+  private async acquireLease(namespace: string): Promise<boolean> {
     const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
-    if (!locks) return true; // no lock manager: assume a single tab
+    if (!locks || this.closed) return false;
     return new Promise<boolean>((decide) => {
-      void locks.request(MEMORY_LEASE, { ifAvailable: true }, (lock) => {
-        if (!lock) {
+      const cancelled = () => decide(false);
+      this.lifetime.signal.addEventListener("abort", cancelled, { once: true });
+      void locks.request(`${MEMORY_LEASE}:${namespace}`, { ifAvailable: true }, (lock) => {
+        if (!lock || this.closed) {
           decide(false);
           return;
         }
-        decide(true);
         // Held until close(): the lock lives as long as this promise.
-        return new Promise<void>((release) => { this.releaseLease = release; });
-      }).catch(() => decide(true));
+        const held = new Promise<void>((release) => { this.releaseLease = release; });
+        decide(true);
+        return held;
+      }).catch(() => decide(false)).finally(() =>
+        this.lifetime.signal.removeEventListener("abort", cancelled),
+      );
     });
   }
 
@@ -169,12 +182,23 @@ export class BrowserSimTransport {
     let leaseHeld = false;
     try {
       onProgress("Checking who you are");
-      namespace = await accountNamespace();
-      leaseHeld = namespace ? await this.acquireLease() : false;
+      namespace = await accountNamespace(this.lifetime.signal);
+      this.lifetime.signal.throwIfAborted();
+      if (this.accountId !== undefined && this.accountId !== namespace) {
+        this.onAccountChanged();
+        throw new AccountChangedError();
+      }
+      this.request = accountFetcher(namespace, this.lifetime.signal, () => {
+        this.close();
+        this.onAccountChanged();
+      });
+      leaseHeld = namespace ? await this.acquireLease(namespace) : false;
+      this.lifetime.signal.throwIfAborted();
       sim = await BrowserSim.boot((stage) => {
         if (!this.closed) onProgress(stage);
       }, {
         namespace: leaseHeld ? namespace : null,
+        signal: this.lifetime.signal,
         onDead: (reason) => {
           if (this.closed) return;
           this.emit({ type: "chat", text: `${reason}. Reconnect the in-browser robot to continue.` });
@@ -182,12 +206,15 @@ export class BrowserSimTransport {
           this.onDead(reason);
         },
       });
+      if (this.closed) {
+        sim.close();
+        throw new Error("Simulator closed while starting.");
+      }
+    } catch (error) {
+      this.close();
+      throw error;
     } finally {
       this.opening = false;
-    }
-    if (this.closed) {
-      sim.close();
-      throw new Error("Simulator closed while starting.");
     }
     this.sim = sim;
 
@@ -219,7 +246,7 @@ export class BrowserSimTransport {
         : namespace === null
           ? "Not signed in, so skills and episodes last for this session only."
           : !leaseHeld
-            ? "Another tab holds this robot's memory; this one is session-only."
+            ? "Exclusive browser storage is unavailable or held by another tab; this one is session-only."
             : `Browser storage is unavailable (${sim.memory.error ?? "unknown"}); session only.`,
     });
 
@@ -237,13 +264,15 @@ export class BrowserSimTransport {
     this.closed = true;
     if (this.ticker) clearInterval(this.ticker);
     this.ticker = null;
-    this.releaseLease?.();
-    this.releaseLease = null;
+    this.lifetime.abort();
     this.abort?.abort();
     // Terminates the worker: Pyodide and MuJoCo are ~100 MB of resident WASM,
     // and leaking a thread per connect would be felt within a few reconnects.
     this.sim?.close();
     this.sim = null;
+    this.releaseLease?.();
+    this.releaseLease = null;
+    this.saved.clear();
   }
 
   /** The runtime's REST STOP, which has no host here — same latch either way. */
@@ -300,7 +329,7 @@ export class BrowserSimTransport {
           this.emit({ type: "sync", skill: message.name, ok: false });
           return;
         }
-        this.emit({ type: "sync", skill: message.name, ok: await persistSkill(message.name, skill) });
+        this.emit({ type: "sync", skill: message.name, ok: await persistSkill(message.name, skill, this.request) });
         return;
       }
     }
@@ -384,6 +413,7 @@ export class BrowserSimTransport {
       model,
       prompt,
       signal: this.abort?.signal,
+      fetcher: this.request,
       emit: this.emit,
       // The gate on saying "done" — the runtime's, not a second copy of it.
       verify: () => sim.verify(),
@@ -411,7 +441,7 @@ export class BrowserSimTransport {
             description: describedAs(String(args.code ?? "")),
           };
           this.saved.set(skill, revision);
-          void persistSkill(skill, revision).then((ok) =>
+          void persistSkill(skill, revision, this.request).then((ok) =>
             this.emit({ type: "sync", skill, ok }),
           );
         }

@@ -5,6 +5,8 @@
 **Author:** Claude Fable 5.1, working from `docs/ARCHITECTURE_AUDIT.md`
 **Scope:** this web repository only. Nothing in `botcortex-runtime` or `botcortex-api` was changed. Every place where a ticket's remaining work lives in those repositories is called out under "Not done, and why".
 
+**Review follow-up:** the senior review found nine issues in this pass. They are documented, fixed and verified in [CLAUDE_REVIEW.md](CLAUDE_REVIEW.md#resolution--2026-09-11). The final suite has 156 unit tests plus both browser smoke scripts. This document preserves the original implementation record; its “web share done” summary does not supersede the review's remaining runtime/API roadmap.
+
 ## 1. How to read this
 
 1. Section 2 is the one-screen summary: what changed, what was verified, what is still open.

@@ -19,6 +19,7 @@ export type JsonSchema = {
   items?: JsonSchema;
   enum?: unknown[];
   additionalProperties?: boolean | JsonSchema;
+  anyOf?: JsonSchema[];
   [key: string]: unknown;
 };
 
@@ -38,6 +39,10 @@ function typeMatches(declared: string, actual: string): boolean {
 /** The first problem found, in words the model can act on, or null. */
 export function validateArguments(schema: JsonSchema | undefined, value: unknown, path = "arguments"): string | null {
   if (!schema) return null;
+  if (typeof value === "number" && !Number.isFinite(value)) return `${path} must be a finite number`;
+  if (schema.anyOf && !schema.anyOf.some((branch) => validateArguments(branch, value, path) === null)) {
+    return `${path} does not match any allowed type (${schema.anyOf.map((branch) => branch.type ?? "schema").join(" or ")})`;
+  }
   if (schema.type !== undefined) {
     const allowed = Array.isArray(schema.type) ? schema.type : [schema.type];
     const actual = typeOf(value);
@@ -51,17 +56,23 @@ export function validateArguments(schema: JsonSchema | undefined, value: unknown
   if (typeOf(value) === "object") {
     const record = value as Record<string, unknown>;
     for (const key of schema.required ?? []) {
-      if (!(key in record)) return `${path}.${key} is required`;
+      if (!Object.hasOwn(record, key)) return `${path}.${key} is required`;
     }
     for (const [key, child] of Object.entries(schema.properties ?? {})) {
-      if (key in record) {
+      if (Object.hasOwn(record, key)) {
         const problem = validateArguments(child, record[key], `${path}.${key}`);
         if (problem) return problem;
       }
     }
     if (schema.additionalProperties === false) {
-      const unknown = Object.keys(record).find((key) => !(key in (schema.properties ?? {})));
+      const unknown = Object.keys(record).find((key) => !Object.hasOwn(schema.properties ?? {}, key));
       if (unknown) return `${path}.${unknown} is not a parameter of this tool`;
+    } else if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+      for (const key of Object.keys(record)) {
+        if (Object.hasOwn(schema.properties ?? {}, key)) continue;
+        const problem = validateArguments(schema.additionalProperties, record[key], `${path}.${key}`);
+        if (problem) return problem;
+      }
     }
   }
   if (Array.isArray(value) && schema.items) {

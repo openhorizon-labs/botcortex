@@ -1,7 +1,7 @@
 # The same checks a clean checkout runs locally (docs/ARCHITECTURE_AUDIT.md §8):
 # frozen install, unit/regression tests, TypeScript, production build.
 #
-# Not run here: `bun scripts/audit-smoke.ts`, the Chrome integration smoke.
+# Not run here: `bun scripts/audit-smoke.ts` and `bun scripts/review-smoke.ts`.
 # It needs an installed Chrome, a running `bun dev` on :3000 and a free :8787
 # for its loopback fixture; run it manually before merging anything that
 # touches the provider, transport, STOP or the browser simulator.

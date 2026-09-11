@@ -66,3 +66,46 @@ test("posting the same key while it is in flight does not double-send", async ()
   await Promise.all([first, second]);
   expect(sent).toBe(1);
 });
+
+test("a hanging request times out through the bounded retry budget", async () => {
+  const signals: AbortSignal[] = [];
+  const outbox = new Outbox({
+    attemptTimeoutMs: 5, maxAttempts: 2, sleep: async () => {},
+    fetch: async (_url, init) => { signals.push(init.signal!); return new Promise(() => {}); },
+  });
+  expect(await outbox.post("one", "/api/messages", {})).toBe(false);
+  expect(signals).toHaveLength(2);
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(outbox.state.failed).toBe(1);
+});
+
+test("disposal aborts an in-flight request and prevents retries", async () => {
+  let sent = 0;
+  const outbox = new Outbox({ fetch: async () => { sent++; return new Promise(() => {}); } });
+  const sending = outbox.post("one", "/api/messages", {});
+  outbox.dispose();
+  expect(await sending).toBe(false);
+  await outbox.retryFailed();
+  expect(await outbox.post("two", "/api/messages", {})).toBe(false);
+  expect(sent).toBe(1);
+});
+
+test("disposal also cancels backoff", async () => {
+  let sent = 0;
+  const outbox = new Outbox({ fetch: async () => { sent++; return new Response(null, { status: 503 }); } });
+  const sending = outbox.post("one", "/api/messages", {});
+  await Bun.sleep(1);
+  outbox.dispose();
+  expect(await sending).toBe(false);
+  expect(sent).toBe(1);
+});
+
+test("a retry cannot change the captured body under a dedup key", async () => {
+  const { outbox, calls } = harness([400, 200]);
+  const body = { text: "original" };
+  await outbox.post("one", "/api/messages", body);
+  body.text = "mutated";
+  await outbox.post("one", "/different", { text: "replacement" });
+  await outbox.retryFailed();
+  expect(calls).toEqual([{ url: "/api/messages", body: { text: "original" } }, { url: "/api/messages", body: { text: "original" } }]);
+});

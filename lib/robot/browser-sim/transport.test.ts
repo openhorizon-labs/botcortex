@@ -13,7 +13,25 @@ import { BrowserSim } from "@/lib/robot/browser-sim/host";
 import type { RobotMessage } from "@/lib/robot/protocol";
 
 const originalFetch = globalThis.fetch;
-afterEach(() => { mock.restore(); globalThis.fetch = originalFetch; });
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+afterEach(() => {
+  mock.restore(); globalThis.fetch = originalFetch;
+  if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+  else Reflect.deleteProperty(globalThis, "navigator");
+});
+
+function useLocks(beforeAcquire: () => Promise<void> = async () => {}) {
+  const held = new Set<string>();
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: {
+    request: async (name: string, _options: unknown, callback: (lock: object | null) => unknown) => {
+      await beforeAcquire();
+      if (held.has(name)) return callback(null);
+      held.add(name);
+      try { return await callback({ name }); } finally { held.delete(name); }
+    },
+  } } });
+  return held;
+}
 
 /** The account api, as a test sees it: signed out unless told otherwise. */
 function apiStub(handler: (url: string, init?: RequestInit) => Response | Promise<Response> = () => new Response(null, { status: 401 })) {
@@ -119,6 +137,7 @@ test("a failed STOP acknowledgement does not announce a latched stop", async () 
 });
 
 test("the account id becomes the memory namespace, and the hello is followed by a memory report", async () => {
+  useLocks();
   apiStub((url) => url.endsWith("/api/me") ? Response.json({ user: { id: "acct-7" } }) : new Response(null, { status: 404 }));
   const sim = fakeSim();
   sim.memory = { durable: true };
@@ -196,4 +215,82 @@ test("a dead worker closes the transport and tells the owner", async () => {
   expect(deaths).toEqual(["the in-browser robot did not answer"]);
   expect(events.at(-1)).toMatchObject({ type: "chat", text: expect.stringContaining("Reconnect") });
   await expect(transport.stop()).resolves.toBe(false);
+});
+
+test("closing during account lookup never acquires a lease or boots", async () => {
+  const held = useLocks();
+  let finish!: (response: Response) => void;
+  apiStub(() => new Promise((resolve) => { finish = resolve; }));
+  const boot = spyOn(BrowserSim, "boot").mockResolvedValue(fakeSim() as unknown as BrowserSim);
+  const transport = new BrowserSimTransport(() => {});
+  const opening = transport.open();
+  transport.close();
+  finish(Response.json({ user: { id: "A" } }));
+  await expect(opening).rejects.toThrow();
+  expect(boot).not.toHaveBeenCalled();
+  expect(held.size).toBe(0);
+});
+
+test("a lease granted after cancellation is immediately released", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const held = useLocks(() => gate);
+  apiStub(() => Response.json({ user: { id: "A" } }));
+  const boot = spyOn(BrowserSim, "boot").mockResolvedValue(fakeSim() as unknown as BrowserSim);
+  const transport = new BrowserSimTransport(() => {});
+  const opening = transport.open();
+  await settle();
+  transport.close();
+  await expect(opening).rejects.toThrow();
+  release();
+  await settle();
+  expect(held.size).toBe(0);
+  expect(boot).not.toHaveBeenCalled();
+  const next = new BrowserSimTransport(() => {});
+  await next.open();
+  expect(held.size).toBe(1);
+  next.close();
+  await settle();
+  expect(held.size).toBe(0);
+});
+
+test("a failed boot releases its account's lease", async () => {
+  const held = useLocks();
+  apiStub(() => Response.json({ user: { id: "A" } }));
+  spyOn(BrowserSim, "boot").mockRejectedValue(new Error("bad wheel"));
+  await expect(new BrowserSimTransport(() => {}).open()).rejects.toThrow("bad wheel");
+  await settle();
+  expect(held.size).toBe(0);
+});
+
+test("a sync retry cannot submit A's cached skill after signing in as B", async () => {
+  useLocks();
+  let account = "A";
+  let turn = 0;
+  const posted: string[] = [];
+  apiStub(async (url) => {
+    if (url === "/api/me") return Response.json({ user: { id: account } });
+    if (url === "/api/skills") { posted.push(account); return new Response(null, { status: 503 }); }
+    return Response.json({ choices: [{ message: turn++ === 0
+      ? { tool_calls: [{ id: "save", function: { name: "save_skill", arguments: JSON.stringify({ name: "private_a", code: "private fixture" }) } }] }
+      : { content: "saved" } }] });
+  });
+  const sim = Object.assign(fakeSim(), {
+    contract: { version: "test", system_prompt: "test", max_iterations: 2, tools: [{ name: "save_skill", description: "save", parameters: { type: "object", properties: {} } }] },
+    callTool: async () => "[]", beginTask: async () => {}, verify: async () => null,
+    logEpisode: async () => ({ flushed: true }),
+  });
+  sim.runTool.mockResolvedValue({ output: "saved private_a", plain: "saved", memory: { flushed: true } });
+  spyOn(BrowserSim, "boot").mockResolvedValue(sim as unknown as BrowserSim);
+  const changed = mock(() => {});
+  const transport = new BrowserSimTransport(() => {}, { accountId: "A", onAccountChanged: changed });
+  await transport.open();
+  await transport.send({ type: "chat", text: "save", dryRun: true, runId: "run" }, "test");
+  await settle();
+  expect(posted).toEqual(["A"]);
+  account = "B";
+  await transport.send({ type: "sync_skill", name: "private_a" }, "test");
+  expect(posted).toEqual(["A"]);
+  expect(changed).toHaveBeenCalledTimes(1);
+  expect(sim.close).toHaveBeenCalledTimes(1);
 });

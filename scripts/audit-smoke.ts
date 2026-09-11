@@ -64,6 +64,17 @@ const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   const page = await context.newPage();
+  // Keep a reference to the real worker for storage round-trip fixtures. Test
+  // requests use negative ids and do not overlap the host's positive ids.
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        if (String(url).endsWith("/sim-worker.js")) (window as unknown as { reviewWorker: Worker }).reviewWorker = this;
+      }
+    };
+  });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`${base}/signup`, { waitUntil: "domcontentloaded" });
@@ -141,6 +152,25 @@ try {
   assert.equal(await page.getByText("session-only memory", { exact: true }).count(), 0, "memory reported session-only for a signed-in account");
   const stores = await page.evaluate(async () => (await indexedDB.databases()).map((db) => db.name));
   assert(stores.includes("/data/audit"), `no IndexedDB store for the account: ${JSON.stringify(stores)}`);
+  const saved = await page.evaluate(async () => {
+    const worker = (window as unknown as { reviewWorker: Worker }).reviewWorker;
+    const ask = (request: object, id: number) => new Promise<any>((resolve, reject) => {
+      const receive = (event: MessageEvent) => {
+        if (event.data.id !== id) return;
+        worker.removeEventListener("message", receive);
+        if (event.data.ok) resolve(event.data.result); else reject(new Error(event.data.error));
+      };
+      worker.addEventListener("message", receive);
+      worker.postMessage({ ...request, id });
+    });
+    const skill = await ask({ type: "callTool", name: "save_skill", args: {
+      name: "audit_saved", code: 'META = {"name": "audit_saved", "description": "audit persistence", "params": {}}\ndef run(ctx, **params):\n    pass\n',
+    } }, -1);
+    const episode = await ask({ type: "logEpisode", task: "audit persistence", skills: ["audit_saved"], outcome: "fail", error: "fixture failure" }, -2);
+    return { output: skill.output, skillFlushed: skill.memory.flushed, episodeFlushed: episode.flushed };
+  });
+  assert(saved.output.startsWith("saved audit_saved"));
+  assert(saved.skillFlushed && saved.episodeFlushed);
 
   // B02: a second boot hydrates the same store rather than starting over.
   await page.getByRole("button", { name: /OpenArm v1 \(browser sim\)/ }).first().click();
@@ -150,6 +180,18 @@ try {
   await page.getByRole("button", { name: "Done", exact: true }).waitFor({ timeout: 60000 });
   await page.getByRole("button", { name: "Done", exact: true }).click();
   assert.equal(await page.getByText("session-only memory", { exact: true }).count(), 0, "reconnect lost durable memory");
+  await page.getByText("audit_saved", { exact: true }).waitFor();
+  const recalled = await page.evaluate(() => new Promise<string>((resolve, reject) => {
+    const worker = (window as unknown as { reviewWorker: Worker }).reviewWorker;
+    const receive = (event: MessageEvent) => {
+      if (event.data.id !== -3) return;
+      worker.removeEventListener("message", receive);
+      if (event.data.ok) resolve(event.data.result.output); else reject(new Error(event.data.error));
+    };
+    worker.addEventListener("message", receive);
+    worker.postMessage({ id: -3, type: "callTool", name: "recall_episodes", args: { query: "audit persistence" } });
+  }));
+  assert(recalled.includes("fixture failure"), "failed episode did not survive reconnect");
 
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: ["public navigation", "stale history isolation", "evidence download", "delete navigation", "STOP failure feedback", "REST STOP after socket loss", "real WASM boot", "sim STOP/reset", "durable account memory", "STOP on /app/device", "reconnect hydration"], bootMs, pageErrors: errors }, null, 2));

@@ -21,6 +21,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { ACCOUNT_HEADER, ACCOUNT_MISMATCH_HEADER } from "@/lib/robot/account";
 
 const APP_ROOT = "/app";
 const API_URL = process.env.API_URL ?? "http://localhost:8787";
@@ -42,14 +43,21 @@ function toSignin(request: NextRequest, from: string) {
 
 /** A rejected session is invalid; an unavailable service leaves it unknown.
  * Both deny entry to /app, but only a rejection should erase the cookie. */
-async function sessionState(request: NextRequest): Promise<"valid" | "invalid" | "unavailable"> {
+async function sessionState(request: NextRequest, expectedAccount?: string): Promise<"valid" | "invalid" | "unavailable" | "mismatch"> {
   try {
     const res = await fetch(`${API_URL}/api/me`, {
       headers: { cookie: request.headers.get("cookie") ?? "" },
       cache: "no-store",
       signal: AbortSignal.timeout(4000),
     });
-    if (res.ok) return "valid";
+    if (res.ok) {
+      if (expectedAccount !== undefined) {
+        const body = await res.json();
+        if (typeof body?.user?.id !== "string") return "unavailable";
+        if (body.user.id !== expectedAccount) return "mismatch";
+      }
+      return "valid";
+    }
     return res.status === 401 || res.status === 403 ? "invalid" : "unavailable";
   } catch {
     return "unavailable";
@@ -58,6 +66,19 @@ async function sessionState(request: NextRequest): Promise<"valid" | "invalid" |
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    const expected = request.headers.get(ACCOUNT_HEADER);
+    if (request.method === "GET" || request.method === "HEAD" || expected === null) return NextResponse.next();
+    // Authorize the cookie on this exact incoming request before the rewrite
+    // forwards a queued write or inference call. Never redirect API requests.
+    const session = await sessionState(request, expected);
+    if (session === "valid") return NextResponse.next();
+    if (session === "unavailable") return NextResponse.json({ error: "account_service_unavailable" }, { status: 503 });
+    return NextResponse.json({ error: "account_changed" }, {
+      status: 409,
+      headers: { [ACCOUNT_MISMATCH_HEADER]: "1", "Cache-Control": "no-store" },
+    });
+  }
   const insideApp = pathname === APP_ROOT || pathname.startsWith(`${APP_ROOT}/`);
   const hasCookie = Boolean(getSessionCookie(request));
 
@@ -92,8 +113,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip /api (rewritten to botcortex-api — redirecting those would break
-  // auth itself), Next's internals, and anything with a file extension
-  // (icon.svg, robots.txt, sitemap.xml).
-  matcher: ["/app/:path*", "/((?!api/|_next/|.*\\.).*)"],
+  // Cloud writes carry an intended-account header; auth routes stay outside
+  // this proxy. The remaining routes retain the normal page/session gate.
+  matcher: ["/api/messages", "/api/conversations", "/api/skills", "/api/inference/:path*", "/app/:path*", "/((?!api/|_next/|.*\\.).*)"],
 };

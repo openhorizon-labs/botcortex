@@ -93,3 +93,12 @@ test("a stopped playback rewinds the worker to the SHOWN arm and objects", async
   expect(seek).toMatchObject({ state: { right: { j1: 1 } }, objects: { red: [1, 2, 3, 1, 0, 0, 0] } });
   sim.close();
 });
+
+test("cancellation during boot terminates a worker immediately", async () => {
+  const { terminated } = workerFixture(false, { hang: new Set(["boot"]) });
+  const abort = new AbortController();
+  const booting = BrowserSim.boot(() => {}, { signal: abort.signal });
+  abort.abort();
+  await expect(booting).rejects.toThrow("disconnected");
+  expect(terminated).toHaveBeenCalled();
+});

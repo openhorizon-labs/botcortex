@@ -21,6 +21,7 @@ import type { RobotMessage } from "@/lib/robot/protocol";
 import { type AgentContract, toolsForOpenAI } from "@/lib/robot/agent/contract";
 import { explain } from "@/lib/robot/agent/explain";
 import { type JsonSchema, validateArguments } from "@/lib/robot/agent/schema";
+import type { Fetcher } from "@/lib/robot/outbox";
 
 /** Runs one tool and returns whatever the runtime would have returned — a
  *  string, always, because that is what the model is handed back. */
@@ -62,6 +63,7 @@ export interface TeachOptions {
   signal?: AbortSignal;
   /** Where inference goes. Cookie-authenticated; the browser holds no key. */
   endpoint?: string;
+  fetcher?: Fetcher;
 }
 
 export interface TeachOutcome {
@@ -133,9 +135,10 @@ const needsEffortNone = new Set<string>();
 async function callModel(
   endpoint: string,
   body: Record<string, unknown>,
+  fetcher: Fetcher,
   signal?: AbortSignal,
 ): Promise<any> {
-  const response = await fetch(endpoint, {
+  const response = await fetcher(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -159,6 +162,7 @@ export async function teach({
   verify,
   signal,
   endpoint = "/api/inference/chat",
+  fetcher = (url, init) => fetch(url, init),
 }: TeachOptions): Promise<TeachOutcome> {
   // Announced from the REPLY, never from the request: an owner who picked an
   // expensive model and was quietly routed to another has been charged for
@@ -209,7 +213,7 @@ export async function teach({
 
       let data: any;
       try {
-        data = await callModel(endpoint, request, signal);
+        data = await callModel(endpoint, request, fetcher, signal);
       } catch (error) {
         // Learn the model's requirement once, then retry. Asking every model
         // for reasoning_effort:"none" upfront is not an option — the cheaper
@@ -218,7 +222,7 @@ export async function teach({
         if (!needsEffortNone.has(model) && message.includes("reasoning_effort")) {
           needsEffortNone.add(model);
           request.reasoning_effort = "none";
-          data = await callModel(endpoint, request, signal);
+          data = await callModel(endpoint, request, fetcher, signal);
         } else {
           throw error;
         }

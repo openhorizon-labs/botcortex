@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { validateArguments } from "@/lib/robot/agent/schema";
+import { validateArguments, type JsonSchema } from "@/lib/robot/agent/schema";
 
 const MOVE_TO = {
   type: "object",
@@ -41,4 +41,21 @@ test("integers satisfy number, and an absent schema judges nothing", () => {
 test("additionalProperties: false rejects an unknown parameter", () => {
   expect(validateArguments({ type: "object", properties: { a: {} }, additionalProperties: false }, { a: 1, b: 2 }))
     .toBe("arguments.b is not a parameter of this tool");
+});
+
+test("the shipped wheel's nullable duration rejects invalid values", () => {
+  const wheel = Bun.spawnSync(["unzip", "-p", "public/botcortex/botcortex-0.0.1-py3-none-any.whl", "botcortex/agent_contract.json"]);
+  const contract = JSON.parse(wheel.stdout.toString()) as { tools: { name: string; parameters: JsonSchema }[] };
+  const schema = contract.tools.find((tool) => tool.name === "move_to")!.parameters;
+  for (const duration of [null, 2, 2.5]) expect(validateArguments(schema, { arm: "right", targets_json: "{}", duration })).toBeNull();
+  for (const duration of ["2", {}, [], true]) expect(validateArguments(schema, { arm: "right", targets_json: "{}", duration })).toContain("arguments.duration");
+});
+
+test("additional property schemas validate nested values", () => {
+  expect(validateArguments(MOVE_TO, { arm: "right", targets: { j1: "ten" } })).toContain("arguments.targets.j1");
+});
+
+test("JSON overflow and inherited required keys cannot pass validation", () => {
+  expect(validateArguments({ type: "number" }, JSON.parse("1e999"))).toContain("finite");
+  expect(validateArguments({ type: "object", required: ["constructor"] }, {})).toContain("required");
 });

@@ -8,6 +8,23 @@ import { afterEach, expect, test } from "bun:test";
 
 import { httpUrl, mixedContentBlocked, normalizeHost, parseRobotEndpoint, wsUrl, parseRobotMessage } from "@/lib/robot/protocol";
 
+test.each([
+  ["wss://robot.example:80", "wss://robot.example:80/ws", "https://robot.example:80"],
+  ["https://robot.example:80", "wss://robot.example:80/ws", "https://robot.example:80"],
+  ["ws://robot.example:443", "ws://robot.example:443/ws", "http://robot.example:443"],
+  ["http://robot.example:443", "ws://robot.example:443/ws", "http://robot.example:443"],
+  ["wss://[::1]:80", "wss://[::1]:80/ws", "https://[::1]:80"],
+  ["ws://[::1]:443", "ws://[::1]:443/ws", "http://[::1]:443"],
+  ["wss://robot.example:443", "wss://robot.example/ws", "https://robot.example"],
+  ["ws://robot.example:80", "ws://robot.example/ws", "http://robot.example"],
+])("explicit ports retain their meaning: %s", (raw, ws, http) => {
+  const parsed = parseRobotEndpoint(raw, "https:");
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) return;
+  expect(wsUrl(parsed.endpoint)).toBe(ws);
+  expect(httpUrl(parsed.endpoint)).toBe(http);
+});
+
 function pageOn(protocol: "http:" | "https:") {
   // @ts-expect-error - a stand-in for the browser global
   globalThis.window = { location: { protocol } };

@@ -3,6 +3,7 @@
 import { RobotProvider } from "@/components/app/robot-provider";
 import { StopControl } from "@/components/app/stop-control";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useSession } from "@/lib/auth-client";
 
 /**
  * Holds the robot connection and the transcript ABOVE the route segments.
@@ -18,8 +19,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
  * connection now shows it.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const { data: session, isPending } = useSession();
+  if (isPending && !session) return <p role="status" className="p-6 text-sm text-muted-foreground">Loading workspace…</p>;
+  const accountId = session?.user.id ?? null;
   return (
-    <RobotProvider>
+    <RobotProvider key={accountId ?? "signed-out"} accountId={accountId}>
       <TooltipProvider>
         {children}
         <StopControl />

@@ -1,5 +1,7 @@
 # BotCortex: architecture audit and implementation guide
 
+**Latest verification:** the follow-up review's R1–R9 fixes pass 156 unit tests, TypeScript, production build, and both Chrome smoke suites. See [review findings and resolution](CLAUDE_REVIEW.md#resolution--2026-09-11) for current evidence and the remaining cross-repository roadmap. Earlier test counts below describe their respective audit passes.
+
 **Date:** 2026-09-11  
 **Audience:** junior developers, reviewers, and the product owner  
 **Scope:** this web repository, its bundled browser-runtime integration, and public research  
