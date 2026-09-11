@@ -33,10 +33,12 @@
 
 /// <reference lib="webworker" />
 
+import runtimeArtifact from "@/public/botcortex/MANIFEST.json";
+
 const PYODIDE_URL = "/pyodide/";
 const PYODIDE_ENTRY = "/pyodide/pyodide.mjs";
 const MUJOCO_URL = "/mujoco/mujoco.js";
-const WHEEL_URL = "/botcortex/botcortex-0.0.1-py3-none-any.whl";
+const WHEEL_URL = `/botcortex/${runtimeArtifact.wheel}`;
 
 export type WorkerRequest =
   /** `namespace` is the signed-in account's id, or null for a session-only

@@ -21,7 +21,7 @@ const manifest = JSON.parse(readFileSync(join(DIR, "MANIFEST.json"), "utf8")) as
   sha256: string;
   contractVersion: string;
   platform: string;
-  runtimeCommit: string | null;
+  runtimeCommit: string;
   runtimeRepo: string;
   recordedAt: string;
 };
@@ -45,6 +45,6 @@ test("the contract version inside the wheel is the one the manifest records", ()
 test("the manifest's provenance fields are filled in", () => {
   expect(manifest.platform).toBe("openarm_v1");
   expect(manifest.runtimeRepo).toBe("openhorizon-labs/botcortex-runtime");
-  expect(manifest.runtimeCommit === null || /^[0-9a-f]{40}$/.test(manifest.runtimeCommit)).toBe(true);
+  expect(manifest.runtimeCommit).toMatch(/^[0-9a-f]{40}$/);
   expect(Number.isNaN(Date.parse(manifest.recordedAt))).toBe(false);
 });

@@ -2,9 +2,11 @@
  * Requires bun dev on :3000, API_URL=http://localhost:8787 and port 8787 free.
  * Uses only a disposable loopback fixture and a fresh Chrome context. */
 import assert from "node:assert/strict";
-import { chromium } from "playwright-core";
+import { chromium, type Browser } from "playwright-core";
+import { assertFixturePortAvailable, assertFixtureRouting, FIXTURE_HEADER, waitForFixtureRequest } from "./smoke-fixture";
 
 const base = "http://localhost:3000";
+const fixtureId = crypto.randomUUID();
 const rows: Array<Record<string, any>> = [];
 const runtime: { ws?: { send: (raw: string) => unknown }; runId?: string; pongs: number; closed: number } = { pongs: 0, closed: 0 };
 let account = "A";
@@ -13,6 +15,7 @@ let bRequested: (() => void) | null = null;
 let failCreate = false;
 let created = 0;
 let skillWrites = 0;
+await assertFixturePortAvailable();
 const fixture = Bun.serve({
   hostname: "127.0.0.1", port: 8787,
   async fetch(req, server) {
@@ -20,7 +23,7 @@ const fixture = Bun.serve({
     if (url.pathname === "/ws" && server.upgrade(req)) return;
     if (!req.headers.get("cookie")?.includes("review-fixture")) return Response.json({}, { status: 401 });
     switch (url.pathname) {
-      case "/api/me": return Response.json({ user: { id: account, name: `Owner ${account}`, email: `${account}@example.invalid` } });
+      case "/api/me": return Response.json({ user: { id: account, name: `Owner ${account}`, email: `${account}@example.invalid` } }, { headers: { [FIXTURE_HEADER]: fixtureId } });
       case "/api/auth/get-session": return Response.json({ user: { id: account, name: `Owner ${account}`, email: `${account}@example.invalid` }, session: { id: account, userId: account, expiresAt: "2099-01-01T00:00:00Z" } });
       case "/api/robots": return Response.json({ robots: [] });
       case "/api/credits": return Response.json({ balanceMicros: 0, display: "$0", spentDisplay: "$0", usedDisplay: "$0", grantedDisplay: "$0" });
@@ -51,7 +54,7 @@ const fixture = Bun.serve({
     close() { runtime.closed++; },
   },
 });
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+let browser: Browser | undefined;
 let phase = "setup";
 const emit = (msg: object) => runtime.ws!.send(JSON.stringify(msg));
 async function until(check: () => boolean, description: string) {
@@ -62,6 +65,8 @@ async function until(check: () => boolean, description: string) {
   assert.fail(description);
 }
 try {
+  await assertFixtureRouting(base, fixtureId, "better-auth.session_token=review-fixture");
+  browser = await chromium.launch({ channel: "chrome", headless: true });
   const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
   await context.addCookies([{ name: "better-auth.session_token", value: "review-fixture", domain: "localhost", path: "/" }]);
   await context.addInitScript(() => localStorage.setItem("botcortex.robot", JSON.stringify({ host: "127.0.0.1:8787", secure: false, explicitScheme: true })));
@@ -78,7 +83,7 @@ try {
   phase = "background run during history load";
   const bStarted = new Promise<void>(resolve => { bRequested = resolve; });
   await page.getByRole("button", { name: "Review B", exact: true }).click();
-  await bStarted;
+  await waitForFixtureRequest(bStarted, "task B history");
   emit({ type: "chat", text: "A is still working offscreen", runId: runtime.runId });
   await page.getByText("SAVED HISTORY B", { exact: true }).waitFor();
   assert.equal(await page.getByText("A is still working offscreen", { exact: true }).count(), 0);
@@ -157,11 +162,11 @@ try {
   console.log(JSON.stringify({ passed: ["off-screen run persistence", "selected history survives background events", "unknown run rejection", "healthy idle heartbeat", "failed creation is visible", "original run recovers after task switch", "new task keeps its transcript", "server account binding", "cross-tab account reset"], pageErrors: errors }, null, 2));
 } catch (error) {
   console.error("Review smoke failed at:", phase, "rows:", rows);
-  for (const page of browser.contexts().flatMap(context => context.pages())) {
+  for (const page of browser?.contexts().flatMap(context => context.pages()) ?? []) {
     console.error(page.url(), (await page.locator("body").innerText()).slice(0, 1800));
   }
   throw error;
 } finally {
-  await browser.close();
+  await browser?.close();
   fixture.stop(true);
 }

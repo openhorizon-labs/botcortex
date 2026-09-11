@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import runtimeArtifact from "@/public/botcortex/MANIFEST.json";
 
 import { validateArguments, type JsonSchema } from "@/lib/robot/agent/schema";
 
@@ -44,7 +45,7 @@ test("additionalProperties: false rejects an unknown parameter", () => {
 });
 
 test("the shipped wheel's nullable duration rejects invalid values", () => {
-  const wheel = Bun.spawnSync(["unzip", "-p", "public/botcortex/botcortex-0.0.1-py3-none-any.whl", "botcortex/agent_contract.json"]);
+  const wheel = Bun.spawnSync(["unzip", "-p", `public/botcortex/${runtimeArtifact.wheel}`, "botcortex/agent_contract.json"]);
   const contract = JSON.parse(wheel.stdout.toString()) as { tools: { name: string; parameters: JsonSchema }[] };
   const schema = contract.tools.find((tool) => tool.name === "move_to")!.parameters;
   for (const duration of [null, 2, 2.5]) expect(validateArguments(schema, { arm: "right", targets_json: "{}", duration })).toBeNull();

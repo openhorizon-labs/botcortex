@@ -37,7 +37,9 @@ const CONTROL_HZ = 20;
  */
 export const DEADLINES_MS: Record<WorkerRequest["type"], number> = {
   boot: 240_000,
-  callTool: 120_000,
+  // 0.0.2 takes 59–70 s for one measured transfer; longer skills and slower
+  // machines need headroom until the nested path search is optimized.
+  callTool: 600_000,
   reset: 15_000,
   seek: 15_000,
   logEpisode: 15_000,

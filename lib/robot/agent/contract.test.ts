@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import runtimeArtifact from "@/public/botcortex/MANIFEST.json";
 
 import { contractProblem, parseContract } from "@/lib/robot/agent/contract";
 
@@ -12,7 +13,7 @@ const GOOD = {
 };
 
 test("the shipped wheel's contract passes", async () => {
-  const raw = Bun.spawnSync(["unzip", "-p", "public/botcortex/botcortex-0.0.1-py3-none-any.whl", "botcortex/agent_contract.json"]).stdout.toString();
+  const raw = Bun.spawnSync(["unzip", "-p", `public/botcortex/${runtimeArtifact.wheel}`, "botcortex/agent_contract.json"]).stdout.toString();
   expect(contractProblem(JSON.parse(raw))).toBeNull();
   expect(parseContract(raw).tools.length).toBeGreaterThan(0);
 });

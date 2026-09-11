@@ -5,10 +5,13 @@
  * Run: bun scripts/audit-smoke.ts
  */
 import assert from "node:assert/strict";
-import { chromium } from "playwright-core";
+import { chromium, type Browser } from "playwright-core";
+import { assertFixturePortAvailable, assertFixtureRouting, FIXTURE_HEADER, waitForFixtureRequest } from "./smoke-fixture";
+import artifact from "../public/botcortex/MANIFEST.json";
 
 const base = "http://localhost:3000";
 const cookie = "better-auth.session_token=audit-fixture";
+const fixtureId = crypto.randomUUID();
 let stopFails = true;
 let deletedB = false;
 let closedSocket = false;
@@ -23,6 +26,7 @@ const transcript = (id: string) => [
   ] : []),
 ];
 const cors = { "Access-Control-Allow-Origin": base, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+await assertFixturePortAvailable();
 const fixture = Bun.serve({
   hostname: "127.0.0.1", port: 8787,
   async fetch(request, server) {
@@ -33,7 +37,7 @@ const fixture = Bun.serve({
     if (url.pathname === "/stop/reset") return Response.json({ stopped: false }, { headers: cors });
     if (!request.headers.get("cookie")?.includes(cookie)) return Response.json({}, { status: 401 });
     switch (url.pathname) {
-      case "/api/me": return Response.json({ user: { id: "audit", name: "Audit", email: "audit@example.invalid" } });
+      case "/api/me": return Response.json({ user: { id: "audit", name: "Audit", email: "audit@example.invalid" } }, { headers: { [FIXTURE_HEADER]: fixtureId } });
       case "/api/auth/get-session": return Response.json({ user: { id: "audit", name: "Audit", email: "audit@example.invalid" }, session: { id: "audit", userId: "audit", expiresAt: "2099-01-01T00:00:00Z" } });
       case "/api/robots": return Response.json({ robots: [] });
       case "/api/credits": return Response.json({ balanceMicros: 0, spentMicros: 0, grantedMicros: 0, display: "$0", spentDisplay: "$0", usedDisplay: "$0", grantedDisplay: "$0" });
@@ -60,8 +64,10 @@ const fixture = Bun.serve({
   },
 });
 
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+let browser: Browser | undefined;
 try {
+  await assertFixtureRouting(base, fixtureId, cookie);
+  browser = await chromium.launch({ channel: "chrome", headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   const page = await context.newPage();
   // Keep a reference to the real worker for storage round-trip fixtures. Test
@@ -71,7 +77,16 @@ try {
     window.Worker = class extends NativeWorker {
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options);
-        if (String(url).endsWith("/sim-worker.js")) (window as unknown as { reviewWorker: Worker }).reviewWorker = this;
+        if (String(url).endsWith("/sim-worker.js")) {
+          const observed = window as unknown as { reviewWorker: Worker; reviewRuntimeVersion: string | null };
+          observed.reviewWorker = this;
+          observed.reviewRuntimeVersion = null;
+          this.addEventListener("message", ({ data }) => {
+            if (data.ok && typeof data.result?.contract === "string") {
+              observed.reviewRuntimeVersion = JSON.parse(data.result.contract).version;
+            }
+          });
+        }
       }
     };
   });
@@ -82,7 +97,7 @@ try {
   await page.waitForURL(`${base}/#features`, { waitUntil: "domcontentloaded" });
   await context.addCookies([{ name: "better-auth.session_token", value: "audit-fixture", domain: "localhost", path: "/" }]);
   await page.goto(`${base}/app/tasks/a`, { waitUntil: "domcontentloaded" });
-  await historyStarted;
+  await waitForFixtureRequest(historyStarted, "task A history");
   await page.getByRole("button", { name: "Task B", exact: true }).click();
   await page.getByText("CURRENT TASK B", { exact: true }).waitFor();
   await page.waitForTimeout(1400);
@@ -137,6 +152,8 @@ try {
   await page.getByRole("button", { name: /No robot\? Teach one here/ }).click();
   await page.getByRole("button", { name: "Done", exact: true }).waitFor({ timeout: 60000 });
   const bootMs = Date.now() - started;
+  const runtimeVersion = await page.evaluate(() => (window as unknown as { reviewRuntimeVersion: string }).reviewRuntimeVersion);
+  assert.equal(runtimeVersion, artifact.contractVersion, "worker booted a different runtime than the manifest");
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Show the simulation" }).click();
   await page.locator("canvas").waitFor();
@@ -194,15 +211,15 @@ try {
   assert(recalled.includes("fixture failure"), "failed episode did not survive reconnect");
 
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: ["public navigation", "stale history isolation", "evidence download", "delete navigation", "STOP failure feedback", "REST STOP after socket loss", "real WASM boot", "sim STOP/reset", "durable account memory", "STOP on /app/device", "reconnect hydration"], bootMs, pageErrors: errors }, null, 2));
+  console.log(JSON.stringify({ passed: ["public navigation", "stale history isolation", "evidence download", "delete navigation", "STOP failure feedback", "REST STOP after socket loss", "real WASM boot", "sim STOP/reset", "durable account memory", "STOP on /app/device", "reconnect hydration"], runtimeVersion, bootMs, pageErrors: errors }, null, 2));
 } catch (error) {
   // What was on screen when it went wrong is the first thing anyone asks.
-  for (const page of browser.contexts().flatMap((context) => context.pages())) {
+  for (const page of browser?.contexts().flatMap((context) => context.pages()) ?? []) {
     console.error("URL:", page.url());
     console.error("BODY:", (await page.locator("body").innerText().catch(() => "")).replace(/\n+/g, " | ").slice(0, 800));
   }
   throw error;
 } finally {
-  await browser.close();
+  await browser?.close();
   fixture.stop(true);
 }

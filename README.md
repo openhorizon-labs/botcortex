@@ -5,6 +5,7 @@ typing. Next.js 16 App Router + Bun + Tailwind 4 + shadcn/ui.
 
 **Start here for engineering work:** [Architecture audit and junior implementation guide](docs/ARCHITECTURE_AUDIT.md).
 The follow-up findings and their fixes are recorded in [Claude implementation review](docs/CLAUDE_REVIEW.md#resolution--2026-09-11).
+The blue-block manipulation failure and its runtime fix are documented in [Simulation failure fix](docs/SIMULATION_FAILURE_FIX.md).
 
 The Python runtime lives in
 [`botcortex-runtime`](https://github.com/openhorizon-labs/botcortex-runtime);
@@ -46,7 +47,8 @@ the header. The wheel it boots is described by `public/botcortex/MANIFEST.json`,
 which `bun test` checks against the file. CI (`.github/workflows/ci.yml`) runs the
 same tests, typecheck and build on every push.
 
-For isolated browser integration checks with Chrome installed and **port 8787 free**:
+For isolated browser integration checks with Chrome installed, stop
+`botcortex-api` first: **port 8787 must be free on IPv4 and IPv6**.
 
 ```bash
 # Keep bun dev running with API_URL=http://localhost:8787 in another terminal.
@@ -59,6 +61,8 @@ loopback and cleans up on exit. The audit smoke boots the real WASM simulator an
 checks skill/episode persistence. The review smoke covers run ownership, failed
 task creation/retry, idle heartbeat, server-bound writes and cross-tab account
 changes. Both use fresh Chrome contexts and make no paid model calls.
+They refuse startup if either loopback address is occupied and verify that Next's
+rewrite reaches their own fixture. Restart `botcortex-api` after the smoke runs.
 
 Cloud writes and inference requests carry the originating account id. The browser
 rechecks identity and `proxy.ts` verifies it against the cookie on the actual write
