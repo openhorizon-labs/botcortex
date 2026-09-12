@@ -2,41 +2,51 @@
 
 **OpenHorizon Labs · Research dossier · 12 September 2026**
 
-**Selected direction:** transfer diagnosis on OpenArm and the Waveshare RoArm-M2-Pro.
+**Selected direction:** cross-embodiment transfer of repair knowledge, anchored on OpenArm and the Waveshare RoArm-M2-Pro and screened across simulated arms.
 
-**Working paper title:** *Repair the Program or Repair the Twin? Active Failure Diagnosis for Cross-Embodiment Skill Transfer.*
+**Working paper title:** *Failures Travel: Cross-Embodiment Transfer of Repair Knowledge for Agent-Authored Robot Skills.*
 
-**Status:** literature-informed research proposal and implementation plan. Existing BotCortex simulation results are identified separately from proposed experiments. No cross-robot hardware result or novel-method result is claimed.
+**Status:** literature-informed research proposal and implementation plan. Existing BotCortex simulation results are identified separately from proposed experiments. No cross-robot hardware result, transfer result, or novel-method result is claimed.
+
+**Revision review — 12 September 2026:** incorporates the selected RoArm-M2-Pro and owned RealSense; corrects joint-count and command-unit assumptions; credits completed runtime/web foundations; and distinguishes camera installation from validated object tracking. The review compared the PDF with web commit `37b5452` and runtime commit `1f92197`, and used Aside search to verify the hardware documentation in sources [28](#ref-28)–[29](#ref-29).
+
+**Thesis revision — 12 September 2026 (Sai's call):** the primary question moves from “does active repair selection beat fixed strategies on two arms” to “does repair knowledge learned on one robot body make recovery cheaper on another.” Active selection remains the mechanism; transfer is the headline claim, an open cross-embodiment failure benchmark is the artifact. Sources [30](#ref-30)–[37](#ref-37) were added from a targeted discovery pass and are abstract-level unless stated otherwise.
 
 ## 1. Executive decision
 
-Build a system that determines **which part of a failed robot deployment needs repair**, then measures whether that decision reduces the number of real-world attempts needed to recover. Use BotCortex's agent-authored programs, local execution, and failure records as the experimental platform.
+Build a system in which **a failure diagnosed and repaired on one robot makes the next robot recover faster**, and measure that transfer on physical hardware. Use BotCortex's agent-authored programs, local execution, and customer-owned failure records as the experimental platform.
 
-The first paper should answer a narrow question:
+The first paper should answer one question:
 
-> When a task fails after transfer to another robot or from simulation to hardware, can primitive-level contracts, counterfactual replay, and targeted diagnostic measurements select a better intervention than repeatedly rewriting the program or repeatedly recalibrating the simulator?
+> When a taught task fails on a robot body the repair memory has never seen, does memory of diagnosed failures and verified repairs from *other* bodies reduce the real-world attempts needed to recover, compared with the same selector using no memory or memory from the target body only?
 
-The selected hardware scope is **OpenArm plus the Waveshare RoArm-M2-Pro** as the second physical arm, with an **Intel RealSense depth camera** (already owned, to be mounted) as the shared object-pose sensor. The RoArm-M2-Pro is a low-cost 4-DoF desktop arm with serial-bus servos and a JSON command interface over serial or Wi-Fi, which gives a deliberately large embodiment gap from the 7-DoF, CAN-driven bimanual OpenArm. Reach, payload, control rate, and repeatability must be measured during bring-up and recorded in its capability pack rather than copied from marketing pages. A third simulated embodiment can broaden controlled experiments, but does not replace the second physical system.
+The mechanism that makes transfer plausible is the representation: failures are recorded as **contract violations over object-centric task intent** (what should have happened to the objects), with the chosen intervention and its verified outcome, and never as joint-space traces alone. If that representation is embodiment-agnostic, failure knowledge should travel across arms with different kinematics, actuation, and sensing. If it is not, the experiment says so.
 
-The proposed intervention set is: repair the program/planner; repair perception or frame calibration; identify controller/physical parameters; learn a bounded residual; or abstain and ask for assistance. The contribution must be the **selection procedure and its measured recovery efficiency**, rather than the existence of these familiar repair tools.
+The physical anchors are **OpenArm plus the Waveshare RoArm-M2-Pro**, with an **Intel RealSense depth camera** already owned and awaiting mounting and calibration. The camera is the planned RGB-D input to an object-pose pipeline, not an already-working pose service. [29](#ref-29) Breadth comes from **simulated embodiments**: the vendored OpenArm model, a RoArm model, and several public arm models from MuJoCo Menagerie, used to screen the transfer hypothesis under a leave-one-embodiment-out protocol before the two physical comparisons. [36](#ref-36)
+
+The RoArm-M2-Pro's advertised **4 DoF includes the end-effector actuator**: in its default clamp configuration, BASE, SHOULDER, and ELBOW position the tool, while HAND opens/closes the gripper. Compare this with **seven positioning joints plus a gripper per OpenArm arm**, rather than an unqualified “7 vs 4 joints.” The RoArm uses serial-bus servos with a JSON host interface; OpenArm uses CAN. Reach, payload, control rate, stiffness, and repeatability remain quantities to characterize during bring-up. [28](#ref-28)
+
+The intervention set is unchanged: repair the program/planner; repair perception or frame calibration; identify controller/physical parameters; learn a bounded residual; or abstain and ask for assistance. The active selector from the previous revision (contracts, counterfactual replay, targeted measurements) is the **mechanism** under test; the **claim** is about what memory from other bodies adds to it.
 
 ### Why this direction
 
-- It addresses an immediate product problem: a failed rehearsal or deployment should produce an evidence-based next step, not another unsupported motion guess.
-- It fits the architecture: the agent authors and repairs; local executors run the task; customer-owned memory records what happened.
-- It admits a bounded experiment with two arms and a few task families, without requiring a new foundation model or a large dexterous pretraining program.
-- It has strong nearby research. Fail2Progress already uses simulated failure reconstruction; COMPASS already diagnoses simulator parameters; ASID already chooses identification actions. These are starting points and novelty constraints, not missing literature. [3](#ref-03), [6](#ref-06), [8](#ref-08), [10](#ref-10)
+- **Nobody has it.** The 2026 cross-embodiment literature transfers policies, representations, and demonstrations across bodies. No located work transfers *diagnosis and repair knowledge* across bodies, and no failure benchmark spans multiple physical embodiments or labels which repair actually recovered the task. [30](#ref-30), [31](#ref-31), [35](#ref-35)
+- **It is the company's thesis made testable.** BotCortex's endgame is fleet failure-learning: every robot's failure makes every other robot smarter. A positive result is scientific backing for the moat; a negative result tells the company early that memory must stay per-embodiment.
+- It fits the architecture: the agent authors and repairs; local executors run the task; customer-owned memory records what happened, now conditioned on embodiment and version.
+- It admits a bounded experiment: two physical arms, a handful of simulated arms, a few task families, no new foundation model, no dexterous pretraining.
+- It has strong nearby research to build on and to be bounded by. Fail2Progress already reconstructs failures in simulation; COMPASS already diagnoses simulator parameters; ASID already chooses identification actions; the software-agent community already attributes agent failures by counterfactual replay. [3](#ref-03), [6](#ref-06), [8](#ref-08), [10](#ref-10), [32](#ref-32)–[34](#ref-34)
 
 ### Deliverables and decision gates
 
 | Deliverable | Evidence required |
 | --- | --- |
-| Portable execution substrate | Two adapters pass the same conformance suite, with explicit capability differences. |
-| Transfer-failure benchmark | Versioned tasks, held-out faults, independent outcome verification, and controlled labels. |
-| Active repair selector | Fewer hardware trials or human minutes than simple strategies under matched budgets. |
-| Reproducible paper artifact | Programs, configurations, traces, split definitions, analysis, and representative failures. |
+| Portable execution substrate | Two physical adapters plus N simulated embodiments pass the same conformance suite, with explicit capability differences. |
+| Open cross-embodiment failure benchmark | Versioned tasks and faults across all embodiments; each episode labelled with cause (where controlled), chosen intervention, and independently verified outcome; frozen leave-one-embodiment-out splits. |
+| Transfer result | Attempts-to-recovery on a held-out body with cross-body memory vs. target-only memory vs. no memory, under matched budgets, on both physical arms. |
+| Active repair selector | Still required as the mechanism; its standalone advantage over fixed strategies is reported as a secondary result. |
+| Reproducible paper artifact | Programs, configurations, traces, split definitions, analysis, and representative failures, including negative transfer cases. |
 
-If a fixed strategy or a simple rule-based selector performs equally well, report that result and revise the method. A useful SDK can still ship without a strong algorithmic novelty claim.
+If cross-body memory does not help, or helps only in simulation, report that result with the benchmark. The benchmark and the SDK remain useful without a positive transfer claim.
 
 ## 2. Evidence scope and current BotCortex baseline
 
@@ -45,6 +55,8 @@ If a fixed strategy or a simple rule-based selector performs equally well, repor
 The discovery pass screened **85 distinct URLs, including 31 arXiv links**. It combined search, primary paper pages, methods/results sections and selected appendices, repository inspection, and official conference pages. This is a focused review, not an exhaustive survey or a claim that every discovered page was read cover-to-cover.
 
 The bibliography distinguishes core technical sources from background discovery. Paper versions are pinned where recorded. A source's reported experiment is not a reproduced BotCortex result. Search coverage alone cannot establish novelty; citation tracing and an updated review are required before submission.
+
+The 85-URL count describes the original literature discovery pass. This revision adds targeted hardware documentation checks through Aside; it does not claim a new exhaustive literature search or a fresh replication of the cited experiments.
 
 ### Implemented and previously verified
 
@@ -66,9 +78,27 @@ The fix makes geometry queries preserve full simulation state and adds a determi
 
 These checks were run during the implementation work, not rerun to generate this document. The current result is a useful regression case, not a benchmark-wide success rate.
 
+### Completed foundations to build on
+
+The research starts from implemented components, not an empty runtime. The source review and the resolution records in `docs/CLAUDE_REVIEW.md` and `docs/SIMULATION_FAILURE_FIX.md` support the following status:
+
+| Foundation already present | Remaining research extension |
+| --- | --- |
+| Native/WASM rehearsal saves and restores physics state; geometry queries preserve the grasp. | Export versioned replay packets, reconstruct hardware state, and evaluate competing parameter hypotheses. |
+| Route checks reject lost grasps and displaced bystanders; failed rehearsals identify the failing step. | Generalize to task-specific allowed effects, unknown observations, and independent task-success predicates. |
+| Motion/object logs and before/after scene evidence exist. Saving edited skill code clears its prior run marker. | Record synchronized hardware observations, actual actions, overrides, and separate task/adapter/calibration hashes. |
+| Browser skills/episodes persist in account-scoped storage; account transitions and cancelled startup clean up old workers/leases. | Add embodiment/version-aware retrieval and enforce research train/validation/test isolation. |
+| Browser run routing, retry ownership, request deadlines, connection health, and shipped-wheel schema/provenance checks were fixed. | Complete runtime event sequencing/reconnect evidence and durable research episode export. |
+
+The workspace loading skeleton is also implemented. The earlier R1–R9 web review findings are resolved; they should not be carried forward as open research tickets. The transcript outbox is still in-memory, however, and account isolation is not the same as experiment-split isolation.
+
+**Outcome semantics matter:** `RobotSession._ran(..., ok=True)` and the skill `.ran` marker mean execution completed without a reported refusal/crash. They do not independently certify the requested task outcome. The current runtime supplies scene evidence for interpretation; a task-contract verifier remains research work.
+
 ### Portability gaps found in the source
 
-Only the OpenArm platform is implemented. Descriptors do not yet make every backend generic: joint naming/count, gripper assumptions, IK, and backend mappings still contain OpenArm-specific behavior. Platform configuration and limits need cleaner instance ownership. Scene queries use privileged simulator state. A functioning `RealRobot` execution path is absent, and CLI `--execute` is explicitly unwired in the inspected implementation.
+In the inspected BotCortex package, `openarm_v1` remains the only platform directory with a descriptor, backed by mock/simulation execution. There is no RoArm adapter yet. Descriptors do not make every backend generic: joint naming/count, gripper assumptions, IK, and backend mappings still contain OpenArm-specific behavior. `config.py` still selects platform/limits at module scope. Scene queries use privileged simulator state. A functioning `RealRobot` execution path is absent from this package, and `cli.py` still rejects `--execute` as unwired.
+
+This package boundary is important: the existing Thor/OpenArm lab runbook separately records working LeRobot teach/replay helpers and a joint-space sim bridge. Those assets can support integration; they are not yet a BotCortex hardware adapter or evidence of object-level transfer across both selected robots. No fresh hardware validation was performed for this review.
 
 The research therefore needs real adapter and sensing work before hardware experiments. It should not present the existing browser simulator as an already-portable deployment SDK.
 
@@ -131,14 +161,23 @@ The following matrix focuses on overlaps that can invalidate an overly broad cla
 | CEI [16](#ref-16) | Functional 3D representations and aligned trajectories across embodiments. | Transferable representations must be distinguished from general adapter design. |
 | UHAS [17](#ref-17) | A shared hand action space for cross-embodiment manipulation. | Shared actions still need embodiment-specific dynamics and controller calibration. |
 | ReKep [18](#ref-18) | Relational keypoint constraints and closed-loop optimization. | Object-centric constraints and geometric replanning are established ideas. |
+| Cross-environment failure reasoning data [30](#ref-30) | Scales failure-reasoning training data for VLA/VLM models across environments. | Failure *reasoning* across environments exists; transfer of *repair decisions* across bodies, validated on hardware, does not appear to. |
+| LabRobFail [31](#ref-31) | Simulated fault-injection benchmark with perception/grasp/motion/logic/safety categories for a lab robot. | A single-embodiment, simulation-only failure benchmark exists; ours must add multiple physical embodiments and repair-outcome labels. |
+| Causal Agent Replay, AgentDebugX, Repair-or-Resample [32](#ref-32)–[34](#ref-34) | Counterfactual replay and attribution for software LLM-agent failures. | Counterfactual attribution is established for software agents; porting it to physical deployments with real sensing cost is the extension, not the idea. |
+| Data Analogies [35](#ref-35) | Paired demonstrations aligned across embodiments drive cross-embodiment policy transfer. | Cross-embodiment transfer of *policies* is well studied; this work is the closest analogue for aligned data across bodies. |
+| Visual-symbol failure diagnosis [37](#ref-37) | Diagnose, correct, and learn from manipulation failures via visual symbols. | Symbolic failure diagnosis on one robot is prior art; embodiment-conditioned memory across bodies is the boundary. |
 
 ### The closest scientific collision
 
-Fail2Progress is particularly important: simulated reconstruction can distinguish inaccurate symbolic predictions from a sim-to-real gap, and the work generates failure-targeted data for effect-model improvement. The investigated formulation leaves correction of the sim-to-real-gap category open. BotCortex cannot claim to invent “replay a failure to decide what went wrong.” [6](#ref-06)
+Fail2Progress is the closest method: simulated reconstruction distinguishes inaccurate symbolic predictions from a sim-to-real gap, and generates failure-targeted data for effect-model improvement. BotCortex cannot claim to invent “replay a failure to decide what went wrong.” [6](#ref-06)
 
-The narrower opportunity is to evaluate a **joint choice among program, perception/calibration, physical adaptation, and residual-policy repairs**, with active observations when the initial evidence is ambiguous. The selector must outperform equal-budget alternatives on both known and held-out failures across physical embodiments.
+LabRobFail is the closest benchmark: controlled fault injection with a cause taxonomy, in simulation, on one embodiment. BotCortex cannot claim to invent “inject labelled faults and benchmark diagnosis.” [31](#ref-31)
 
-COMPASS and ASID constrain the other side of the novelty claim: identifying causal simulator parameters and choosing informative identification motions are existing methods. The proposed contribution sits at the boundary between these physical repairs and program-level repairs, rather than claiming either family from scratch. [8](#ref-08), [10](#ref-10)
+The cross-embodiment literature is the closest framing: policies, representations, and paired demonstrations transfer across bodies. BotCortex cannot claim to invent “knowledge transfers across embodiments.” [16](#ref-16), [17](#ref-17), [35](#ref-35)
+
+**The uncovered intersection is the claim:** repair knowledge (diagnosis, chosen intervention, verified outcome), expressed as object-centric contract violations, transferring across robot bodies and reducing attempts-to-recovery on a body it has never seen, measured on physical hardware, with the benchmark released. Each ingredient exists; the combination and its measurement do not appear to. Citation tracing must recheck this before submission.
+
+COMPASS and ASID still bound the mechanism: identifying causal simulator parameters and choosing informative identification motions are existing methods. The active selector is not the headline. [8](#ref-08), [10](#ref-10)
 
 ### Additional context
 
@@ -174,15 +213,21 @@ The product promise is reusable task intent and controlled adaptation on support
 
 ### Primary hypothesis
 
-Given matched repair operators, observations, and attempt budgets, a selector using contracts, counterfactual replay, and targeted measurements reduces **real-world attempts to verified recovery** compared with fixed repair strategies and trace-only selection.
+**H1 (transfer).** For a target embodiment held out of the repair memory, a selector conditioned on repair memory from other embodiments reaches verified recovery in fewer target-body attempts than the same selector with (a) no memory and (b) memory from the target body only, under matched repair operators, observations, and attempt budgets. Evaluate zero-shot (no target episodes) and few-shot (k target episodes added) regimes.
+
+**H2 (representation).** The transfer effect in H1 depends on failures being recorded as object-centric contract violations with intervention outcomes. Replacing that record with joint-space traces plus free-text lessons removes most of the effect.
+
+### Secondary hypotheses
+
+**H3 (mechanism).** Given matched repair operators and budgets, a selector using contracts, counterfactual replay, and targeted measurements reduces real-world attempts to verified recovery compared with fixed repair strategies and trace-only selection. This was the previous primary hypothesis and remains a reported result.
 
 ### Secondary questions
 
-1. Do object-centric contracts improve transfer diagnosis beyond raw state/action traces?
-2. Does active measurement add value beyond passive replay, after charging its real-world cost?
-3. Can diagnosis transfer across robots when controller, calibration, and model versions are explicit?
+1. Which failure classes transfer across bodies and which do not? Program and perception faults are expected to transfer better than controller/physics faults, which are body-specific by construction.
+2. Does transfer degrade with embodiment distance (joint count, actuation, gripper geometry, sensing), and can capability-pack fields predict that degradation?
+3. Does active measurement add value beyond passive replay, after charging its real-world cost, and does that value change when cross-body memory is available?
 4. Can uncertainty-aware abstention lower wrong-repair and false-success rates without making the system unhelpfully reluctant?
-5. When is a program edit preferable to simulator calibration or a residual policy, and when is the cause not identifiable from available sensing?
+5. When does cross-body memory cause **negative transfer** (a wrong repair chosen because another body's lesson did not apply), and can version/capability conditioning suppress it?
 
 ### Candidate failure classes
 
@@ -210,7 +255,7 @@ This section specifies a design to implement and test. It is not a description o
 
 At every primitive boundary, record task and artifact versions, intended action, measured action/state, timestamps, object estimates and uncertainty, controller status, contacts when observable, contract verdicts, human overrides, and outcome evidence. Keep raw observations or referenced recordings sufficient to revisit disputed diagnoses.
 
-The executor and verifier must agree on run identity and timebase. Missing observations are explicit missing data, not zero values. The verifier produces its result independently of the authoring agent's explanation.
+Extend the existing motion/object logs, failed-step labels, and browser run bindings. The executor and verifier must agree on run identity and timebase. Missing observations are explicit missing data, not zero values. The verifier produces its result independently of the authoring agent's explanation.
 
 ### Step 2 — Localize the first supported violation
 
@@ -222,7 +267,7 @@ Distinguish “predicate false” from “cannot observe predicate.” Joint arr
 
 Replay the relevant primitive or short segment from the reconstructed state, varying one candidate explanation at a time where possible. Examples: correct the waypoint while holding calibration fixed; change the TCP estimate; vary tracking latency; or perturb friction within identified bounds.
 
-Use ensembles when state reconstruction or physics parameters are uncertain. A counterfactual that explains the trace is a candidate explanation, not proof. Geometry and diagnostic queries must preserve simulator state; the 0.0.2 regression demonstrates why this requirement matters.
+Use ensembles when state reconstruction or physics parameters are uncertain. A counterfactual that explains the trace is a candidate explanation, not proof. Build on the existing native/WASM `rehearsal()` state restoration; a persistent, versioned counterfactual replay service is the extension. Geometry-query purity is already fixed in 0.0.2 and should remain a regression requirement.
 
 ### Step 4 — Choose a targeted measurement
 
@@ -250,7 +295,7 @@ Apply the chosen intervention as a versioned change. Rehearse when supported, th
 
 ### Step 7 — Store the intervention outcome
 
-Memory must include the pre-repair evidence, hypothesis, chosen intervention, changed artifacts, and verified result, including failed repairs. Retrieval conditions on robot capabilities and relevant versions. Separate training, validation, and test memory; freeze or explicitly constrain online updates to prevent leakage.
+Memory must include the pre-repair evidence, hypothesis, chosen intervention, changed artifacts, and verified result, including failed repairs. Every record carries the embodiment's capability-pack identity and the artifact versions. Retrieval conditions on the *target* robot's capabilities and relevant versions, and can draw from records of other embodiments; that cross-body retrieval is the object of H1, so it must be switchable per experiment arm. Separate training, validation, and test memory; freeze or explicitly constrain online updates to prevent leakage.
 
 ## 8. Portable SDK and runtime architecture
 
@@ -258,7 +303,7 @@ Memory must include the pre-repair evidence, hypothesis, chosen intervention, ch
 
 **The LLM is outside the real-time control loop.** It authors or repairs a task, while local primitives, planners, or learned policy executors run it. Teaching normally uses frontier cloud models; taught execution and local memory should not depend on a live model call. A local authoring model remains an optional configuration.
 
-This preserves the BotCortex product direction: chat authors tasks, a plan view supports review, and the runtime owns execution. The hosted web UI should not be described as an already-offline interface merely because execution can be local.
+This preserves the BotCortex product direction: chat authors tasks and the runtime owns execution. A plan view supports inspection of execution, while an enforced proposal/approval/execute workflow remains open work; it is not implied by a successful physics rehearsal. The hosted web UI should not be described as an already-offline interface merely because execution can be local.
 
 ### Capability packs
 
@@ -288,7 +333,11 @@ Two robots can expose the same primitive name while providing different capabili
 
 ### Implementation direction
 
-Start with OpenArm, then implement a second adapter against the same conformance suite. Remove joint-count, naming, and gripper assumptions from shared planning and simulation logic. Make platform state instance-specific so two different robots can coexist in a process or evaluation harness.
+Integrate the existing OpenArm lab driver path into a BotCortex adapter, then implement the RoArm-M2-Pro adapter against the same conformance suite. Remove joint-count, naming, and gripper assumptions from shared planning and simulation logic. Make platform state instance-specific so two different robots can coexist in a process or evaluation harness.
+
+For the RoArm, choose and pin one interface convention. The shared M2 control docs specify **radians for JSON T=101/102 joint positions and T=105 joint feedback**, and **millimetres for Cartesian XYZ**. The Cartesian `t` parameter is the clamp/wrist angle, not a fourth spatial coordinate. The current BotCortex primitives use degrees, so conversion belongs explicitly at this adapter boundary. Raw encoder-position tick conversion is needed only for a lower-level servo interface; it is not required for JSON angle commands. [28](#ref-28)
+
+Angular position and motion-rate units are separate: T=101/102 `spd` and `acc` use documented step-based conventions, not rad/s and rad/s². The vendor Python SDK also remaps gripper coordinates relative to raw JSON. Validate command/feedback round trips and stopping/queue behavior against the installed firmware, rather than mixing SDK, JSON, and raw-servo conventions or assuming a command acknowledgement means the motion completed.
 
 Use native/headless simulation for repeated training and diagnosis experiments. Keep browser simulation for inspection, onboarding, and interactive rehearsal. Browser and native paths should share semantics and contract fixtures, but performance equality is not assumed.
 
@@ -327,9 +376,19 @@ For the first paper, use a small, fixed repair-operator set. A bounded residual 
 
 ### Robots and tasks
 
-Use OpenArm and the Waveshare RoArm-M2-Pro. Both cover tabletop manipulation, and the embodiment difference is large: joint count (7 vs 4), actuation and bus (CAN motors vs serial-bus servos), gripper geometry, reach, and control rate all differ. The RoArm-M2-Pro's smaller workspace and lower stiffness bound the shared task set; a task the small arm cannot reach or hold is recorded as unsupported for that platform, not forced. The Intel RealSense depth camera provides object-pose observations for both arms; mount and calibrate it once per workcell and record the camera-to-base transform for each arm separately. Match task semantics and record differences in reach, gripper geometry, control rate, and observability.
+Use OpenArm and the Waveshare RoArm-M2-Pro as **two robot embodiments**. Use a single-manipulator task subset on OpenArm for the shared comparison; bimanual coordination is not a capability of the RoArm. In the RoArm's default clamp configuration, its three positioning joints do not independently set arbitrary tool orientation. Reconfiguring the fourth actuator as a wrist substitutes for clamp actuation; it does not add an independently powered gripper. [28](#ref-28)
 
-Start with four candidate task families: relational pick-and-place; pick/transport around bystanders; deliberate object pushing; and a contact-sensitive placement or insertion task supported by both setups. Final selection follows the hardware pilot. Do not force a task onto a robot missing its required sensing or mechanics.
+Select shared object poses, approach directions, gripper clearances, loads, and tolerances that both setups can achieve in the pilot. Treat reach and stiffness differences as measurements to obtain, not established comparative results. Unsupported task/robot bindings are reported separately in coverage; they are not injected sim-to-real failures for the matched recovery comparison.
+
+The RealSense is the **planned** shared RGB-D sensor. Identify the camera model, mount it, implement object detection/pose estimation or fiducial tracking, and validate timestamped observations and their uncertainty before using them. Record the camera-to-base transform for each arm separately and revalidate it whenever the camera, robot base, or workcell mounting changes. Factory calibration between camera sensors does not provide these robot/workcell transforms. [29](#ref-29)
+
+### Simulated embodiments
+
+The two physical arms anchor the claim; simulated arms give it breadth. Use the vendored OpenArm MuJoCo model, a RoArm-M2-Pro model built from the vendor geometry, and three to five public arm models from MuJoCo Menagerie (candidates: Franka Panda, UR5e, xArm7, Kinova Gen3, SO-101), each bound through the same platform descriptor and conformance suite. [36](#ref-36) Menagerie models vary in dynamic fidelity; treat them as distinct kinematic/gripper embodiments for screening program, perception, and frame faults, and do not read simulated contact/physics transfer as a hardware result.
+
+Every simulated embodiment runs the same task families, fault injections, and verifier. The leave-one-embodiment-out protocol in the splits section below is run in simulation first, then on the two physical arms with the simulated bodies as source memory.
+
+Start with four candidate task families: relational pick-and-place; pick/transport around bystanders; deliberate object pushing; and a contact-sensitive placement or insertion task supported by both setups. Use orientation-tolerant objects/fixtures where the RoArm cannot independently orient its grasp. Insertion remains conditional on demonstrated approach feasibility and outcome observability. Deliberate pushing additionally requires extending the current no-unheld-object-motion guard with a task-specific allowed-effect set. Final selection follows the hardware pilot.
 
 ### Failure benchmark
 
@@ -352,8 +411,13 @@ Validate controlled faults in simulation first. Hardware injections must be boun
 4. A Fail2Progress-inspired classification/repair strategy, with adaptations clearly stated.
 5. A trace-only selector with no counterfactual replay or active measurements.
 6. A simple rule-based selector over the same evidence and operators.
-7. The proposed active selector.
-8. An oracle-class selector for controlled faults, treated as a reference rather than a deployable method.
+7. The proposed active selector with **no repair memory**.
+8. The proposed active selector with **target-body memory only** (few-shot, k episodes).
+9. The proposed active selector with **cross-body memory** (zero-shot on the target; the H1 treatment).
+10. The proposed active selector with cross-body memory recorded as **joint-space traces plus free-text lessons** instead of contract violations (the H2 control).
+11. An oracle-class selector for controlled faults, treated as a reference rather than a deployable method.
+
+Arms 7 to 10 share one selector implementation and differ only in what memory retrieval is allowed to see.
 
 Use the same candidate repair implementations and comparable observations, prompts/models, attempt limits, compute budgets, and available demonstrations wherever the comparison permits. Charge diagnostic actions against the relevant hardware/time budget. A published-method reproduction and a locally adapted baseline must be labelled differently.
 
@@ -363,16 +427,19 @@ Use the same candidate repair implementations and comparable observations, promp
 - Remove counterfactual replay.
 - Replace active measurement with passive evidence or random probes.
 - Remove uncertainty-aware abstention.
-- Remove cross-robot memory transfer.
+- Remove capability/embodiment conditioning from retrieval (retrieve across bodies blindly).
 - Remove version conditioning from retrieval.
+- Restrict source memory to one embodiment at a time, to measure whether diversity of source bodies matters.
 
 Use a staged design rather than running every ablation on every possible hardware condition immediately. Simulation can screen hypotheses; final claims need the relevant physical comparisons.
 
 ### Splits and execution protocol
 
-Freeze task/robot/fault combinations into training, validation, and test partitions. Include held-out combinations, not merely fresh random seeds of the same scenarios. Randomize or counterbalance strategy order and record object resets, calibration changes, operator identity, and session/day effects.
+**Leave-one-embodiment-out.** For each embodiment E in the set, build the repair memory from all other embodiments' training episodes, then evaluate recovery on E's test faults. Run this over every simulated embodiment first. For the physical study, the two held-out targets are OpenArm and RoArm-M2-Pro; each is evaluated with source memory from the other physical arm plus the simulated bodies.
 
-For a concrete planning example, **2 arms × 4 tasks × 30 trials × 4 strategies = 960 evaluation episodes**. This is an illustrative core comparison, not a finalized power calculation or the entire baseline/ablation suite. Recovery attempts and diagnostic probes can multiply the actual physical workload.
+Freeze task/embodiment/fault combinations into training, validation, and test partitions. Include held-out combinations, not merely fresh random seeds of the same scenarios. Memory used at test time is a frozen snapshot; online updates during evaluation are disabled unless the experiment arm explicitly studies them. Randomize or counterbalance strategy order and record object resets, calibration changes, operator identity, and session/day effects.
+
+For a concrete planning example on hardware, **2 physical embodiments × 4 tasks × 30 trials × 4 memory arms (baselines 7–10) = 960 evaluation episodes**, with fixed-strategy baselines and ablations screened in simulation and confirmed on a subset. This is an illustrative core comparison, not a finalized power calculation. The two OpenArm limbs are not counted as two distinct embodiments. Recovery attempts and diagnostic probes multiply the actual physical workload.
 
 ## 11. Metrics, statistics, and outcome verification
 
@@ -388,12 +455,18 @@ For a concrete planning example, **2 arms × 4 tasks × 30 trials × 4 strategie
 | Abstention and coverage | Frequency of refusing a diagnosis/execution and fraction of eligible cases actually handled. |
 | Unchanged-program rate | Fraction transferred without modifying the task source hash; report adapter/calibration/weights separately. |
 | Effort and runtime | Calibration, demonstrations, training compute, authoring, planning, simulation, hardware execution, and playback. |
+| **Transfer gain** | Attempts-to-recovery (or fixed-budget success) on the held-out body with cross-body memory minus the same quantity with no memory; reported per failure class and per source/target pair. |
+| **Few-shot curve** | Transfer gain as a function of k target-body episodes added to memory, k ∈ {0, 1, 5, 20}. |
+| **Negative-transfer rate** | Fraction of episodes where cross-body memory led to a worse outcome than no memory; reported with the retrieved record that caused it. |
+| **Embodiment-distance sensitivity** | Transfer gain against a declared capability-pack distance (joint count, actuation, gripper, sensing), to test whether degradation is predictable. |
 
 A repair can be practically effective without proving the original causal explanation. Report diagnosis accuracy and recovery performance separately. Also report failures to recover; do not calculate average recovery time only over successful episodes without clearly identifying that conditioning.
 
 ### Verifier design
 
 Use independent measurements for task success where possible: calibrated object pose, support/relation checks, grasp evidence, fixture state, and recorded video reviewed under a predefined rubric. Express uncertainty and observation failures. Evaluate reward classifiers and automatic verifiers against manually adjudicated samples, including borderline failures.
+
+For perception/calibration faults, the verifier must not silently reuse the same corrupted estimates or transforms given to the controller. Keep an uncorrupted reference path for controlled injections, or use independent fixture/fiducial measurements and adjudicated video. Sharing one camera does not by itself make outcome verification independent. The current `.ran` marker and a successful `run_skill` return are execution evidence, not ground-truth task-success labels.
 
 Choose tolerance and dwell-time criteria before final runs. The current simulation guard's 15 mm threshold is an implementation setting for a specific transit check, not a universal benchmark success tolerance. Camera accuracy and task geometry determine valid physical thresholds.
 
@@ -411,46 +484,51 @@ The existing BotCortex computation/playback timings demonstrate why latency cate
 
 ## 12. Implementation roadmap and acceptance gates
 
-The schedule below is an engineering estimate, assuming reliable access to two arms, necessary sensors, and sufficient support. It is not a guarantee for one person working around procurement or hardware downtime.
+The schedule below estimates the remaining study work, building on the existing runtime and resolved web fixes. Selecting the second robot and owning the camera are complete decisions; mounting, perception, adapters, and physical validation remain. The estimate assumes reliable hardware access and sufficient support. It is not a guarantee for one person working around hardware downtime.
 
 | Phase | Estimate | Work and acceptance gate |
 | --- | --- | --- |
-| 0. Scope and hardware | 1–2 weeks | Bring up the RoArm-M2-Pro controller link; mount and calibrate the RealSense (camera-to-base transform for each arm, timestamp source, measured pose accuracy); freeze initial tasks, fault taxonomy, evidence schema, and pilot protocol. |
+| 0. Scope and hardware | 1–2 weeks | With RoArm-M2-Pro selected and RealSense owned, validate the controller link and default clamp mode; identify/mount the camera, establish transforms and tracking feasibility; freeze initial tasks, fault taxonomy, evidence schema, and pilot protocol. |
 | 1. Adapters and perception | 3–4 weeks | Two real adapters pass conformance; frames/timestamps validated; bounded motion and stopping tested; outcome sensing works. |
-| 2. Contracts and benchmark | 3 weeks | Versioned contracts, replay packets, controlled faults, independent verifier, and simple baselines run end-to-end. |
+| 2. Contracts and benchmark | 3 weeks | Extend existing rehearsal, route guards, logs, and memory into versioned contracts/replay packets, controlled faults, an independent verifier, and simple baselines. |
+| 2b. Multi-embodiment simulation benchmark | 3–4 weeks | Bind a RoArm model and three to five Menagerie arms through the platform descriptor; run every task family and fault injection on every body; run leave-one-embodiment-out in simulation. Gate: transfer gain is measurable in simulation for at least program and perception faults, or the hypothesis is narrowed before hardware. |
 | 3. Diagnosis and selection | 3–4 weeks | Passive and active selectors share repair operators; ambiguity/abstention supported; simulation pilot shows measurable value. |
-| 4. Hardware evaluation | 4–6 weeks | Freeze splits/configuration; run core comparisons and justified ablations; include unsuccessful repairs and natural failures. |
+| 4. Hardware evaluation | 4–6 weeks | Freeze splits/configuration and the memory snapshots; run the four memory arms on both physical targets; confirm fixed-strategy baselines and justified ablations on a subset; include unsuccessful repairs, negative transfer, and natural failures. |
 | 5. Paper and artifacts | 2 weeks | Statistical analysis, figures, claim audit, reproducibility package, videos, and submission formatting. |
 
-The phases sum to approximately **16–21 weeks** if largely sequential. Some analysis and writing can overlap; procurement, debugging, and experimental resets can extend the calendar.
+The phases sum to approximately **19–25 weeks** if largely sequential. Some analysis and writing can overlap; procurement, debugging, and experimental resets can extend the calendar.
 
 ### Concrete engineering work packages
 
 1. **Capability schema:** remove global platform assumptions and define versioned units, frames, modes, limits, sensors, and gripper semantics. Gate: instantiate both platforms without shared-state contamination.
 2. **Adapter conformance:** test command/state mapping, timestamps, bounded control, interruption, and unavailable capabilities. Gate: the same suite passes both adapters with explicit capability-specific expectations.
 3. **Perception bridge:** replace privileged simulation lookups with a shared observation contract. Gate: identical task code can consume simulated and measured estimates, with uncertainty preserved.
-4. **Contract engine:** support preconditions, effects, invariants, and unknown verdicts. Gate: intentional pushing is allowed while bystander damage is rejected.
-5. **Evidence recorder:** persist synchronized actual actions, observations, versions, and overrides. Gate: a disputed primitive can be reconstructed and reviewed without agent narration.
-6. **Replay and fault harness:** snapshot state, inject bounded faults, and compare hypotheses. Gate: diagnostic queries are non-mutating and repeatable within stated numerical tolerances.
+4. **Contract engine:** generalize the existing collision, grasp, and bystander checks to task-specific preconditions, effects, invariants, and unknown verdicts. Gate: intentional pushing is allowed while bystander damage is rejected.
+5. **Evidence recorder:** extend current logs and run-bound records with synchronized hardware actions, observations, versions, and overrides. Gate: a disputed primitive can be reconstructed and reviewed without agent narration.
+6. **Replay and fault harness:** expose versioned replay packets over existing state restoration, inject bounded faults, and compare hypotheses. Gate: preserve the already-fixed diagnostic-query purity and validate replay within stated numerical tolerances.
 7. **Repair operators:** implement bounded, versioned program and calibration/physics repairs first. Gate: each operator has a measurable cost and independently verified outcome.
 8. **Selector and active probes:** establish fixed/rule-based baselines before a learned selector. Gate: active probes add value after accounting for their cost.
-9. **Memory isolation:** condition retrieval on embodiment/version and enforce split boundaries. Gate: held-out traces cannot leak through the retrieval index.
+9. **Embodiment-aware memory:** extend existing account-scoped persistence with capability-pack identity, version conditioning, switchable cross-body retrieval, and experimental split boundaries. Gate: held-out embodiments cannot leak through the retrieval index; the same query returns different result sets under the four memory arms; browser reload/ownership fixes stay covered.
+11. **Embodiment catalogue:** RoArm model plus Menagerie arms as `platforms/` directories with descriptors and conformance results. Gate: adding an arm is a directory; every arm runs every task family in headless simulation.
 10. **Evaluation runner and paper artifact:** freeze configurations and export auditable episodes/statistics. Gate: rerunning analysis reproduces tables and includes failed/budget-exhausted cases.
 
 ### Go/no-go decisions
 
 - **After phase 1:** if the RealSense does not give reliable object-state verification at the task tolerances, or the RoArm-M2-Pro cannot execute the shared tasks, resolve that dependency before claiming a two-robot study.
 - **After phase 2:** if controlled failure classes cannot be distinguished even with extra sensing, narrow the taxonomy or study uncertainty rather than forcing labels.
-- **After phase 3:** if simple rules match the proposed selector, improve the research hypothesis before expanding physical trial count.
+- **After phase 2b:** if cross-body memory shows no transfer gain in simulation even for program and perception faults, the thesis reverts to H3 (active selection) and the benchmark is still released; do not carry a dead H1 onto hardware.
+- **After phase 3:** if simple rules match the proposed selector, improve the mechanism before expanding physical trial count.
 - **Before submission:** if only simulation is complete, present a simulation study with that scope; do not describe promised hardware experiments as results.
 
 ## 13. Resources, prerequisites, and main risks
 
 ### Hardware and instrumentation
 
-The second arm is the Waveshare RoArm-M2-Pro; the shared sensor is an Intel RealSense depth camera that is owned but not yet mounted. Until it is mounted and calibrated, the OpenArm rig remains camera-less and verification is proprioceptive only, so the perception and frame/TCP fault classes cannot be exercised on hardware. Neither arm has a force/torque sensor. Restrict contact-related claims and tasks accordingly; motor position error alone is not general contact-force measurement, and a contact-sensitive insertion task is admissible only if the RealSense plus proprioception can verify its outcome.
+The second arm is the Waveshare RoArm-M2-Pro; the shared sensor is an Intel RealSense depth camera that is owned but not yet mounted. The camera model and installed firmware still need recording. Camera-based perception and camera-to-base fault experiments await a calibrated observation pipeline. Some TCP/frame checks can instead use an independently measured fixture or mechanical reference; absence of a camera does not make every calibration experiment impossible.
 
-Bring-up requires calibrated RealSense-to-base and tool transforms for each arm, validated units and joint ordering (including the RoArm-M2-Pro's servo-tick to radian conversion), suitable grippers, repeatable objects/fixtures, synchronized recordings across the Thor host and the RoArm-M2-Pro controller, and independent stop facilities for both arms. Real motion remains supervised and explicitly authorized. No hardware connection or motion was needed for this dossier.
+Neither arm has a dedicated external force/torque sensor in the recorded setup. This does not mean all load feedback is absent: the RoArm documentation advertises servo feedback, and JSON T=105 exposes joint angles and load indicators. Those indicators and advertised torque-limit controls are not calibrated contact-force measurements in newtons. Validate available telemetry on the actual firmware, and restrict force/contact claims to what the instrumentation supports. A contact-sensitive insertion task requires both feasible motion and independent outcome verification. [28](#ref-28)
+
+Bring-up requires calibrated camera-to-base and tool transforms for each arm, explicit degree/radian and metre/millimetre mappings for the chosen controller interface, validated gripper conventions, suitable fixtures, and synchronized recordings across the host, camera, and RoArm controller. Reuse the existing OpenArm teach/replay helpers where appropriate, while validating their integration into the BotCortex execution/evidence path. Real motion remains supervised and explicitly authorized, with independent stop facilities for both setups. No hardware connection or motion was performed for this review.
 
 ### Compute and data
 
@@ -488,9 +566,9 @@ Dates are a historical snapshot and must be rechecked before scheduling a submis
 
 ### Submission package
 
-The paper should contain a precise problem definition, clear separation from Fail2Progress/COMPASS/ASID and program-repair work, a fully specified selector, strong equal-budget baselines, two-robot results, ablations, uncertainty analysis, and honest negative cases. Release enough configurations, code, traces, and analysis for another lab to understand what changed between attempts.
+The paper should contain a precise problem definition, clear separation from Fail2Progress/COMPASS/ASID, LabRobFail, cross-embodiment policy transfer, and program-repair work; a fully specified selector and memory representation; strong equal-budget baselines including the no-memory and target-only arms; leave-one-embodiment-out results in simulation and on both physical arms; ablations; uncertainty analysis; and honest negative-transfer cases. Release enough configurations, code, traces, and analysis for another lab to understand what changed between attempts.
 
-Keep the method contribution separate from product positioning. “Teach your robot by typing” explains the product; “fewer attempts to recover through evidence-based intervention selection” is a testable paper claim.
+Keep the method contribution separate from product positioning. “Teach your robot by typing” explains the product; “a failure repaired on one robot body makes recovery cheaper on another” is a testable paper claim.
 
 The recommended target is a credible **2027 submission**, with venue choice following the actual result rather than rushing to an imminent deadline. Acceptance cannot be predicted from a proposal.
 
@@ -500,19 +578,27 @@ The recommended target is a credible **2027 submission**, with venue choice foll
 | --- | --- | --- |
 | The captured blue-block simulation failure was fixed. | Supported for the reproduced task and tested variants. | Broader task/perturbation benchmark for generalization. |
 | Native and browser paths share useful runtime behavior. | Supported by the recorded regression checks. | Expanded semantic conformance and performance characterization. |
+| Rehearsal, route guards, browser persistence, and run-routing fixes exist. | Implemented; previous verification is recorded. | Extend them for hardware evidence, task contracts, and experiment isolation. |
+| The second robot and camera have been chosen. | RoArm-M2-Pro selected; RealSense owned, mounting pending. | Validate controller/firmware, camera model, transforms, and pose pipeline. |
 | BotCortex is already a hardware-portable SDK. | Not established. | Two implemented real adapters, sensing, binding, and conformance evidence. |
+| A completed skill run proves the requested task succeeded. | Not established by the current `.ran` marker or return status. | Independent task-effect verification, especially under perception/calibration faults. |
 | The same task program can transfer across both selected arms. | Research objective. | Frozen task hashes plus separately reported adapter/calibration changes. |
-| Active diagnosis reduces recovery effort. | Primary hypothesis. | Equal-budget physical comparisons and statistical analysis. |
+| Repair knowledge transfers across robot bodies (H1). | Primary hypothesis; no evidence yet. | Leave-one-embodiment-out results in simulation, then on both physical targets, with matched budgets and negative-transfer reporting. |
+| The transfer depends on the contract representation (H2). | Hypothesis; no evidence yet. | The trace-plus-lesson control arm under the same selector. |
+| Active diagnosis reduces recovery effort (H3). | Secondary hypothesis. | Equal-budget physical comparisons and statistical analysis. |
+| No prior work transfers repair knowledge across embodiments. | Supported by a targeted discovery pass on 12 September 2026; not by citation tracing. | Full related-work tracing before submission; the claim narrows if a match appears. |
 | Replay can always identify the root cause. | Not a defensible claim. | Use bounded identifiability statements and unresolved cases. |
-| Browser simulation or skill memory is new. | Contradicted by close prior work. | Novelty must come from the specific decision method and evidence. |
+| Browser simulation or skill memory is new. | Contradicted by close prior work. | Novelty must come from cross-body transfer and its evidence. |
 | A small perfect trial set proves near-perfect reliability. | Unsupported. | Appropriate uncertainty estimates and larger, diverse trials. |
 | A major-conference paper is guaranteed. | Not knowable. | Strong completed research and peer review. |
 
 ### Recommended next implementation milestone
 
-Establish **one objectively verified task on two physical arms**, with the same task intent and explicitly versioned adapters/calibration. Capture failures without conflating program, perception, calibration, and dynamics. Then compare a simple intervention selector against always-rewrite and always-calibrate under the same budget.
+Build on the fixed simulation/runtime foundations to establish **one objectively verified, orientation-feasible task on OpenArm and RoArm-M2-Pro**, with the same task intent and explicitly versioned adapters/calibration. Mount the owned RealSense and validate its object-pose pipeline, or use an independently measured fixture for the initial bounded task. Capture failures without conflating program, perception, calibration, and dynamics.
 
-That milestone provides an honest foundation for both the SDK and the proposed paper. Dexterous pretraining, a large skill marketplace, and broad fleet transfer can build on it later without enlarging the first research question.
+In parallel, and needing no hardware, bind three Menagerie arms through the platform descriptor and run the first leave-one-embodiment-out screen in simulation on the pick-and-place family with program and perception faults. That screen is the earliest possible signal on H1 and costs only engineering time.
+
+Those two milestones together provide an honest foundation for the SDK, the benchmark, and the paper. Dexterous pretraining, a large skill marketplace, and fleet-scale transfer build on them later without enlarging the first research question.
 
 ## 16. Sources and research notes
 
@@ -716,12 +802,91 @@ Official society event listing consulted for the 1 March 2027 paper-submission d
 
 https://www.ieee-ras.org/event/2027-ieee-rsj-international-conference-on-intelligent-robots-and-systems-iros-70525/
 
+<a id="ref-28"></a>
+### [28] Waveshare RoArm-M2 family: hardware, tooling, and command interface
+
+Official product, wiki, and SDK documentation verified through Aside search during this revision. The shared product listing and firmware repository explicitly name M2-S and M2-Pro; the control/EoAT wiki pages retain M2-S titles. These document the default clamp versus wrist configuration, JSON radian positions and Cartesian millimetres, step-based speed/acceleration fields, load feedback, and the SDK's separate gripper convention. They do not establish measured performance or the installed firmware configuration of the owner's arm.
+
+- Shared product listing: https://www.waveshare.com/roarm-m2-s.htm
+- Joint/Cartesian control and feedback: https://www.waveshare.com/wiki/RoArm-M2-S_Robotic_Arm_Control
+- Clamp/wrist configuration: https://www.waveshare.com/wiki/RoArm-M2-S_EoAT_Setting
+- Shared firmware repository: https://github.com/waveshareteam/roarm_m2
+- M2 Python SDK conventions: https://github.com/waveshareteam/waveshare_roarm_sdk/blob/main/doc/roarm_m2_en.md
+
+The movement-control wiki has inconsistent unit wording in its T=121 heading and in the Cartesian `t` description. Use the clearly documented T=101/102 angle convention as a starting point, and validate every used command/feedback field against the pinned firmware. Do not copy unverified numeric limits or treat every JSON field as having the same unit.
+
+<a id="ref-29"></a>
+### [29] RealSense SDK: acquisition and calibration scope
+
+Official RealSense SDK documentation checked through Aside. The SDK provides depth/color streaming, sensor calibration information, aligned streams/point clouds, and recording/playback. For the proposed workcell, object-pose estimation/tracking and camera-to-robot calibration remain application-level integration and validation work. No particular owned camera model, frame rate, pose accuracy, or completed installation is inferred from these general docs.
+
+- SDK repository: https://github.com/realsenseai/librealsense
+- SDK overview: https://www.realsenseai.com/news-insights/intel-realsense-sdk-2-0
+
+<a id="ref-30"></a>
+### [30] Scaling Cross-Environment Failure Reasoning Data for Vision-Language Robotic Manipulation
+
+arXiv **2512.01946**. Abstract-level discovery, 12 September 2026. Closest framing for failure knowledge across environments; single embodiment, model-training focus.
+
+https://arxiv.org/abs/2512.01946
+
+<a id="ref-31"></a>
+### [31] LabRobFail
+
+*LabRobFail: A Benchmark for Robotic Failure Analysis in Chemical Self-driving Laboratory.* arXiv **2607.23704**. Abstract-level discovery, 12 September 2026. Simulated fault injection with five failure categories, eleven fine-grained types, and 20,000+ trajectories on one lab robot. The closest benchmark; ours must add physical embodiments and repair-outcome labels.
+
+https://arxiv.org/abs/2607.23704
+
+<a id="ref-32"></a>
+### [32] Causal Agent Replay
+
+*Causal Agent Replay: Counterfactual Attribution for LLM-Agent Failures.* arXiv **2606.08275**. Abstract-level discovery. Software-agent counterfactual attribution via do-operations on a recorded run.
+
+https://arxiv.org/abs/2606.08275
+
+<a id="ref-33"></a>
+### [33] AgentDebugX
+
+*AgentDebugX: An Open-Source Toolkit for Failure Observability, Attribution, and Recovery in LLM Agents.* arXiv **2607.18754**. Abstract-level discovery. Detect / attribute / recover / rerun loop for software agents.
+
+https://arxiv.org/abs/2607.18754
+
+<a id="ref-34"></a>
+### [34] Repair or Resample?
+
+*Repair or Resample? Rethinking Failure Debugging in LLM Multi-Agent Systems.* arXiv **2608.25920**. Abstract-level discovery. Replay from intervention anchors in recorded multi-agent traces.
+
+https://arxiv.org/abs/2608.25920
+
+<a id="ref-35"></a>
+### [35] Data Analogies Enable Efficient Cross-Embodiment Transfer
+
+arXiv **2603.06450**. Abstract-level discovery. Paired, aligned demonstrations across embodiments drive policy transfer under morphology shift; the closest analogue for aligned cross-body data.
+
+https://arxiv.org/abs/2603.06450
+
+<a id="ref-36"></a>
+### [36] MuJoCo Menagerie
+
+Google DeepMind's curated collection of MuJoCo robot models, including several manipulator arms. Repository consulted for the candidate simulated embodiments; per-model fidelity and licences must be checked before use.
+
+https://github.com/google-deepmind/mujoco_menagerie
+
+<a id="ref-37"></a>
+### [37] Diagnose, Correct, and Learn from Manipulation Failures via Visual Symbols
+
+arXiv **2512.02787**. Abstract-level discovery. Symbolic failure diagnosis and correction on a single robot.
+
+https://arxiv.org/abs/2512.02787
+
 ### Local evidence and reproducibility notes
 
 - `docs/SIMULATION_FAILURE_FIX.md`: captured failure, native/WASM outcomes, timings, verification history, source commit, and artifact provenance.
-- `docs/ARCHITECTURE_AUDIT.md` and `docs/CLAUDE_REVIEW.md`: earlier architecture/lifecycle review and fixes; historical context rather than hardware research results.
+- `docs/ARCHITECTURE_AUDIT.md` and the **Resolution** section of `docs/CLAUDE_REVIEW.md`: distinguish resolved R1–R9 findings from remaining runtime/API research requirements. These are implementation records, not hardware study results.
+- Current source check: web baseline `37b5452`; runtime baseline `1f92197`. `robot.py`/`cli.py` establish the missing package hardware path; `sim.py`/`wasm.py` establish existing rehearsal restoration; `session.py`/`skills.py` distinguish run completion from task success.
+- Thor/OpenArm lab runbook: records separate LeRobot teach/replay helpers and a joint-space sim bridge. This review read the local runbook without connecting to the rig; integration or fresh hardware performance is not inferred.
 - `public/botcortex/MANIFEST.json`: shipped runtime/wheel pin. Recorded wheel SHA-256: `c657c6e094e7db4970068b7ff2ee3eb71c189335855961a474bf084054e1387d`.
 - Sibling `botcortex-runtime` source: `platform.py`, `config.py`, `jointmap.py`, `robot.py`, `kinematics.py`, `scene.py`, `skills.py`, `session.py`, `sim.py`, and `wasm.py` establish the inspected implementation boundaries.
-- `.firecrawl/sim2real/`: ignored working research cache, including anchor full texts and thematic search exports. The cited public sources above remain the portable reference record.
+- `.firecrawl/sim2real/`: original ignored literature cache. The added hardware checks used Aside search; sources [28]–[29] are the portable public record of those findings.
 
 **End of dossier.** Research and deadline statements reflect the 12 September 2026 snapshot. Proposed architecture, timelines, and experiments remain subject to the stated implementation and evidence gates.
