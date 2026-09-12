@@ -2,6 +2,7 @@
 
 import { RobotProvider } from "@/components/app/robot-provider";
 import { StopControl } from "@/components/app/stop-control";
+import { WorkspaceSkeleton } from "@/components/app/workspace-skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useSession } from "@/lib/auth-client";
 
@@ -20,7 +21,7 @@ import { useSession } from "@/lib/auth-client";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { data: session, isPending } = useSession();
-  if (isPending && !session) return <p role="status" className="p-6 text-sm text-muted-foreground">Loading workspace…</p>;
+  if (isPending && !session) return <WorkspaceSkeleton />;
   const accountId = session?.user.id ?? null;
   return (
     <RobotProvider key={accountId ?? "signed-out"} accountId={accountId}>
