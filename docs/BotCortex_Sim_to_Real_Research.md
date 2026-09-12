@@ -96,7 +96,7 @@ The workspace loading skeleton is also implemented. The earlier R1–R9 web revi
 
 ### Portability gaps found in the source
 
-In the inspected BotCortex package, `openarm_v1` remains the only platform directory with a descriptor, backed by mock/simulation execution. There is no RoArm adapter yet. Descriptors do not make every backend generic: joint naming/count, gripper assumptions, IK, and backend mappings still contain OpenArm-specific behavior. `config.py` still selects platform/limits at module scope. Scene queries use privileged simulator state. A functioning `RealRobot` execution path is absent from this package, and `cli.py` still rejects `--execute` as unwired.
+In the inspected BotCortex package, `openarm_v1` remains the only platform directory with a descriptor, backed by mock/simulation execution. There is no RoArm adapter yet. Descriptors do not make every backend generic: `jointmap.py` fixes seven joints per arm, `kinematics.py` encodes an OpenArm-specific four-joint reach solution and grasp geometry, and `safety.py`/`scene.py` identify robot bodies by the `openarm` name prefix. Adding a descriptor directory alone will not make a RoArm or a Menagerie arm work; those modules must take joint set, reach solver, and body naming from the capability pack. `config.py` still selects platform/limits at module scope. Scene queries use privileged simulator state. A functioning `RealRobot` execution path is absent from this package, and `cli.py` still rejects `--execute` as unwired.
 
 This package boundary is important: the existing Thor/OpenArm lab runbook separately records working LeRobot teach/replay helpers and a joint-space sim bridge. Those assets can support integration; they are not yet a BotCortex hardware adapter or evidence of object-level transfer across both selected robots. No fresh hardware validation was performed for this review.
 
@@ -386,7 +386,7 @@ The RealSense is the **planned** shared RGB-D sensor. Identify the camera model,
 
 The two physical arms anchor the claim; simulated arms give it breadth. Use the vendored OpenArm MuJoCo model, a RoArm-M2-Pro model built from the vendor geometry, and three to five public arm models from MuJoCo Menagerie (candidates: Franka Panda, UR5e, xArm7, Kinova Gen3, SO-101), each bound through the same platform descriptor and conformance suite. [36](#ref-36) Menagerie models vary in dynamic fidelity; treat them as distinct kinematic/gripper embodiments for screening program, perception, and frame faults, and do not read simulated contact/physics transfer as a hardware result.
 
-Every simulated embodiment runs the same task families, fault injections, and verifier. The leave-one-embodiment-out protocol in the splits section below is run in simulation first, then on the two physical arms with the simulated bodies as source memory.
+Each simulated embodiment declares a **supported-task matrix**: which task families it can bind, which it rejects, and why (reach, orientation control, gripper clearance). The RoArm's three positioning joints exclude tasks needing independent tool orientation. Honest rejection of an unsupported binding is itself tested. Within its supported set, every embodiment runs the same fault injections and verifier. The leave-one-embodiment-out protocol in the splits section below is run in simulation first, then on the two physical arms with the simulated bodies as source memory.
 
 Start with four candidate task families: relational pick-and-place; pick/transport around bystanders; deliberate object pushing; and a contact-sensitive placement or insertion task supported by both setups. Use orientation-tolerant objects/fixtures where the RoArm cannot independently orient its grasp. Insertion remains conditional on demonstrated approach feasibility and outcome observability. Deliberate pushing additionally requires extending the current no-unheld-object-motion guard with a task-specific allowed-effect set. Final selection follows the hardware pilot.
 
@@ -464,7 +464,7 @@ A repair can be practically effective without proving the original causal explan
 
 ### Verifier design
 
-Use independent measurements for task success where possible: calibrated object pose, support/relation checks, grasp evidence, fixture state, and recorded video reviewed under a predefined rubric. Express uncertainty and observation failures. Evaluate reward classifiers and automatic verifiers against manually adjudicated samples, including borderline failures.
+The existing runtime gate (`RobotSession.unverified`) checks execution *evidence*: an unrun skill, a refused run, a detected ejection, or a latched stop can never be reported as success. By its own docstring it does not grade the requested task, so a completed run plus `report(done=True)` does not establish that the object relationship was achieved. Keep that gate and add the research task verifier as a separate responsibility. In simulation the verifier reads hidden simulator ground truth through an interface the controller cannot see; the controller receives only the (possibly corrupted) observation stream. On hardware, use independent measurements for task success where possible: calibrated object pose, support/relation checks, grasp evidence, fixture state, and recorded video reviewed under a predefined rubric. Express uncertainty and observation failures. Evaluate reward classifiers and automatic verifiers against manually adjudicated samples, including borderline failures.
 
 For perception/calibration faults, the verifier must not silently reuse the same corrupted estimates or transforms given to the controller. Keep an uncorrupted reference path for controlled injections, or use independent fixture/fiducial measurements and adjudicated video. Sharing one camera does not by itself make outcome verification independent. The current `.ran` marker and a successful `run_skill` return are execution evidence, not ground-truth task-success labels.
 
@@ -484,7 +484,7 @@ The existing BotCortex computation/playback timings demonstrate why latency cate
 
 ## 12. Implementation roadmap and acceptance gates
 
-The schedule below estimates the remaining study work, building on the existing runtime and resolved web fixes. Selecting the second robot and owning the camera are complete decisions; mounting, perception, adapters, and physical validation remain. The estimate assumes reliable hardware access and sufficient support. It is not a guarantee for one person working around hardware downtime.
+The schedule below estimates the remaining study work, building on the existing runtime and resolved web fixes. Selecting the second robot and owning the camera are complete decisions; mounting, perception, adapters, and physical validation remain. The estimate assumes reliable hardware access and sufficient support. It is not a guarantee for one person working around hardware downtime. Physical access blocks calibration, measured controller behaviour, stopping tests, and hardware conformance; it does not block adapter interfaces, protocol handling against mocked or replayed serial feedback, unit and gripper conversions, conformance-test definitions, or perception software against recorded and synthetic observations. Those run ahead of the rig.
 
 | Phase | Estimate | Work and acceptance gate |
 | --- | --- | --- |
@@ -509,14 +509,14 @@ The phases sum to approximately **19–25 weeks** if largely sequential. Some an
 7. **Repair operators:** implement bounded, versioned program and calibration/physics repairs first. Gate: each operator has a measurable cost and independently verified outcome.
 8. **Selector and active probes:** establish fixed/rule-based baselines before a learned selector. Gate: active probes add value after accounting for their cost.
 9. **Embodiment-aware memory:** extend existing account-scoped persistence with capability-pack identity, version conditioning, switchable cross-body retrieval, and experimental split boundaries. Gate: held-out embodiments cannot leak through the retrieval index; the same query returns different result sets under the four memory arms; browser reload/ownership fixes stay covered.
-11. **Embodiment catalogue:** RoArm model plus Menagerie arms as `platforms/` directories with descriptors and conformance results. Gate: adding an arm is a directory; every arm runs every task family in headless simulation.
+11. **Embodiment catalogue:** RoArm model plus Menagerie arms as `platforms/` directories with descriptors and conformance results. Gate: adding an arm is a directory plus a supported-task matrix; every arm runs its supported task families in headless simulation and rejects the rest with a stated reason.
 10. **Evaluation runner and paper artifact:** freeze configurations and export auditable episodes/statistics. Gate: rerunning analysis reproduces tables and includes failed/budget-exhausted cases.
 
 ### Go/no-go decisions
 
 - **After phase 1:** if the RealSense does not give reliable object-state verification at the task tolerances, or the RoArm-M2-Pro cannot execute the shared tasks, resolve that dependency before claiming a two-robot study.
 - **After phase 2:** if controlled failure classes cannot be distinguished even with extra sensing, narrow the taxonomy or study uncertainty rather than forcing labels.
-- **After phase 2b:** if cross-body memory shows no transfer gain in simulation even for program and perception faults, the thesis reverts to H3 (active selection) and the benchmark is still released; do not carry a dead H1 onto hardware.
+- **After phase 2b:** if cross-body memory shows no transfer gain in simulation even for program and perception faults, first rule out weak retrieval, too little source memory, unsuitable faults, and implementation defects. Only after that diagnosis does the thesis fall back to H3 (active selection) with the benchmark still released. A negative H1 pilot is a decision gate, not a finding, and it does not establish H3. Do not carry an undiagnosed H1 onto hardware.
 - **After phase 3:** if simple rules match the proposed selector, improve the mechanism before expanding physical trial count.
 - **Before submission:** if only simulation is complete, present a simulation study with that scope; do not describe promised hardware experiments as results.
 
@@ -594,9 +594,15 @@ The recommended target is a credible **2027 submission**, with venue choice foll
 
 ### Recommended next implementation milestone
 
-Build on the fixed simulation/runtime foundations to establish **one objectively verified, orientation-feasible task on OpenArm and RoArm-M2-Pro**, with the same task intent and explicitly versioned adapters/calibration. Mount the owned RealSense and validate its object-pose pipeline, or use an independently measured fixture for the initial bounded task. Capture failures without conflating program, perception, calibration, and dynamics.
+Do not complete the workstreams one after another. Build **one thin end-to-end slice** through runtime, method, and evaluation, in simulation, before widening any of them:
 
-In parallel, and needing no hardware, bind three Menagerie arms through the platform descriptor and run the first leave-one-embodiment-out screen in simulation on the pick-and-place family with program and perception faults. That screen is the earliest possible signal on H1 and costs only engineering time.
+1. One shared task (relational pick-and-place) bound on a few simulated embodiments: OpenArm, a RoArm model, and two or three Menagerie arms, each with a declared supported-task matrix.
+2. An independent verifier reading hidden simulator truth, plus controlled fault injection for program and perception faults, with the ground truth hidden from the selector.
+3. Recorded source failures, the repair applied, and the verified outcome, stored with embodiment identity and artifact versions.
+4. One fixed selector (rule-based is enough) run under the four memory arms: none, target-only, cross-body, cross-body-as-traces.
+5. A frozen held-out-body evaluation that also excludes the target's own simulated variants from the source memory.
+
+That slice yields the first H1 signal with no hardware and no active-probe system, and it forces the verifier and split design to exist *before* benchmark memory is collected, so the episodes gathered can support the eventual claim. In parallel, the hardware track establishes **one objectively verified, orientation-feasible task on OpenArm and RoArm-M2-Pro** with versioned adapters and calibration, using the RealSense once mounted or an independently measured fixture until then.
 
 Those two milestones together provide an honest foundation for the SDK, the benchmark, and the paper. Dexterous pretraining, a large skill marketplace, and fleet-scale transfer build on them later without enlarging the first research question.
 
