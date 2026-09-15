@@ -15,25 +15,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useRobot } from "@/components/app/robot-provider";
-import runtimeArtifact from "@/public/botcortex/MANIFEST.json";
+import { BODY_CARDS, SUPPORTED_BODIES } from "@/lib/robot/bodies";
 
 /** The bodies the shipped wheel can boot in a browser — from the manifest,
  *  which a test keeps equal to the wheel's own catalog, so the choice
  *  offered here is exactly what the worker will accept. */
-const SIM_BODIES: { name: string; displayName: string }[] = runtimeArtifact.catalog;
+const SIM_BODIES = SUPPORTED_BODIES;
 
 /** What each body IS, for someone choosing one. Copy, not capability data —
  *  the runtime's descriptor is the source for what a body can do. */
-const BODY_CARDS: Record<string, { tagline: string; body: string }> = {
-  openarm_v1: {
-    tagline: "Two arms, seven joints each",
-    body: "A bimanual research arm with parallel-jaw grippers. Left and right trays on a shared bench, three blocks. The body BotCortex was built on.",
-  },
-  roarm_m2: {
-    tagline: "One arm, three joints, a clamp",
-    body: "Waveshare's desktop arm: a single hinged clamp and about half a metre of reach, one tray. Cheap, and honest about what it cannot orient.",
-  },
-};
 
 type Mode = "token" | "local";
 

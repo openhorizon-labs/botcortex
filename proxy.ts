@@ -24,6 +24,10 @@ import { getSessionCookie } from "better-auth/cookies";
 import { ACCOUNT_HEADER, ACCOUNT_MISMATCH_HEADER } from "@/lib/robot/account";
 
 const APP_ROOT = "/app";
+/** Marketing routes a signed-in owner may still read. Everything else on
+ *  the site bounces a signed-in visitor into the app, which is right for
+ *  the landing page and wrong for a reference page like the registry. */
+const PUBLIC_WHEN_SIGNED_IN = ["/skills"];
 const API_URL = process.env.API_URL ?? "http://localhost:8787";
 
 /** Better Auth's cookie, plain and __Secure- prefixed (production). */
@@ -98,7 +102,7 @@ export async function proxy(request: NextRequest) {
       : NextResponse.next();
   }
   if (session === "valid") {
-    return insideApp
+    return insideApp || PUBLIC_WHEN_SIGNED_IN.includes(pathname)
       ? NextResponse.next()
       : NextResponse.redirect(new URL(APP_ROOT, request.url));
   }
@@ -115,5 +119,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Cloud writes carry an intended-account header; auth routes stay outside
   // this proxy. The remaining routes retain the normal page/session gate.
-  matcher: ["/api/messages", "/api/conversations", "/api/skills", "/api/inference/:path*", "/app/:path*", "/((?!api/|_next/|.*\\.).*)"],
+  matcher: ["/api/messages", "/api/conversations", "/api/skills", "/api/skills/:path*", "/api/inference/:path*", "/app/:path*", "/((?!api/|_next/|.*\\.).*)"],
 };

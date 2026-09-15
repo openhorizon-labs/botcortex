@@ -83,6 +83,7 @@ import { ChatPane } from "@/components/app/chat-pane";
 import { Composer } from "@/components/app/composer";
 import { StatusStrip } from "@/components/app/status-strip";
 import { SimPanel } from "@/components/app/sim-panel";
+import { SkillRowMenu } from "@/components/app/skill-row-menu";
 import { LiveDot } from "@/components/kit/live-dot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { authClient, useSession } from "@/lib/auth-client";
@@ -475,19 +476,15 @@ function AppInner() {
                           {s}
                         </span>
                       </SidebarMenuButton>
-                      <SidebarMenuAction
-                        showOnHover
-                        aria-label={busy ? `${s} — robot busy` : `Run ${s}`}
-                        onClick={() => handleRunSkill(s)}
-                        className={cn(
-                          "group-data-[collapsible=icon]:hidden",
-                          busy
-                            ? "cursor-not-allowed opacity-40"
-                            : "cursor-pointer",
-                        )}
-                      >
-                        <Play />
-                      </SidebarMenuAction>
+                      {/* The row runs the skill; the hover menu also
+                          publishes it. A second Play here was redundant. */}
+                      <SkillRowMenu
+                        name={s}
+                        platform={robot?.platform}
+                        busy={busy}
+                        unproven={unprovenSet.has(s)}
+                        onRun={() => handleRunSkill(s)}
+                      />
                     </SidebarMenuItem>
                   ))
                 )}

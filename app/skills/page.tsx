@@ -1,0 +1,137 @@
+import type { Metadata } from "next";
+import Image from "next/image";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+import { Nav } from "@/components/site/nav";
+import { Footer } from "@/components/site/footer";
+import { SkillCard } from "@/components/site/skill-card";
+import { SUPPORTED_BODIES, bodyFor } from "@/lib/robot/bodies";
+import { type PublishedSkill, fetchRegistry } from "@/lib/registry";
+
+export const metadata: Metadata = {
+  title: "Skill registry",
+  description:
+    "Every skill BotCortex has taught and proven on the arms it supports, per arm, with the program behind it. Taught by typing, run on the robot.",
+  alternates: { canonical: "/skills" },
+  openGraph: {
+    title: "BotCortex skill registry",
+    description: "Skills taught by typing and proven on each supported arm.",
+    url: "/skills",
+  },
+};
+
+export default async function Page() {
+  const registry = await fetchRegistry();
+  const published = new Map<string, PublishedSkill[]>();
+  for (const platform of registry?.platforms ?? []) published.set(platform.name, platform.skills);
+
+  // The arms we ship first, in catalog order; then any other arm a robot has
+  // published for, so nothing that made it into the registry is hidden.
+  const arms = [
+    ...SUPPORTED_BODIES,
+    ...[...published.keys()].filter((name) => !SUPPORTED_BODIES.some((body) => body.name === name)).map(bodyFor),
+  ];
+  const total = registry?.count ?? 0;
+
+  return (
+    <>
+      <Nav />
+      <main className="flex-1">
+        <section className="mx-auto w-full max-w-[1368px] px-6 pt-12 pb-10 lg:px-10 lg:pt-16">
+          <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
+            <div className="max-w-3xl">
+              <h1 className="text-[2.25rem] font-normal leading-[1.08] tracking-[-0.01em] sm:text-[3rem] lg:text-[3.5rem]">
+                Skills that ran.
+              </h1>
+              <p className="mt-5 max-w-xl text-base leading-6 text-foreground/80">
+                Every program here was taught by typing, written by the agent, and seen to
+                run to completion on the arm it is filed under. Nothing is listed on a promise.
+                Copy one, or teach your own.
+              </p>
+            </div>
+            <div className="flex items-end gap-10 border-l border-border pl-6 lg:pb-1">
+              <div>
+                <p className="text-[2.5rem] leading-none tracking-tight">{total}</p>
+                <p className="mt-2 text-sm text-muted-foreground">published {total === 1 ? "skill" : "skills"}</p>
+              </div>
+              <div>
+                <p className="text-[2.5rem] leading-none tracking-tight">{arms.length}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{arms.length === 1 ? "arm" : "arms"}</p>
+              </div>
+            </div>
+          </div>
+          {registry === null && (
+            <p className="mt-6 rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 font-mono text-xs text-muted-foreground">
+              The registry could not be reached just now. The arms below are current; their skills will appear when it answers.
+            </p>
+          )}
+        </section>
+
+        <section className="mx-auto w-full max-w-[1368px] space-y-10 px-6 pb-24 lg:px-10">
+          {arms.map((arm) => {
+            const skills = published.get(arm.name) ?? [];
+            return (
+              <div
+                key={arm.name}
+                id={arm.name}
+                className="relative scroll-mt-24 rounded-3xl border border-border bg-background p-4 sm:p-5"
+              >
+                <span className="absolute top-5 right-5 z-10 hidden rounded-lg bg-surface-3 px-3 py-1.5 text-sm sm:block">
+                  {skills.length} {skills.length === 1 ? "skill" : "skills"}
+                </span>
+                <div className="grid gap-8 lg:grid-cols-[1fr_1.6fr] lg:gap-10">
+                  <div>
+                    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-surface-3">
+                      {arm.image ? (
+                        <Image
+                          src={arm.image}
+                          alt={`${arm.displayName}, rendered from the simulation`}
+                          fill
+                          sizes="(min-width: 1024px) 480px, 100vw"
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="flex size-full items-center justify-center font-mono text-xs text-muted-foreground">
+                          no render yet
+                        </div>
+                      )}
+                    </div>
+                    <h2 className="mt-5 text-[26px] font-medium leading-tight tracking-tight sm:text-[28px]">
+                      {arm.displayName}
+                    </h2>
+                    {arm.card && (
+                      <>
+                        <p className="mt-1 text-sm text-muted-foreground">{arm.card.tagline}</p>
+                        <p className="mt-3 max-w-md text-base leading-relaxed text-muted-foreground">{arm.card.body}</p>
+                      </>
+                    )}
+                    <Link
+                      href="/app"
+                      className="group mt-5 inline-flex items-center gap-1.5 text-base font-medium text-foreground"
+                    >
+                      Teach this arm in your browser
+                      <ArrowRight className="size-4 transition-transform duration-150 ease-standard group-hover:translate-x-0.5" />
+                    </Link>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {skills.length === 0 ? (
+                      <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
+                        <p className="max-w-xs text-sm text-muted-foreground">
+                          Nothing published for this arm yet. Skills land here once they have run
+                          and their owner lists them.
+                        </p>
+                      </div>
+                    ) : (
+                      skills.map((skill) => <SkillCard key={skill.name} skill={skill} />)
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      </main>
+      <Footer />
+    </>
+  );
+}

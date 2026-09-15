@@ -33,6 +33,8 @@ const nextConfig: NextConfig = {
       // And the way back: the sim reads the account's skills at boot and
       // marks the registry copy proven when it sees one run.
       { source: "/api/skills/:path*", destination: `${api}/api/skills/:path*` },
+      // The public registry, for the app's publish menu to read back.
+      { source: "/api/registry", destination: `${api}/api/registry` },
     ];
   },
 };

@@ -7,7 +7,7 @@ const COLUMNS = [
     heading: "Product",
     links: [
       { label: "Runtime", href: "https://github.com/openhorizon-labs" },
-      { label: "Skill hub", href: "#" },
+      { label: "Skill registry", href: "/skills" },
       { label: "Pricing", href: "/#pricing" },
       { label: "Book a demo", href: "/demo" },
       { label: "Join the waitlist", href: "/signup" },
