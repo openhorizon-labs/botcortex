@@ -172,10 +172,29 @@
   html {
     @apply font-sans;
   }
-  /* Anything clickable shows a pointer — disabled states opt back out. */
+  /* Anything clickable shows a pointer — disabled states opt back out.
+     Native buttons and links, everything Radix renders with an interactive
+     role (menu items, options, tabs, switches, checkboxes, comboboxes), and
+     form controls that open something on click. shadcn's primitives used to
+     hand these `cursor-default`; that class is gone from components/ui so
+     this rule is the one place the decision lives. */
   button:not(:disabled),
-  [role="button"]:not([aria-disabled="true"]),
-  summary {
+  a[href],
+  summary,
+  label[for],
+  select:not(:disabled),
+  input:is([type="checkbox"], [type="radio"], [type="file"], [type="submit"], [type="button"], [type="reset"]):not(:disabled),
+  [role="button"]:not([aria-disabled="true"]):not([data-disabled]),
+  [role="link"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([data-disabled]):not([aria-disabled="true"]),
+  [role="menuitemcheckbox"]:not([data-disabled]):not([aria-disabled="true"]),
+  [role="menuitemradio"]:not([data-disabled]):not([aria-disabled="true"]),
+  [role="option"]:not([data-disabled]):not([aria-disabled="true"]),
+  [role="tab"]:not([data-disabled]):not([aria-disabled="true"]),
+  [role="switch"]:not(:disabled):not([data-disabled]),
+  [role="checkbox"]:not(:disabled):not([data-disabled]),
+  [role="radio"]:not(:disabled):not([data-disabled]),
+  [role="combobox"]:not(:disabled):not([data-disabled]) {
     cursor: pointer;
   }
 }
