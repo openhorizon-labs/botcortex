@@ -46,7 +46,11 @@ export interface AgentContract {
 export type ToolName =
   | "get_positions"
   | "move_to"
+  | "can_reach"
+  | "move_to_point"
+  | "report"
   | "gripper"
+  | "describe_scene"
   | "list_skills"
   | "save_skill"
   | "run_skill"
