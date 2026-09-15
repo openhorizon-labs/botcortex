@@ -133,6 +133,9 @@ function suggestionsFor(arms: string[], fixtures: string[]): Suggestion[] {
       ? { icon: Blocks, label: `Put the green block in ${second}` }
       : { icon: Blocks, label: `Put the green block in ${first}, then the blue one` },
     { icon: Layers, label: "Line the three blocks up in a row" },
+    // The benchmark's pocket (runtime 0.0.7): a placement a tray forgives
+    // and a pocket does not. Offered only where the workcell has one.
+    ...(fixtures.includes("slot") ? [{ icon: Blocks, label: "Set the red block down inside the small pocket" }] : []),
     single
       ? { icon: Hand, label: "Lift the arm high, then bring it back down slowly" }
       : { icon: Hand, label: "Raise both arms together, slowly" },
@@ -418,7 +421,7 @@ function AppInner() {
               <SidebarMenu>
                 {conversations.length === 0 ? (
                   <p className="px-2 py-1.5 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-                    Nothing yet — describe a task below.
+                    {connected ? "No tasks on this robot yet — describe one below." : "Connect a robot to see its tasks."}
                   </p>
                 ) : (
                   conversations.map((thread) => (
@@ -655,7 +658,9 @@ function AppInner() {
           <SidebarTrigger className="text-muted-foreground" />
           <div className="flex min-w-0 items-center gap-3">
             <StatusStrip />
-            {!simOpen && (
+            {/* Nothing to show until a robot is connected (Sai, Sep 16): the
+                viewer is the robot's, not the page's. */}
+            {!simOpen && connected && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -684,6 +689,7 @@ function AppInner() {
               )}
               <ChatPane />
               <Composer
+                onNeedRobot={() => setConnectOpen(true)}
                 className="mt-3 shrink-0"
                 value={input}
                 onChange={setInput}
@@ -709,6 +715,7 @@ function AppInner() {
                 What should the robot learn today?
               </h1>
               <Composer
+                onNeedRobot={() => setConnectOpen(true)}
                 className="mt-7"
                 value={input}
                 onChange={setInput}
@@ -768,7 +775,7 @@ function AppInner() {
           )}
         </div>
         </div>
-        <SimPanel open={simOpen} onClose={toggleSim} />
+        <SimPanel open={simOpen && connected} onClose={toggleSim} />
       </SidebarInset>
 
       {/* ⌘K palette — real Command component over skills, pages, and actions. */}
@@ -845,14 +852,16 @@ function AppInner() {
             >
               <Settings /> Settings
             </CommandItem>
-            <CommandItem
-              onSelect={() => {
-                toggleSim();
-                setCmdOpen(false);
-              }}
-            >
-              <PanelRight /> Toggle the simulation
-            </CommandItem>
+            {connected && (
+              <CommandItem
+                onSelect={() => {
+                  toggleSim();
+                  setCmdOpen(false);
+                }}
+              >
+                <PanelRight /> Toggle the simulation
+              </CommandItem>
+            )}
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Actions">

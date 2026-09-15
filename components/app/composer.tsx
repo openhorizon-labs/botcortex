@@ -21,6 +21,7 @@ export function Composer({
   onDryRunChange,
   model,
   onModelChange,
+  onNeedRobot,
   className,
 }: {
   value: string;
@@ -30,10 +31,17 @@ export function Composer({
   onDryRunChange: (dryRun: boolean) => void;
   model: string | null;
   onModelChange: (id: string) => void;
+  /** Called instead of anything else while no robot is connected: the
+   *  owner cannot type to nobody, so touching the box asks for a robot. */
+  onNeedRobot?: () => void;
   className?: string;
 }) {
-  const { activity, stopped } = useRobot();
+  const { activity, stopped, status } = useRobot();
+  const connected = status === "connected";
   const blocked = stopped || activity.startsWith("teaching") || activity.startsWith("running");
+  const needRobot = () => {
+    if (!connected) onNeedRobot?.();
+  };
   return (
     <div
       className={cn(
@@ -42,15 +50,28 @@ export function Composer({
       )}
     >
       <Textarea
-        value={value}
+        value={connected ? value : ""}
+        readOnly={!connected}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={needRobot}
+        onMouseDown={(e) => {
+          if (!connected) {
+            e.preventDefault();
+            needRobot();
+          }
+        }}
         onKeyDown={(e) => {
+          if (!connected) {
+            e.preventDefault();
+            needRobot();
+            return;
+          }
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             if (!blocked) onSend();
           }
         }}
-        placeholder='Teach it: "sort the red parts into the left bin"'
+        placeholder={connected ? 'Teach it: "sort the red parts into the left bin"' : "Connect a robot to start teaching"}
         aria-label="Describe a robot task"
         className="min-h-9 resize-none border-0 bg-transparent px-4 pt-3.5 text-[15px] shadow-none focus-visible:ring-0"
         rows={1}
@@ -89,8 +110,8 @@ export function Composer({
         </div>
         <Button
           size="icon"
-          disabled={!value.trim() || blocked}
-          onClick={onSend}
+          disabled={connected ? !value.trim() || blocked : false}
+          onClick={connected ? onSend : needRobot}
           className="size-7 rounded-full"
           aria-label="Send"
         >

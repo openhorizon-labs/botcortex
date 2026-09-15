@@ -205,6 +205,8 @@ export type ToolCall = {
 export type Conversation = {
   id: string;
   title: string | null;
+  /** The body the task was taught on; null for tasks from before this was recorded. */
+  platform: string | null;
   updatedAt: string;
   messages: number;
 };
@@ -495,7 +497,13 @@ export function RobotProvider({ children, accountId = null }: { children: React.
     if (!creatingRef.current) {
       const epoch = threadEpochRef.current;
       const draft = new ConversationDraft(async (signal) => {
-        const res = await scopedFetch("/api/conversations", { method: "POST", signal });
+        const res = await scopedFetch("/api/conversations", {
+          method: "POST",
+          signal,
+          headers: { "Content-Type": "application/json" },
+          // Filed under the body it is being taught on.
+          body: JSON.stringify({ platform: platformRef.current }),
+        });
         if (!res.ok) throw new Error("could not start a conversation");
         const { id } = await res.json();
         if (typeof id !== "string" || !id) throw new Error("No task id returned");
@@ -623,9 +631,15 @@ export function RobotProvider({ children, accountId = null }: { children: React.
     void refreshCredit();
   }, [refreshCredit]);
 
+  /** The connected robot's body, for the task list and new tasks. A ref,
+   *  because refreshConversations is built once and reached through refs. */
+  const platformRef = useRef<string | null>(null);
   const refreshConversations = useCallback(async (): Promise<Conversation[]> => {
     try {
-      const res = await fetch("/api/conversations");
+      // A task is a conversation with ONE robot (Sai, Sep 16): with a robot
+      // connected the sidebar lists that body's tasks; with none, all of them.
+      const platform = platformRef.current;
+      const res = await fetch(platform ? `/api/conversations?platform=${encodeURIComponent(platform)}` : "/api/conversations");
       if (!res.ok) return [];
       const { conversations: rows } = (await res.json()) as { conversations: Conversation[] };
       setConversations(rows);
@@ -788,7 +802,19 @@ export function RobotProvider({ children, accountId = null }: { children: React.
       switch (msg.type) {
         case "hello":
           greetedRef.current = true;
+          // Furniture arrives once and never changes; a robot with no workcell
+          // sends none, and the viewer draws just the arm as before. Stored
+          // BEFORE the robot state changes: the workspace phrases its
+          // suggestions from the fixtures when the robot changes, and used
+          // to read the previous body's (or none) — "the right tray" on a
+          // bench that also has a pocket.
+          fixturesRef.current = msg.fixtures ?? null;
           setRobot(msg.robot);
+          // The task list is this robot's now.
+          if (platformRef.current !== (msg.robot.platform ?? null)) {
+            platformRef.current = msg.robot.platform ?? null;
+            void refreshConversationsRef.current();
+          }
           setSkills(msg.skills);
           setUnproven(msg.unproven ?? []);
           // A page loaded while the robot is already stopped must say so.
@@ -799,9 +825,6 @@ export function RobotProvider({ children, accountId = null }: { children: React.
           setPairing(
             msg.halfPaired ? "half" : msg.paired === true ? "paired" : msg.paired === false ? "byo" : null,
           );
-          // Furniture arrives once and never changes; a robot with no workcell
-          // sends none, and the viewer draws just the arm as before.
-          fixturesRef.current = msg.fixtures ?? null;
           break;
         case "estop":
           setStopState(msg.stopped ? "latched" : "clear");
@@ -1100,6 +1123,10 @@ export function RobotProvider({ children, accountId = null }: { children: React.
     setMemory(null);
     setSyncFailures([]);
     setActivity("idle");
+    if (platformRef.current !== null) {
+      platformRef.current = null;
+      void refreshConversationsRef.current();
+    }
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* optional */ }
   }, [teardown]);
 

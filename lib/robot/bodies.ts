@@ -17,11 +17,11 @@ export type BodyCard = { tagline: string; body: string };
 export const BODY_CARDS: Record<string, BodyCard> = {
   openarm_v1: {
     tagline: "Two arms, seven joints each",
-    body: "A bimanual research arm with parallel-jaw grippers. Left and right trays on a shared bench, three blocks. The body BotCortex was built on.",
+    body: "A bimanual research arm with parallel-jaw grippers. Left and right trays and a small pocket on a shared bench, three blocks. The body BotCortex was built on.",
   },
   roarm_m2: {
     tagline: "One arm, three joints, a clamp",
-    body: "Waveshare's desktop arm: a single hinged clamp and about half a metre of reach, one tray. Cheap, and honest about what it cannot orient.",
+    body: "Waveshare's desktop arm: a single hinged clamp and about half a metre of reach, one tray and a pocket it cannot yaw a block into. Cheap, and honest about what it cannot orient.",
   },
   panda: {
     tagline: "One arm, seven joints, a two-finger hand",
