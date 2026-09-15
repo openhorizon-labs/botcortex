@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 
 import { BrowserSimTransport } from "@/lib/robot/browser-sim/transport";
-import { Outbox, type OutboxState } from "@/lib/robot/outbox";
+import { Outbox, type OutboxState, localStorageJournal } from "@/lib/robot/outbox";
 import { accountFetcher } from "@/lib/robot/account";
 import { ConversationDraft } from "@/lib/robot/conversation-draft";
 import { ConnectionHealth, PING_INTERVAL_MS } from "@/lib/robot/connection-health";
@@ -261,7 +261,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const [telemetryStale, setTelemetryStale] = useState(false);
   const [historyTruncated, setHistoryTruncated] = useState(false);
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
-  const [persistence, setPersistence] = useState<OutboxState>({ pending: 0, failed: 0, lastFailure: null });
+  const [persistence, setPersistence] = useState<OutboxState>({ pending: 0, failed: 0, lastFailure: null, stalled: 0 });
   /** What is on the table. Refs for the same reason joints are: the 3D scene
    *  reads them every frame, and routing 15 Hz through React state would
    *  re-render the whole app at stream rate. */
@@ -318,12 +318,17 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const draftsRef = useRef(new Set<ConversationDraft>());
   const outboxRef = useRef<Outbox | null>(null);
   const reportPersistence = useCallback(() => {
-    const state = outboxRef.current?.state ?? { pending: 0, failed: 0, lastFailure: null };
+    const state = outboxRef.current?.state ?? { pending: 0, failed: 0, lastFailure: null, stalled: 0 };
     const drafts = [...draftsRef.current];
+    // A draft that failed is still retrying on its own (ConversationDraft):
+    // it counts as pending-and-stalled, the way a stalled write does, not
+    // as lost.
+    const stalledDrafts = drafts.filter((draft) => draft.failure).length;
     setPersistence({
-      pending: state.pending + drafts.filter((draft) => draft.pending).length,
-      failed: state.failed + drafts.filter((draft) => draft.failure).length,
+      pending: state.pending + drafts.filter((draft) => draft.pending || draft.failure).length,
+      failed: state.failed,
       lastFailure: drafts.find((draft) => draft.failure)?.failure ?? state.lastFailure,
+      stalled: state.stalled + stalledDrafts,
     });
   }, []);
   const accountChanged = useCallback(() => {
@@ -339,8 +344,16 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const scopedFetch = useCallback((url: string, init: RequestInit = {}) =>
     accountFetcher(accountId, accountLifetimeRef.current.signal, accountChanged)(url, init),
   [accountId, accountChanged]);
+  // Journalled per account, so a reload (or a dev server restart mid-teach)
+  // picks the queue back up instead of showing "6 unsaved" and forgetting.
+  // Signed out there is no account to file under, and nothing to save.
+  const makeOutbox = useCallback(() => new Outbox({
+    onChange: reportPersistence,
+    fetch: scopedFetch,
+    journal: accountId ? localStorageJournal(`botcortex.outbox.${accountId}`) : undefined,
+  }), [reportPersistence, scopedFetch, accountId]);
   if (!outboxRef.current) {
-    outboxRef.current = new Outbox({ onChange: reportPersistence, fetch: scopedFetch });
+    outboxRef.current = makeOutbox();
   }
   const retryPersistence = useCallback(async () => {
     await Promise.all([...draftsRef.current].filter((draft) => draft.failure).map((draft) => draft.retry()));
@@ -350,14 +363,23 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   useEffect(() => {
     // React Strict Mode replays setup/cleanup during development.
     if (accountLifetimeRef.current.signal.aborted) accountLifetimeRef.current = new AbortController();
-    if (outboxRef.current?.disposed) outboxRef.current = new Outbox({ onChange: reportPersistence, fetch: scopedFetch });
+    if (!outboxRef.current || outboxRef.current.disposed) outboxRef.current = makeOutbox();
+    outboxRef.current.resume();
+    // The api coming back is not something the owner should have to notice:
+    // a stalled queue retries the moment the network or the tab returns.
+    const wake = () => outboxRef.current?.nudge();
+    const visible = () => { if (document.visibilityState === "visible") wake(); };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", visible);
     return () => {
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", visible);
       accountLifetimeRef.current.abort();
       outboxRef.current?.dispose();
       for (const draft of draftsRef.current) draft.dispose();
       draftsRef.current.clear();
     };
-  }, [reportPersistence, scopedFetch]);
+  }, [makeOutbox]);
 
   /** Run bindings: the one in progress, and every one by id for events that
    *  name theirs (protocol v2). */

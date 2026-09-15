@@ -103,13 +103,23 @@ export function StatusStrip() {
         <Chip
           icon={CloudOff}
           tone="warn"
-          title={`${persistence.failed} task/history ${persistence.failed === 1 ? "write" : "writes"} could not be saved${persistence.lastFailure ? ` — ${persistence.lastFailure}` : ""}. Pending data is held in this tab until saved; reloading drops it.`}
+          title={`${persistence.failed} task/history ${persistence.failed === 1 ? "write" : "writes"} ${persistence.failed === 1 ? "was" : "were"} refused by the api${persistence.lastFailure ? ` — ${persistence.lastFailure}` : ""}. A refusal is not retried on its own; press retry once the cause is fixed.`}
           action={{ label: "retry", onClick: () => void retryPersistence() }}
         >
-          {persistence.failed} unsaved
+          {persistence.failed} refused
         </Chip>
       )}
-      {persistence.failed === 0 && persistence.pending > 0 && (
+      {persistence.failed === 0 && persistence.stalled > 0 && (
+        <Chip
+          icon={CloudOff}
+          tone="warn"
+          title={`${persistence.pending} ${persistence.pending === 1 ? "write is" : "writes are"} waiting for the api${persistence.lastFailure ? ` — ${persistence.lastFailure}` : ""}. Kept in this browser under your account and retried until saved, across reloads too.`}
+          action={{ label: "retry now", onClick: () => void retryPersistence() }}
+        >
+          {persistence.pending} waiting to save
+        </Chip>
+      )}
+      {persistence.failed === 0 && persistence.stalled === 0 && persistence.pending > 0 && (
         <Chip icon={CloudOff} tone="info" title="Saving the transcript…">
           saving…
         </Chip>

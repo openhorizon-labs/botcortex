@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { type Fetcher, Outbox, type OutboxState } from "@/lib/robot/outbox";
+import { type Fetcher, Outbox, type OutboxJournal, type OutboxState } from "@/lib/robot/outbox";
 
 function harness(responses: Array<number | "network">) {
   const calls: Array<{ url: string; body: unknown }> = [];
@@ -26,7 +26,7 @@ test("a transient failure is retried under the same key and creates one row", as
   expect(saved).toBe(true);
   expect(calls).toHaveLength(3);
   expect(new Set(calls.map((call) => JSON.stringify(call.body))).size).toBe(1);
-  expect(outbox.state).toEqual({ pending: 0, failed: 0, lastFailure: null });
+  expect(outbox.state).toEqual({ pending: 0, failed: 0, lastFailure: null, stalled: 0 });
 });
 
 test("a rejection is not retried and is reported as failed", async () => {
@@ -37,19 +37,64 @@ test("a rejection is not retried and is reported as failed", async () => {
   expect(outbox.state.lastFailure).toContain("signed out");
 });
 
-test("bounded retries: gives up after maxAttempts and stays visible", async () => {
-  const { outbox, states } = harness([500, 500, 500, 200]);
-  expect(await outbox.post("m1", "/api/messages", {})).toBe(false);
-  expect(outbox.state).toEqual({ pending: 0, failed: 1, lastFailure: "gave up after 3 attempts" });
-  expect(states[0]).toEqual({ pending: 1, failed: 0, lastFailure: null });
+test("a transient failure is never given up on: past maxAttempts it is stalled, still pending, and saves when the api returns", async () => {
+  const { outbox, states, calls } = harness([500, 500, 500, 503, "network", 200]);
+  expect(await outbox.post("m1", "/api/messages", {})).toBe(true);
+  expect(calls).toHaveLength(6);
+  expect(states[0]).toEqual({ pending: 1, failed: 0, lastFailure: null, stalled: 0 });
+  // Crossing maxAttempts is reported as stalled, not failed, and says why.
+  expect(states.some((state) => state.stalled === 1 && state.failed === 0 && state.pending === 1)).toBe(true);
+  expect(states.some((state) => state.lastFailure?.includes("still trying"))).toBe(true);
+  expect(outbox.state).toEqual({ pending: 0, failed: 0, lastFailure: null, stalled: 0 });
 });
 
 test("retryFailed drives a failed item again and clears it on success", async () => {
-  const { outbox } = harness([500, 500, 500, 200]);
+  const { outbox } = harness([400, 200]);
   await outbox.post("m1", "/api/messages", {});
   expect(outbox.state.failed).toBe(1);
   await outbox.retryFailed();
-  expect(outbox.state).toEqual({ pending: 0, failed: 0, lastFailure: null });
+  expect(outbox.state).toEqual({ pending: 0, failed: 0, lastFailure: null, stalled: 0 });
+});
+
+test("a nudge wakes a sleeping retry immediately", async () => {
+  let sent = 0;
+  let slept = 0;
+  const outbox = new Outbox({
+    fetch: async () => new Response(null, { status: sent++ === 0 ? 503 : 200 }),
+    // A real wait: only the nudge can end it.
+    sleep: (ms) => { slept = ms; return new Promise((resolve) => setTimeout(resolve, ms)); },
+    backoff: () => 60_000,
+  });
+  const sending = outbox.post("m1", "/api/messages", {});
+  await Bun.sleep(5);
+  expect(sent).toBe(1);
+  outbox.nudge();
+  expect(await sending).toBe(true);
+  expect(slept).toBe(60_000);
+  expect(sent).toBe(2);
+});
+
+test("the journal carries pending writes across a reload and drops them once saved", async () => {
+  const store = new Map<string, string>();
+  const journal: OutboxJournal = { load: () => store.get("j") ?? null, save: (s) => { store.set("j", s); } };
+  // First life: the api is down, the write stays pending in the journal.
+  const down = new Outbox({ fetch: async () => new Response(null, { status: 503 }), journal, sleep: () => new Promise(() => {}) });
+  void down.post("m1", "/api/messages", { id: "m1", text: "hello" });
+  await Bun.sleep(1);
+  expect(JSON.parse(store.get("j")!)).toEqual([{ key: "m1", url: "/api/messages", serialized: JSON.stringify({ id: "m1", text: "hello" }) }]);
+  down.dispose();
+  // Second life: resume replays it under the same key with the same body.
+  const calls: unknown[] = [];
+  const up = new Outbox({ fetch: async (_url, init) => { calls.push(JSON.parse(String(init.body))); return new Response(null, { status: 200 }); }, journal, sleep: async () => {} });
+  expect(up.resume()).toBe(1);
+  await Bun.sleep(1);
+  expect(calls).toEqual([{ id: "m1", text: "hello" }]);
+  expect(up.state.pending).toBe(0);
+  expect(store.get("j")).toBe("[]");
+  // A rejected write is not journalled: replaying it would fail again.
+  const rejecting = new Outbox({ fetch: async () => new Response(null, { status: 400 }), journal, sleep: async () => {} });
+  await rejecting.post("bad", "/api/messages", {});
+  expect(store.get("j")).toBe("[]");
 });
 
 test("posting the same key while it is in flight does not double-send", async () => {
@@ -67,16 +112,19 @@ test("posting the same key while it is in flight does not double-send", async ()
   expect(sent).toBe(1);
 });
 
-test("a hanging request times out through the bounded retry budget", async () => {
+test("a hanging request times out and is tried again", async () => {
   const signals: AbortSignal[] = [];
   const outbox = new Outbox({
     attemptTimeoutMs: 5, maxAttempts: 2, sleep: async () => {},
-    fetch: async (_url, init) => { signals.push(init.signal!); return new Promise(() => {}); },
+    fetch: async (_url, init) => {
+      signals.push(init.signal!);
+      return signals.length < 3 ? new Promise(() => {}) : new Response(null, { status: 200 });
+    },
   });
-  expect(await outbox.post("one", "/api/messages", {})).toBe(false);
-  expect(signals).toHaveLength(2);
-  expect(signals.every((signal) => signal.aborted)).toBe(true);
-  expect(outbox.state.failed).toBe(1);
+  expect(await outbox.post("one", "/api/messages", {})).toBe(true);
+  expect(signals).toHaveLength(3);
+  expect(signals.slice(0, 2).every((signal) => signal.aborted)).toBe(true);
+  expect(outbox.state).toEqual({ pending: 0, failed: 0, lastFailure: null, stalled: 0 });
 });
 
 test("disposal aborts an in-flight request and prevents retries", async () => {

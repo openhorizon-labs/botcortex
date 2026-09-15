@@ -40,7 +40,7 @@ function backendLabel(platform: string | undefined, host: string | null): string
 }
 
 export function StopControl() {
-  const { status, activity, stop, stopped, stopState, resetStop, host, robot } = useRobot();
+  const { status, activity, stop, stopped, stopState, resetStop, host, robot, simOpen } = useRobot();
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -66,6 +66,12 @@ export function StopControl() {
   // page is not decorated with a dead button. After every hook, so the
   // hook order is the same on every render.
   if (!canStop && stopState === "clear" && status === "disconnected") return null;
+  // The in-tab sim: STOP belongs with the viewer. With the viewer closed the
+  // pill is clutter over the chat (Sai, Sep 16), and the viewer opens on its
+  // own the moment the robot starts working, so the button is back before
+  // there is anything to stop. A latched stop still shows, so the clear
+  // control is never hidden. A real robot keeps STOP on every route (B07).
+  if (host === "this browser" && !simOpen && !stopped) return null;
 
   async function handleStop() {
     setFailure(null);

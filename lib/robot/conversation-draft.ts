@@ -10,9 +10,15 @@ export class ConversationDraft {
   private resolve!: (id: string) => void;
   private reject!: (error: Error) => void;
 
+  private failures = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private readonly create: (signal: AbortSignal) => Promise<string>,
     private readonly onChange: () => void,
+    /** Delay before the draft tries again on its own after a failure, by
+     *  consecutive failure count. Null: only an explicit retry() tries. */
+    private readonly autoRetry: ((failures: number) => number) | null = (n) => Math.min(30_000, 1000 * 2 ** (n - 1)),
   ) {
     this.thread = new Promise((resolve, reject) => { this.resolve = resolve; this.reject = reject; });
     // A draft can be disposed before its first message starts awaiting it.
@@ -21,6 +27,7 @@ export class ConversationDraft {
 
   async retry(): Promise<void> {
     if (this.closed || this.pending || this.settled) return;
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.pending = true;
     this.failure = null;
     this.onChange();
@@ -29,9 +36,16 @@ export class ConversationDraft {
       if (this.closed) return;
       if (!id) throw new Error("No task id returned");
       this.settled = true;
+      this.failures = 0;
       this.resolve(id);
     } catch {
-      if (!this.closed) this.failure = "Could not create the task — its messages are held in this tab. Retry to save.";
+      if (!this.closed) {
+        this.failures++;
+        // Held, and retried on its own: the api coming back should not need
+        // anyone to notice a chip and press it.
+        this.failure = "Could not create the task yet — its messages are held in this tab and will be saved when the api answers.";
+        if (this.autoRetry) this.timer = setTimeout(() => void this.retry(), this.autoRetry(this.failures));
+      }
     } finally {
       this.pending = false;
       if (!this.closed) this.onChange();
@@ -40,6 +54,7 @@ export class ConversationDraft {
 
   dispose() {
     this.closed = true;
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.abort.abort();
     if (!this.settled) this.reject(new Error("Task storage was disconnected"));
   }

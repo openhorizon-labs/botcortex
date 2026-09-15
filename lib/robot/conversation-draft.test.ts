@@ -3,7 +3,7 @@ import { ConversationDraft } from "./conversation-draft";
 
 test("a failed creation holds all messages until the same binding is retried", async () => {
   const create = mock(async (): Promise<string> => { throw new Error("503"); });
-  const draft = new ConversationDraft(create, () => {});
+  const draft = new ConversationDraft(create, () => {}, null);
   const filed: string[] = [];
   const first = draft.thread.then((id) => filed.push(`${id}:prompt`));
   const second = draft.thread.then((id) => filed.push(`${id}:reply`));
@@ -42,4 +42,24 @@ test("disposing a draft cancels creation and settles waiting writers", async () 
   await expect(draft.thread).rejects.toThrow("disconnected");
   await retry;
   expect(signal.aborted).toBe(true);
+});
+
+test("a failed creation retries on its own until the api answers", async () => {
+  let calls = 0;
+  const create = mock(async (): Promise<string> => { if (++calls < 3) throw new Error("503"); return "late-task"; });
+  const draft = new ConversationDraft(create, () => {}, () => 1);
+  await draft.retry();
+  expect(draft.failure).toContain("held in this tab");
+  expect(await draft.thread).toBe("late-task");
+  expect(create).toHaveBeenCalledTimes(3);
+  expect(draft.failure).toBeNull();
+});
+
+test("disposing a draft cancels its scheduled retry", async () => {
+  const create = mock(async (): Promise<string> => { throw new Error("503"); });
+  const draft = new ConversationDraft(create, () => {}, () => 1);
+  await draft.retry();
+  draft.dispose();
+  await Bun.sleep(5);
+  expect(create).toHaveBeenCalledTimes(1);
 });
