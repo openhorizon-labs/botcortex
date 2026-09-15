@@ -1,9 +1,19 @@
 {
-  "wheel": "botcortex-0.0.3-py3-none-any.whl",
-  "sha256": "782d1e2e3b2d63956f7ddfa1a42892ad8aa50e955bf80ec2838cc5da27f4be9c",
-  "contractVersion": "0.0.3",
+  "wheel": "botcortex-0.0.4-py3-none-any.whl",
+  "sha256": "68e32cd33b60a59332b99341add7e0bf04d5dbe02e1d3fc2773d9b9065be7eaa",
+  "contractVersion": "0.0.4",
   "platform": "openarm_v1",
-  "runtimeCommit": "b02fc375d3329120885c87d8635759f580fb4b90",
+  "runtimeCommit": "f4ad716c16c6081d4f9dbf38298ff0de958a8a75",
   "runtimeRepo": "openhorizon-labs/botcortex-runtime",
-  "recordedAt": "2026-09-15"
+  "recordedAt": "2026-09-15",
+  "catalog": [
+    {
+      "name": "openarm_v1",
+      "displayName": "OpenArm v1 (bimanual)"
+    },
+    {
+      "name": "roarm_m2",
+      "displayName": "Waveshare RoArm-M2 (S/Pro)"
+    }
+  ]
 }

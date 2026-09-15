@@ -24,11 +24,13 @@ export type RobotInfo = {
 
 export type KinematicJoint = { name: string; type: "hinge" | "slide" | "other"; axis: number[]; pos: number[] };
 export type KinematicGeom = {
-  type: "sphere" | "capsule" | "cylinder" | "box";
+  type: "sphere" | "capsule" | "cylinder" | "box" | "mesh";
   size: number[];
   pos: number[];
   quat: number[];
   rgba: number[];
+  /** For type "mesh": the key into Kinematics.meshes. */
+  mesh?: string;
 };
 export type KinematicBody = {
   name: string;
@@ -43,6 +45,8 @@ export type KinematicBody = {
 export type Kinematics = {
   bodies: KinematicBody[];
   drive: Record<string, Record<string, { joint: string; a: number; b: number }[]>>;
+  /** Compiled meshes as flat xyz vertex and triangle-index arrays. */
+  meshes?: Record<string, { vertices: number[]; faces: number[] }>;
 };
 
 export type PlanStep = {

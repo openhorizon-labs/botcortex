@@ -260,6 +260,7 @@ import pathlib, botcortex
     displayName: py.runPython(`config.PLATFORM.display_name`) as string,
     catalog: JSON.parse(catalogJson),
     kinematics: kinematics(),
+    kinematicsError,
     ...snapshot(),
   };
 }
@@ -301,21 +302,52 @@ for j in range(int(_model.njnt)):
     }
     _joints_by_body.setdefault(_b, []).append(_entry)
     _qpos_joint[int(_model.jnt_qposadr[j])] = _entry["name"]
-_GEOM = {2: "sphere", 3: "capsule", 5: "cylinder", 6: "box"}
-_geoms_by_body = {}
+def _span(array, start, stop):
+    # A native numpy row slices; the WASM build's typed-array views do not
+    # ("Slice subscripting isn't implemented for typed arrays"), but they
+    # expose subarray(). Ask for that first, fall back to indexing.
+    try:
+        return list(array.subarray(start, stop).to_py())
+    except Exception:
+        try:
+            return list(array[start:stop])
+        except Exception:
+            return [array[i] for i in range(start, stop)]
+_GEOM = {2: "sphere", 3: "capsule", 5: "cylinder", 6: "box", 7: "mesh"}
+_geoms_by_body, _meshes = {}, {}
 for g in range(int(_model.ngeom)):
     _b, _t = int(_model.geom_bodyid[g]), int(_model.geom_type[g])
     if _t not in _GEOM:
         continue
+    # Visual-only geoms (contype 0, conaffinity 0) are the model's drawing of
+    # itself; collision primitives that ALSO carry group 3 are physics-only
+    # and stay out of the picture, as MuJoCo's own viewer hides them.
+    if int(_model.geom_group[g]) == 3:
+        continue
     _mat = int(_model.geom_matid[g])
     _rgba = mjcompat.row(_model.mat_rgba, _mat, 4) if _mat >= 0 else mjcompat.row(_model.geom_rgba, g, 4)
-    _geoms_by_body.setdefault(_b, []).append({
+    _entry = {
         "type": _GEOM[_t],
         "size": mjcompat.row(_model.geom_size, g, 3),
         "pos": mjcompat.row(_model.geom_pos, g, 3),
         "quat": mjcompat.row(_model.geom_quat, g, 4),
         "rgba": _rgba,
-    })
+    }
+    if _t == 7:
+        # The COMPILED mesh — re-centred exactly as the geom's pos/quat
+        # expect — as flat vertex and face arrays, so the drawing is the
+        # mesh physics sees and not the file it came from.
+        _mid = int(_model.geom_dataid[g])
+        _mname = _name("mjOBJ_MESH", _mid)
+        _entry["mesh"] = _mname
+        if _mname not in _meshes:
+            _va, _vn = int(_model.mesh_vertadr[_mid]), int(_model.mesh_vertnum[_mid])
+            _fa, _fn = int(_model.mesh_faceadr[_mid]), int(_model.mesh_facenum[_mid])
+            _meshes[_mname] = {
+                "vertices": [round(float(v), 5) for v in _span(_model.mesh_vert, _va * 3, (_va + _vn) * 3)],
+                "faces": [int(v) for v in _span(_model.mesh_face, _fa * 3, (_fa + _fn) * 3)],
+            }
+    _geoms_by_body.setdefault(_b, []).append(_entry)
 _bodies = []
 for i in range(1, _nbody):
     _n = _body_names[i]
@@ -339,14 +371,19 @@ for _arm in config.ARMS:
             {"joint": _qpos_joint.get(_i0, ""), "a": (_v1 - _v0) / 10.0, "b": _v0}
             for (_i0, _v0), (_i1, _v1) in zip(_w0, _w1)
         ]
-json.dumps({"bodies": _bodies, "drive": _drive})
+json.dumps({"bodies": _bodies, "drive": _drive, "meshes": _meshes})
 `),
     );
   } catch (error) {
-    console.warn("[botcortex] no kinematic tree from this build", error);
+    // Surfaced in the boot result rather than only logged: a worker's
+    // console is easy to lose, and "no 3D model" with no reason is a guess.
+    kinematicsError = error instanceof Error ? error.message : String(error);
+    console.warn("[botcortex] no kinematic tree from this build", kinematicsError);
     return null;
   }
 }
+
+let kinematicsError: string | null = null;
 
 /** Tools whose side effects live in /data and must reach IndexedDB. */
 const PERSISTING_TOOLS = new Set(["save_skill", "run_skill", "log_lesson"]);

@@ -22,7 +22,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   Box3,
   BoxGeometry,
-  type BufferGeometry,
+  BufferAttribute,
+  BufferGeometry,
   CapsuleGeometry,
   Color,
   CylinderGeometry,
@@ -300,6 +301,15 @@ function PrimitiveRobot({
         let geometry: BufferGeometry;
         let turned = false;
         switch (geom.type) {
+          case "mesh": {
+            const mesh = geom.mesh ? kinematics.meshes?.[geom.mesh] : undefined;
+            if (!mesh) continue;
+            geometry = new BufferGeometry();
+            geometry.setAttribute("position", new BufferAttribute(new Float32Array(mesh.vertices), 3));
+            geometry.setIndex(mesh.faces);
+            geometry.computeVertexNormals();
+            break;
+          }
           case "box":
             geometry = new BoxGeometry(geom.size[0] * 2, geom.size[1] * 2, geom.size[2] * 2);
             break;

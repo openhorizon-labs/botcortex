@@ -15,6 +15,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useRobot } from "@/components/app/robot-provider";
+import runtimeArtifact from "@/public/botcortex/MANIFEST.json";
+
+/** The bodies the shipped wheel can boot in a browser — from the manifest,
+ *  which a test keeps equal to the wheel's own catalog, so the choice
+ *  offered here is exactly what the worker will accept. */
+const SIM_BODIES: { name: string; displayName: string }[] = runtimeArtifact.catalog;
 
 type Mode = "token" | "local";
 
@@ -29,6 +35,8 @@ export function ConnectRobotDialog({
     useRobot();
   const [mode, setMode] = useState<Mode>("local");
   const [attempted, setAttempted] = useState(false);
+  /** The "teach one here" button asks WHICH body before booting. */
+  const [choosing, setChoosing] = useState(false);
   const [address, setAddress] = useState("");
   const [token, setToken] = useState("");
 
@@ -74,11 +82,9 @@ export function ConnectRobotDialog({
             {/* First, because it is the only option that works for someone who
                 does not own an arm — which is most people opening this. */}
             <button
-              onClick={() => {
-                setAttempted(true);
-                void connectBrowserSim();
-              }}
+              onClick={() => setChoosing((open) => !open)}
               disabled={connecting}
+              aria-expanded={choosing}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg border border-border bg-surface-2 p-3 text-left transition-colors",
                 "hover:bg-surface-3 disabled:cursor-default disabled:opacity-70",
@@ -102,6 +108,26 @@ export function ConnectRobotDialog({
                 </span>
               </span>
             </button>
+
+            {choosing && !connecting && (
+              <div role="group" aria-label="Which robot to simulate" className="grid gap-2 rounded-lg border border-border p-2">
+                <p className="px-1 text-xs text-muted-foreground">Which robot?</p>
+                {SIM_BODIES.map((body) => (
+                  <button
+                    key={body.name}
+                    onClick={() => {
+                      setAttempted(true);
+                      setChoosing(false);
+                      void connectBrowserSim(body.name);
+                    }}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-surface-3"
+                  >
+                    <span>{body.displayName}</span>
+                    <span className="font-mono text-[11px] text-muted-foreground">{body.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="flex items-center gap-3">
               <span className="h-px flex-1 bg-border" />
