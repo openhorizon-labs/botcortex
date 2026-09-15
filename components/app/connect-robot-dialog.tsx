@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Cable, KeyRound, Loader2, MonitorPlay, Unplug } from "lucide-react";
+import { ArrowLeft, ArrowRight, Cable, KeyRound, Loader2, MonitorPlay, Unplug } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,19 @@ import runtimeArtifact from "@/public/botcortex/MANIFEST.json";
  *  offered here is exactly what the worker will accept. */
 const SIM_BODIES: { name: string; displayName: string }[] = runtimeArtifact.catalog;
 
+/** What each body IS, for someone choosing one. Copy, not capability data —
+ *  the runtime's descriptor is the source for what a body can do. */
+const BODY_CARDS: Record<string, { tagline: string; body: string }> = {
+  openarm_v1: {
+    tagline: "Two arms, seven joints each",
+    body: "A bimanual research arm with parallel-jaw grippers. Left and right trays on a shared bench, three blocks. The body BotCortex was built on.",
+  },
+  roarm_m2: {
+    tagline: "One arm, three joints, a clamp",
+    body: "Waveshare's desktop arm: a single hinged clamp and about half a metre of reach, one tray. Cheap, and honest about what it cannot orient.",
+  },
+};
+
 type Mode = "token" | "local";
 
 export function ConnectRobotDialog({
@@ -35,13 +48,79 @@ export function ConnectRobotDialog({
     useRobot();
   const [mode, setMode] = useState<Mode>("local");
   const [attempted, setAttempted] = useState(false);
-  /** The "teach one here" button asks WHICH body before booting. */
-  const [choosing, setChoosing] = useState(false);
+  /** The "teach one here" button turns the dialog into a chooser: one card
+   *  per body the wheel can boot, then back to the connect view. */
+  const [step, setStep] = useState<"connect" | "choose">("connect");
   const [address, setAddress] = useState("");
   const [token, setToken] = useState("");
 
   const connecting = status === "connecting";
   const connected = status === "connected";
+
+  if (step === "choose") {
+    return (
+      <Dialog open={open} onOpenChange={(next) => { if (!next) setStep("connect"); onOpenChange(next); }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Which robot?</DialogTitle>
+            <DialogDescription>
+              Both run the real runtime and real physics in this tab. Pick the
+              body to teach; you can switch later from the simulation panel.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {SIM_BODIES.map((body) => {
+              const card = BODY_CARDS[body.name];
+              return (
+                <button
+                  key={body.name}
+                  disabled={connecting}
+                  onClick={() => {
+                    setAttempted(true);
+                    setStep("connect");
+                    void connectBrowserSim(body.name);
+                  }}
+                  className={cn(
+                    "group flex flex-col overflow-hidden rounded-xl border border-border bg-surface-2 text-left transition-colors",
+                    "hover:border-foreground/40 hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70",
+                  )}
+                >
+                  <span className="relative block aspect-[4/3] w-full bg-surface-3">
+                    {/* Rendered from the simulation itself — the same model the
+                        tab will boot — not an illustration. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/robots/cards/${body.name}.png`}
+                      alt={`${body.displayName} in the simulation`}
+                      className="absolute inset-0 size-full object-cover"
+                      draggable={false}
+                    />
+                  </span>
+                  <span className="flex flex-1 flex-col gap-1 p-3.5">
+                    <span className="text-sm font-medium">{body.displayName}</span>
+                    {card && <span className="text-xs text-muted-foreground">{card.tagline}</span>}
+                    {card && <span className="mt-1 text-xs leading-relaxed">{card.body}</span>}
+                    <span className="mt-2 flex items-center gap-1 text-xs font-medium">
+                      {simBooting ? (
+                        <><Loader2 className="size-3.5 animate-spin" /> {simBooting}…</>
+                      ) : (
+                        <>Teach this robot <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter className="sm:justify-start">
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setStep("connect")}>
+              <ArrowLeft className="size-3.5" /> Back
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,9 +161,8 @@ export function ConnectRobotDialog({
             {/* First, because it is the only option that works for someone who
                 does not own an arm — which is most people opening this. */}
             <button
-              onClick={() => setChoosing((open) => !open)}
+              onClick={() => setStep("choose")}
               disabled={connecting}
-              aria-expanded={choosing}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg border border-border bg-surface-2 p-3 text-left transition-colors",
                 "hover:bg-surface-3 disabled:cursor-default disabled:opacity-70",
@@ -108,26 +186,6 @@ export function ConnectRobotDialog({
                 </span>
               </span>
             </button>
-
-            {choosing && !connecting && (
-              <div role="group" aria-label="Which robot to simulate" className="grid gap-2 rounded-lg border border-border p-2">
-                <p className="px-1 text-xs text-muted-foreground">Which robot?</p>
-                {SIM_BODIES.map((body) => (
-                  <button
-                    key={body.name}
-                    onClick={() => {
-                      setAttempted(true);
-                      setChoosing(false);
-                      void connectBrowserSim(body.name);
-                    }}
-                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-surface-3"
-                  >
-                    <span>{body.displayName}</span>
-                    <span className="font-mono text-[11px] text-muted-foreground">{body.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
 
             <div className="flex items-center gap-3">
               <span className="h-px flex-1 bg-border" />
