@@ -636,10 +636,15 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const platformRef = useRef<string | null>(null);
   const refreshConversations = useCallback(async (): Promise<Conversation[]> => {
     try {
-      // A task is a conversation with ONE robot (Sai, Sep 16): with a robot
-      // connected the sidebar lists that body's tasks; with none, all of them.
+      // A task is a conversation with ONE robot (Sai, Sep 16): the sidebar
+      // lists the connected body's tasks, and with no robot connected it
+      // lists nothing — there is no robot for a task to belong to.
       const platform = platformRef.current;
-      const res = await fetch(platform ? `/api/conversations?platform=${encodeURIComponent(platform)}` : "/api/conversations");
+      if (!platform) {
+        setConversations([]);
+        return [];
+      }
+      const res = await fetch(`/api/conversations?platform=${encodeURIComponent(platform)}`);
       if (!res.ok) return [];
       const { conversations: rows } = (await res.json()) as { conversations: Conversation[] };
       setConversations(rows);
