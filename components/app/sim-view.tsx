@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Grid, OrbitControls } from "@react-three/drei";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -531,10 +531,53 @@ function ArmModel({
  *  put the near edge of that table across most of the viewport and the blocks
  *  — the things a manipulation task is actually about — off the bottom of the
  *  frame. Aimed between the torso and the tabletop instead. */
-function FrameOnLoad() {
+/** Where the camera looks from, as a direction: pulled back and swung round
+ *  to the working side, the framing the OpenArm workcell was tuned on. */
+const VIEW_DIRECTION = new Vector3(0.95, 0.85, 1.15).normalize();
+
+/**
+ * Frame the workcell the robot actually reported, not a fixed point.
+ *
+ * The target used to be one hard-coded spot chosen for the OpenArm's
+ * right-hand workspace, so the RoArm — whose bench sits forward of a base
+ * at the origin — was drawn off to the right of the viewport. The centre
+ * is now the box around the robot's base and every fixture it reported,
+ * and the distance follows that box's size; a new hello re-frames.
+ */
+function FrameOnLoad({
+  fixturesRef,
+  frameKey,
+}: {
+  fixturesRef: React.RefObject<SceneBodies | null>;
+  frameKey: string;
+}) {
+  const controls = useRef<any>(null);
+  const { camera } = useThree();
+  useEffect(() => {
+    const fixtures = fixturesRef.current ?? {};
+    // Bounds in MuJoCo coordinates (z up), seeded with the robot's base.
+    const min = [-0.1, -0.1, 0];
+    const max = [0.1, 0.1, 0.35];
+    for (const body of Object.values(fixtures)) {
+      const [x, y, z] = body.position;
+      const [sx, sy, sz] = body.size_m;
+      min[0] = Math.min(min[0], x - sx / 2); max[0] = Math.max(max[0], x + sx / 2);
+      min[1] = Math.min(min[1], y - sy / 2); max[1] = Math.max(max[1], y + sy / 2);
+      min[2] = Math.min(min[2], z - sz / 2); max[2] = Math.max(max[2], z + sz / 2);
+    }
+    const extent = Math.max(max[0] - min[0], max[1] - min[1], 0.5);
+    // Y-up for three.js: (x, y, z)_mujoco -> (x, z, -y).
+    const target = new Vector3((min[0] + max[0]) / 2, Math.max(0.15, max[2] * 0.6), -(min[1] + max[1]) / 2);
+    camera.position.copy(target).addScaledVector(VIEW_DIRECTION, 1.2 * extent + 0.5);
+    camera.lookAt(target);
+    if (controls.current) {
+      controls.current.target.copy(target);
+      controls.current.update();
+    }
+  }, [camera, fixturesRef, frameKey]);
   return (
     <OrbitControls
-      target={new Vector3(0, 0.30, 0.22)}
+      ref={controls}
       enablePan={false}
       minDistance={0.5}
       maxDistance={3}
@@ -619,7 +662,7 @@ export default function SimView() {
           fadeDistance={4.5}
           infiniteGrid
         />
-        <FrameOnLoad />
+        <FrameOnLoad fixturesRef={fixturesRef} frameKey={robot ? `${robot.platform}:${robot.name}` : "none"} />
       </Canvas>
     </div>
   );
