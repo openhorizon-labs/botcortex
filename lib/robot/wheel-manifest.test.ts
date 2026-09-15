@@ -25,6 +25,7 @@ const manifest = JSON.parse(readFileSync(join(DIR, "MANIFEST.json"), "utf8")) as
   runtimeRepo: string;
   recordedAt: string;
   catalog: { name: string; displayName: string }[];
+  bodies: { name: string; displayName: string; kind: string; joints: number; arms: number; reachM: number; browser: boolean }[];
 };
 
 const wheelPath = join(DIR, manifest.wheel);
@@ -62,6 +63,35 @@ test("the manifest's catalog is exactly the wheel's browser-capable bodies", () 
   expected.sort((a, b) => a.name.localeCompare(b.name));
   expect([...manifest.catalog].sort((a, b) => a.name.localeCompare(b.name))).toEqual(expected);
   expect(manifest.catalog[0].name).toBe("openarm_v1");
+});
+
+test("the manifest's bodies are every platform in the wheel, with the descriptor's own numbers", () => {
+  // The public registry lists EVERY body the runtime knows — arms, bimanual
+  // rigs, and whatever comes next — not only the ones the browser can boot.
+  const listing = Bun.spawnSync(["unzip", "-Z1", wheelPath]).stdout.toString().split("\n");
+  const specs = listing.filter((path) => /^botcortex\/platforms\/[^/]+\/platform\.json$/.test(path));
+  const expected = specs.map((spec) => {
+    const platform = JSON.parse(Bun.spawnSync(["unzip", "-p", wheelPath, spec]).stdout.toString()) as {
+      name: string; display_name: string; arms: string[];
+      capabilities?: { positioning_joints?: number; bimanual?: boolean; reach_m?: number; kind?: string };
+      sim?: { browser?: boolean; mjcf?: string; model_dir?: string };
+    };
+    const caps = platform.capabilities ?? {};
+    const sim = platform.sim ?? {};
+    const shipsModel = !!sim.mjcf && !sim.model_dir && listing.includes(`botcortex/platforms/${platform.name}/${sim.mjcf}`);
+    return {
+      name: platform.name,
+      displayName: platform.display_name,
+      kind: caps.kind ?? (caps.bimanual ? "bimanual" : "arm"),
+      joints: caps.positioning_joints ?? 0,
+      arms: platform.arms.length,
+      reachM: caps.reach_m ?? 0,
+      browser: (sim.browser ?? true) && shipsModel,
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  expect([...manifest.bodies].sort((a, b) => a.name.localeCompare(b.name))).toEqual(expected);
+  // The bootable catalog is the browser-capable subset, in the same order.
+  expect(manifest.catalog.map((b) => b.name)).toEqual(manifest.bodies.filter((b) => b.browser).map((b) => b.name));
 });
 
 test("the manifest's provenance fields are filled in", () => {

@@ -26,7 +26,7 @@ export function SkillCard({ skill }: { skill: PublishedSkill }) {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h3 className="font-mono text-[15px] font-medium text-foreground">{skill.name}</h3>
             <span className="inline-flex items-center gap-1 rounded-md bg-surface-3 px-2 py-0.5 text-xs text-foreground/80">
-              <Check className="size-3" /> ran on this arm
+              <Check className="size-3" /> ran on this robot
             </span>
           </div>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{skill.description}</p>

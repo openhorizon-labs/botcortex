@@ -15,5 +15,43 @@
       "name": "roarm_m2",
       "displayName": "Waveshare RoArm-M2 (S/Pro)"
     }
+  ],
+  "bodies": [
+    {
+      "name": "openarm_v1",
+      "displayName": "OpenArm v1 (bimanual)",
+      "kind": "bimanual",
+      "joints": 7,
+      "arms": 2,
+      "reachM": 0.65,
+      "browser": true
+    },
+    {
+      "name": "roarm_m2",
+      "displayName": "Waveshare RoArm-M2 (S/Pro)",
+      "kind": "arm",
+      "joints": 3,
+      "arms": 1,
+      "reachM": 0.5,
+      "browser": true
+    },
+    {
+      "name": "panda",
+      "displayName": "Franka Emika Panda (MuJoCo Menagerie)",
+      "kind": "arm",
+      "joints": 7,
+      "arms": 1,
+      "reachM": 0.855,
+      "browser": false
+    },
+    {
+      "name": "xarm7",
+      "displayName": "UFACTORY xArm7 (MuJoCo Menagerie)",
+      "kind": "arm",
+      "joints": 7,
+      "arms": 1,
+      "reachM": 0.7,
+      "browser": false
+    }
   ]
 }

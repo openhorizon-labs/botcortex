@@ -111,18 +111,18 @@ export function SkillRowMenu({
           }}
         >
           {working ? <Loader2 className="animate-spin" /> : published ? <GlobeLock /> : <Globe />}
-          {published ? "Remove from public registry" : "Publish to public registry"}
+          {published ? "Remove from public registry" : "Put back on public registry"}
         </DropdownMenuItem>
         <p className={cn("px-2 pt-1 pb-1.5 text-xs leading-relaxed text-muted-foreground", note && "text-foreground")}>
           {note
             ? note
             : unproven
-              ? "Run it successfully first — the registry lists only skills that have run."
+              ? "Run it successfully first — it joins the public registry on its own once it has."
               : published === null
                 ? "Checking the registry…"
                 : published
-                  ? "Anyone can read this skill at /skills."
-                  : "Lists the program and its description, per arm, on the public /skills page."}
+                  ? "Listed on the public registry at /skills, as every successful skill is."
+                  : "Taken down by you. Put it back on the public /skills page."}
         </p>
         {note?.startsWith("Listed") && <Check className="sr-only" />}
       </DropdownMenuContent>

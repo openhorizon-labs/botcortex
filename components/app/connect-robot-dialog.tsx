@@ -15,12 +15,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useRobot } from "@/components/app/robot-provider";
-import { BODY_CARDS, SUPPORTED_BODIES } from "@/lib/robot/bodies";
+import { BODY_CARDS, BOOTABLE_BODIES } from "@/lib/robot/bodies";
 
 /** The bodies the shipped wheel can boot in a browser — from the manifest,
  *  which a test keeps equal to the wheel's own catalog, so the choice
  *  offered here is exactly what the worker will accept. */
-const SIM_BODIES = SUPPORTED_BODIES;
+const SIM_BODIES = BOOTABLE_BODIES;
 
 /** What each body IS, for someone choosing one. Copy, not capability data —
  *  the runtime's descriptor is the source for what a body can do. */
