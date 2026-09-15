@@ -10,6 +10,8 @@
 
 **Revision review — 12 September 2026:** incorporates the selected RoArm-M2-Pro and owned RealSense; corrects joint-count and command-unit assumptions; credits completed runtime/web foundations; and distinguishes camera installation from validated object tracking. The review compared the PDF with web commit `37b5452` and runtime commit `1f92197`, and used Aside search to verify the hardware documentation in sources [28](#ref-28)–[29](#ref-29).
 
+**Simulation pilot — 15 September 2026:** the thin slice (§15) ran end to end in simulation on four bodies. Cross-body repair memory cut attempts-to-recovery from 4.61 to 2.00 on a held-out body and beat hand-written rules (2.57); negative transfer was measured (5 of 28 cases), and same-body memory about other faults was harmful (6.61). Details in §2 under *Simulation pilot* and in `botcortex-runtime/docs/research/slice_pilot.md`. Not a hardware result.
+
 **Thesis revision — 12 September 2026 (Sai's call):** the primary question moves from “does active repair selection beat fixed strategies on two arms” to “does repair knowledge learned on one robot body make recovery cheaper on another.” Active selection remains the mechanism; transfer is the headline claim, an open cross-embodiment failure benchmark is the artifact. Sources [30](#ref-30)–[37](#ref-37) were added from a targeted discovery pass and are abstract-level unless stated otherwise.
 
 ## 1. Executive decision
@@ -93,6 +95,22 @@ The research starts from implemented components, not an empty runtime. The sourc
 The workspace loading skeleton is also implemented. The earlier R1–R9 web review findings are resolved; they should not be carried forward as open research tickets. The transcript outbox is still in-memory, however, and account isolation is not the same as experiment-split isolation.
 
 **Outcome semantics matter:** `RobotSession._ran(..., ok=True)` and the skill `.ran` marker mean execution completed without a reported refusal/crash. They do not independently certify the requested task outcome. The current runtime supplies scene evidence for interpretation; a task-contract verifier remains research work.
+
+### Simulation pilot: the thin slice, run (15 September 2026)
+
+The milestone in §15 was built and run in the runtime repository (`botcortex/research/`, `docs/research/slice_pilot.md`). Four simulated bodies — OpenArm v1, a primitive RoArm-M2 model, and the Menagerie Panda and xArm7 — run one unchanged pick-and-place program through one descriptor-driven runtime. Eight controlled faults (four program, four perception) each have one inverse repair; an independent verifier grades the task from simulator state the program never reads; every (body, fault, repair) trial is simulated once into a frozen outcome table, and every selector is scored against that table. Retrieval for the target body excludes the target itself; the target-only arm is leave-one-fault-out.
+
+| Arm | Mean repairs to verified recovery (28 cases, budget 8) | Saved vs no memory | Worse than no memory | First pick in the right family |
+| --- | --- | --- | --- | --- |
+| No memory / fixed strategy | 4.61 | 0 | 0/28 | 14/28 |
+| Hand-written rules, no memory | 2.57 | +2.04 | 1/28 | 26/28 |
+| Target-body memory, other faults only | 6.61 | −2.00 | 20/28 | 16/28 |
+| **Cross-body memory, contract signatures** | **2.00** | **+2.61** | 5/28 | 26/28 |
+| Cross-body memory, trace text (H2 control) | 2.32 | +2.29 | 2/28 | 21/28 |
+
+What the pilot supports, and only in simulation: repair knowledge from other bodies reduces recovery attempts on an unseen body (H1 direction), beating the rule baseline; transfer is perfect where a fault leaves the same contract signature on every body (identity swap, occlusion, wrong object: one attempt) and degrades to negative where signatures diverge (pose bias and stale pose: three distinct signatures across four bodies). Same-body memory about *other* faults harms recovery under this retrieval rule. The contract-versus-trace gap (H2) is small — 2.00 against 2.32 — because error text already carries object-level information; a sharper H2 test needs faults whose traces and contract violations disagree.
+
+What it does not support: any hardware claim, any learned-selector claim, and any claim about faults beyond the eight injected. The RoArm model carries placeholder servo gains. Four of the thirty-two injections caused no failure on their body and were not scored. Per the phase 2b gate, the signal is measurable in simulation for program and perception faults, so the hardware track proceeds with H1 intact; the negative-transfer mechanism is now a stated part of the method to fix (retrieval must weight exact signature matches over partial ones, or abstain).
 
 ### Portability gaps found in the source
 
@@ -580,11 +598,11 @@ The recommended target is a credible **2027 submission**, with venue choice foll
 | Native and browser paths share useful runtime behavior. | Supported by the recorded regression checks. | Expanded semantic conformance and performance characterization. |
 | Rehearsal, route guards, browser persistence, and run-routing fixes exist. | Implemented; previous verification is recorded. | Extend them for hardware evidence, task contracts, and experiment isolation. |
 | The second robot and camera have been chosen. | RoArm-M2-Pro selected; RealSense owned, mounting pending. | Validate controller/firmware, camera model, transforms, and pose pipeline. |
-| BotCortex is already a hardware-portable SDK. | Not established. | Two implemented real adapters, sensing, binding, and conformance evidence. |
+| BotCortex is already a hardware-portable SDK. | Not established; four simulated bodies now run through one descriptor, no real adapter yet. | Two implemented real adapters, sensing, binding, and conformance evidence. |
 | A completed skill run proves the requested task succeeded. | Not established by the current `.ran` marker or return status. | Independent task-effect verification, especially under perception/calibration faults. |
 | The same task program can transfer across both selected arms. | Research objective. | Frozen task hashes plus separately reported adapter/calibration changes. |
-| Repair knowledge transfers across robot bodies (H1). | Primary hypothesis; no evidence yet. | Leave-one-embodiment-out results in simulation, then on both physical targets, with matched budgets and negative-transfer reporting. |
-| The transfer depends on the contract representation (H2). | Hypothesis; no evidence yet. | The trace-plus-lesson control arm under the same selector. |
+| Repair knowledge transfers across robot bodies (H1). | Supported in simulation only: 4.61 → 2.00 attempts on held-out bodies, 5/28 negative-transfer cases (15 Sep 2026 pilot). | Physical results on both arms; more task families and faults; a targeted-measurement step to separate bias from stale pose. |
+| The transfer depends on the contract representation (H2). | Weakly supported in simulation: contract 2.00 vs trace 2.32, right family 26/28 vs 21/28. | Faults whose traces and contract violations disagree; a trace arm with agent-written lessons. |
 | Active diagnosis reduces recovery effort (H3). | Secondary hypothesis. | Equal-budget physical comparisons and statistical analysis. |
 | No prior work transfers repair knowledge across embodiments. | Supported by a targeted discovery pass on 12 September 2026; not by citation tracing. | Full related-work tracing before submission; the claim narrows if a match appears. |
 | Replay can always identify the root cause. | Not a defensible claim. | Use bounded identifiability statements and unresolved cases. |
