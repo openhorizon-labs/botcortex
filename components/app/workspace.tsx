@@ -84,6 +84,7 @@ import { Composer } from "@/components/app/composer";
 import { StatusStrip } from "@/components/app/status-strip";
 import { SimPanel } from "@/components/app/sim-panel";
 import { SkillRowMenu } from "@/components/app/skill-row-menu";
+import { isStale, seenAgo } from "@/lib/robot/seen";
 import { LiveDot } from "@/components/kit/live-dot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { authClient, useSession } from "@/lib/auth-client";
@@ -93,6 +94,8 @@ type PairedRobot = {
   name: string;
   platform: string;
   address: string | null;
+  /** When it last announced itself (the runtime registers on boot). */
+  lastSeenAt: string | null;
 };
 
 /**
@@ -193,6 +196,19 @@ function AppInner() {
       cancelled = true;
     };
   }, []);
+  /** Drop a stale entry from the account. The row only: the robot's key
+   *  stays, and a robot that boots again re-announces itself. */
+  const forgetRobot = async (id: string) => {
+    setPaired((prev) => prev.filter((r) => r.id !== id));
+    try {
+      const res = await fetch(`/api/robots/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 404) throw new Error(String(res.status));
+    } catch {
+      // Put it back rather than pretend: the list reloads from the account.
+      const res = await fetch("/api/robots").catch(() => null);
+      if (res?.ok) setPaired(((await res.json()) as { robots?: PairedRobot[] }).robots ?? []);
+    }
+  };
   const hasMessages = messages.length > 0;
   const connected = status === "connected";
   const busy =
@@ -311,20 +327,48 @@ function AppInner() {
                       robot.
                     </p>
                   ) : (
-                    paired.map((r) => (
-                      <DropdownMenuItem
-                        key={r.id}
-                        className="cursor-pointer"
-                        disabled={!r.address}
-                        onSelect={() => r.address && connect(r.address)}
-                      >
-                        <Bot className="size-4" />
-                        <span className="min-w-0 flex-1 truncate">
-                          {r.name} · {r.platform}
-                        </span>
-                        {r.address && host === r.address && <LiveDot />}
-                      </DropdownMenuItem>
-                    ))
+                    paired.map((r) => {
+                      const live = Boolean(r.address) && host === r.address && connected;
+                      const stale = !live && isStale(r.lastSeenAt);
+                      return (
+                        <DropdownMenuItem
+                          key={r.id}
+                          className={cn("cursor-pointer", stale && "text-muted-foreground")}
+                          disabled={!r.address}
+                          onSelect={() => r.address && connect(r.address)}
+                        >
+                          <Bot className="size-4 shrink-0" />
+                          <span className="grid min-w-0 flex-1 leading-tight">
+                            <span className="truncate">
+                              {r.name} · {r.platform}
+                            </span>
+                            {/* A paired robot that has not announced itself
+                                in an hour is listed as what it is — last
+                                seen then — not as something to connect to. */}
+                            <span className="truncate text-[11px] text-muted-foreground">
+                              {live ? "connected" : seenAgo(r.lastSeenAt)}
+                            </span>
+                          </span>
+                          {live ? (
+                            <LiveDot />
+                          ) : (
+                            <button
+                              type="button"
+                              aria-label={`Forget ${r.name}`}
+                              title="Forget this robot"
+                              className="rounded-md p-1 text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                event.preventDefault();
+                                void forgetRobot(r.id);
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => setConnectOpen(true)}>

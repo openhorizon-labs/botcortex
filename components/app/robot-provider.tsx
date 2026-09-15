@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 
 import { BrowserSimTransport } from "@/lib/robot/browser-sim/transport";
 import { Outbox, type OutboxState, localStorageJournal } from "@/lib/robot/outbox";
+import { AUTO_CONNECT_WITHIN_MS, ageMs } from "@/lib/robot/seen";
 import { accountFetcher } from "@/lib/robot/account";
 import { ConversationDraft } from "@/lib/robot/conversation-draft";
 import { ConnectionHealth, PING_INTERVAL_MS } from "@/lib/robot/connection-health";
@@ -1357,9 +1358,15 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         const res = await fetch("/api/robots");
         if (cancelled || !res.ok) return;
         const { robots } = (await res.json()) as {
-          robots: { address: string | null }[];
+          robots: { address: string | null; lastSeenAt: string | null }[];
         };
-        const reachable = robots.find((r) => r.address);
+        // Only a robot that announced itself recently is worth dialling
+        // unasked. A laptop that served the runtime once, weeks ago, sat at
+        // the top of this list and put the app into "connecting…" against
+        // a dead address on every load.
+        const reachable = robots.find(
+          (r) => r.address && (ageMs(r.lastSeenAt) ?? Infinity) <= AUTO_CONNECT_WITHIN_MS,
+        );
         if (reachable?.address) tryConnect(reachable.address);
       } catch {
         /* not signed in, or the api is unreachable — the Connect dialog remains */
