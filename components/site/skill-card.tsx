@@ -15,7 +15,7 @@ export function SkillCard({ skill }: { skill: PublishedSkill }) {
   const lines = skill.code.split("\n").length;
 
   return (
-    <article className="rounded-2xl border border-border bg-background transition-colors duration-150 ease-standard hover:border-border-strong">
+    <article className="min-w-0 rounded-2xl border border-border bg-background transition-colors duration-150 ease-standard hover:border-border-strong">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

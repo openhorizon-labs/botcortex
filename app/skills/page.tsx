@@ -76,11 +76,8 @@ export default async function Page() {
                 id={arm.name}
                 className="relative scroll-mt-24 rounded-3xl border border-border bg-background p-4 sm:p-5"
               >
-                <span className="absolute top-5 right-5 z-10 hidden rounded-lg bg-surface-3 px-3 py-1.5 text-sm sm:block">
-                  {skills.length} {skills.length === 1 ? "skill" : "skills"}
-                </span>
                 <div className="grid gap-8 lg:grid-cols-[1fr_1.6fr] lg:gap-10">
-                  <div>
+                  <div className="min-w-0">
                     <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-surface-3">
                       {arm.image ? (
                         <Image
@@ -96,9 +93,14 @@ export default async function Page() {
                         </div>
                       )}
                     </div>
-                    <h2 className="mt-5 text-[26px] font-medium leading-tight tracking-tight sm:text-[28px]">
-                      {arm.displayName}
-                    </h2>
+                    <div className="mt-5 flex flex-wrap items-center gap-3">
+                      <h2 className="text-[26px] font-medium leading-tight tracking-tight sm:text-[28px]">
+                        {arm.displayName}
+                      </h2>
+                      <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm">
+                        {skills.length} {skills.length === 1 ? "skill" : "skills"}
+                      </span>
+                    </div>
                     {arm.card && (
                       <>
                         <p className="mt-1 text-sm text-muted-foreground">{arm.card.tagline}</p>
@@ -113,7 +115,7 @@ export default async function Page() {
                       <ArrowRight className="size-4 transition-transform duration-150 ease-standard group-hover:translate-x-0.5" />
                     </Link>
                   </div>
-                  <div className="flex flex-col gap-3">
+                  <div className="flex min-w-0 flex-col gap-3">
                     {skills.length === 0 ? (
                       <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
                         <p className="max-w-xs text-sm text-muted-foreground">
