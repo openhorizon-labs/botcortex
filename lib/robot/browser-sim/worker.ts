@@ -38,6 +38,32 @@ import runtimeArtifact from "@/public/botcortex/MANIFEST.json";
 const PYODIDE_URL = "/pyodide/";
 const PYODIDE_ENTRY = "/pyodide/pyodide.mjs";
 const MUJOCO_URL = "/mujoco/mujoco.js";
+
+/** One registry row, as GET /api/skills returns it. */
+export type RegistrySkill = {
+  name: string;
+  description: string;
+  code: string;
+  proven: boolean;
+  /** Milliseconds since the epoch. */
+  updatedAt: number;
+};
+
+/** A local skill the registry should have and does not (or has an older
+ *  copy of), handed back so the main thread can push it up. */
+export type LocalSkill = { name: string; description: string; code: string; proven: boolean };
+
+export type ImportReport = {
+  /** Written into the local store from the registry. */
+  restored: string[];
+  /** Local copy kept — same code, or newer than the registry's. */
+  kept: string[];
+  /** Registry rows the store refused (name → why), so a corrupt row can
+   *  never take the whole boot down. */
+  rejected: [string, string][];
+  /** Skills the registry is missing or behind on, for the push-up. */
+  push: LocalSkill[];
+};
 const WHEEL_URL = `/botcortex/${runtimeArtifact.wheel}`;
 
 export type WorkerRequest =
@@ -73,6 +99,9 @@ export type WorkerRequest =
       error?: string;
     }
   | { id: number; type: "beginTask" }
+  /** The account registry's copy of this body's skills, read at boot.
+   *  Rebuilds the local store from it (see `importSkills`). */
+  | { id: number; type: "importSkills"; skills: RegistrySkill[] }
   | { id: number; type: "verify" }
   | { id: number; type: "stop" }
   | { id: number; type: "resetStop" };
@@ -542,6 +571,52 @@ session.memory.log(
 `);
         result = await flush();
         break;
+      case "importSkills": {
+        // The registry copy is the one that outlives this browser, so at
+        // boot it fills whatever the local store lacks. Where both have a
+        // skill, the newer copy wins: a local file written after the row
+        // (a save whose sync failed) is kept and pushed up, anything else
+        // takes the registry's code. The proof mark travels with the code.
+        py.globals.set("remote_skills", py.toPy(request.skills));
+        const report = JSON.parse(
+          py.runPython(`
+import json
+from botcortex.skills import SkillError
+_remote = {s["name"]: s for s in remote_skills}
+_report = {"restored": [], "kept": [], "rejected": [], "push": []}
+_metas = {m["name"]: m for m in session.store.list()}
+for _name, _s in _remote.items():
+    _path = session.store.directory / f"{_name}.py"
+    if _path.exists():
+        _local = _path.read_text()
+        if _local == _s["code"]:
+            if _s["proven"] and not session.store.has_run(_name):
+                session.store.mark_ran(_name)
+            _report["kept"].append(_name)
+            if session.store.has_run(_name) and not _s["proven"]:
+                _report["push"].append({"name": _name, "description": _metas.get(_name, {}).get("description", ""), "code": _local, "proven": True})
+            continue
+        if _path.stat().st_mtime * 1000 > _s["updatedAt"]:
+            _report["kept"].append(_name)
+            _report["push"].append({"name": _name, "description": _metas.get(_name, {}).get("description", ""), "code": _local, "proven": session.store.has_run(_name)})
+            continue
+    try:
+        session.store.save(_name, _s["code"])
+    except SkillError as e:
+        _report["rejected"].append([_name, str(e)])
+        continue
+    if _s["proven"]:
+        session.store.mark_ran(_name)
+    _report["restored"].append(_name)
+for _m in session.store.list():
+    if _m["name"] not in _remote:
+        _report["push"].append({"name": _m["name"], "description": _m["description"], "code": (session.store.directory / f"{_m['name']}.py").read_text(), "proven": session.store.has_run(_m["name"])})
+json.dumps(_report)
+`),
+        ) as ImportReport;
+        result = { ...report, memory: report.restored.length ? await flush() : null, ...snapshot() };
+        break;
+      }
       case "beginTask":
         // A new task starts with no claims about it. Without this, a skill
         // saved during the LAST teach would count as evidence for this one.

@@ -20,7 +20,7 @@
 import { type AgentContract, parseContract } from "@/lib/robot/agent/contract";
 import type { Pushback } from "@/lib/robot/agent/loop";
 import type { JointState, SceneBodies } from "@/lib/robot/protocol";
-import type { WorkerRequest, WorkerResponse } from "@/lib/robot/browser-sim/worker";
+import type { ImportReport, RegistrySkill, WorkerRequest, WorkerResponse } from "@/lib/robot/browser-sim/worker";
 
 /** Control rate, mirrored from botcortex.config.CONTROL_HZ. Paces PLAYBACK
  *  only — the trajectory itself is computed by the Python. */
@@ -44,6 +44,9 @@ export const DEADLINES_MS: Record<WorkerRequest["type"], number> = {
   seek: 15_000,
   logEpisode: 15_000,
   beginTask: 15_000,
+  // Compiles every registry row it writes; an account with dozens of long
+  // skills is still seconds, not minutes.
+  importSkills: 60_000,
   verify: 15_000,
   stop: 15_000,
   resetStop: 15_000,
@@ -355,6 +358,20 @@ export class BrowserSim {
     error?: string,
   ): Promise<FlushReport> {
     return (await this.ask({ type: "logEpisode", task, skills, outcome, error })) as FlushReport;
+  }
+
+  /** Rebuild the local store from the account registry's copy of this
+   *  body's skills. Returns what changed and what the registry is missing;
+   *  the skill list is refreshed either way. */
+  async importSkills(skills: RegistrySkill[]): Promise<ImportReport & { memory: FlushReport | null }> {
+    const reply = (await this.ask({ type: "importSkills", skills })) as ImportReport & {
+      memory: FlushReport | null;
+      skills: string[];
+      unproven: string[];
+    };
+    this.skills = reply.skills;
+    this.unproven = reply.unproven;
+    return reply;
   }
 
   /** The e-stop, through the same file every other backend checks. */

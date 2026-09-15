@@ -14,6 +14,7 @@
 import type { ChatHistoryEntry, ClientMessage, RobotInfo, RobotMessage } from "@/lib/robot/protocol";
 import { teach } from "@/lib/robot/agent/loop";
 import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
+import type { RegistrySkill } from "@/lib/robot/browser-sim/worker";
 import { explain } from "@/lib/robot/agent/explain";
 import { AccountChangedError, accountFetcher, currentAccount } from "@/lib/robot/account";
 
@@ -47,7 +48,10 @@ const RUN_SCOPED = new Set<RobotMessage["type"]>(["status", "chat", "tool", "too
 
 /** A saved skill, kept so a failed registry sync can be retried without a
  *  racing `list_skills` call later (audit B04). */
-type SavedSkill = { code: string; description: string };
+type SavedSkill = { code: string; description: string; proven?: boolean };
+
+/** How long a boot waits for the registry before going on without it. */
+const RESTORE_TIMEOUT_MS = 8_000;
 
 /**
  * Push one saved skill to the account registry, through the same-origin
@@ -66,12 +70,50 @@ async function persistSkill(name: string, skill: SavedSkill, request: ReturnType
         // ctx.gripper_range runs elsewhere too; the registry still records
         // where it was proven.
         platform,
+        proven: skill.proven === true,
       }),
     });
     return response.ok;
   } catch {
     // The sim's local copy is the one that runs; the registry copy arrives
     // late or not at all, exactly like a robot with a flaky uplink.
+    return false;
+  }
+}
+
+/** The registry's copy of one body's skills, or null when it cannot be
+ *  reached — a boot then runs on the local store alone, as before. */
+async function fetchRegistrySkills(request: ReturnType<typeof accountFetcher>, platform: string): Promise<RegistrySkill[] | null> {
+  try {
+    const response = await request(`/api/skills?platform=${encodeURIComponent(platform)}`, {
+      signal: AbortSignal.timeout(RESTORE_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { skills?: unknown };
+    if (!Array.isArray(body.skills)) return null;
+    return body.skills.filter(
+      (row): row is RegistrySkill =>
+        typeof row === "object" && row !== null &&
+        typeof (row as RegistrySkill).name === "string" &&
+        typeof (row as RegistrySkill).code === "string" &&
+        typeof (row as RegistrySkill).description === "string",
+    ).map((row) => ({ ...row, proven: row.proven === true, updatedAt: Number(row.updatedAt) || 0 }));
+  } catch (error) {
+    if (error instanceof AccountChangedError) throw error;
+    return null;
+  }
+}
+
+/** Tell the registry a skill it holds has now been seen to run. */
+async function persistProof(name: string, request: ReturnType<typeof accountFetcher>, platform: string): Promise<boolean> {
+  try {
+    const response = await request(`/api/skills/${encodeURIComponent(name)}/ran`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform }),
+    });
+    return response.ok;
+  } catch {
     return false;
   }
 }
@@ -224,6 +266,18 @@ export class BrowserSimTransport {
     }
     this.sim = sim;
 
+    // The registry's copy outlives this browser: with an account signed in,
+    // the local store is rebuilt from it before the hello lists anything,
+    // whether or not this tab got durable storage. A skill taught here and
+    // never synced goes the other way. Done before the hello so the first
+    // list_skills already knows everything the account does.
+    let restored = 0;
+    if (namespace) {
+      onProgress("Restoring your skills from your account");
+      restored = await this.restoreSkills(sim);
+      if (this.closed) return;
+    }
+
     this.emit({
       type: "hello",
       robot: {
@@ -253,12 +307,12 @@ export class BrowserSimTransport {
       durable: sim.memory.durable,
       unsaved: false,
       detail: sim.memory.durable
-        ? "Skills and episodes are kept in this browser, under your account."
+        ? `Skills are backed up to your account${restored ? ` (${restored} restored)` : ""}; episodes are kept in this browser.`
         : namespace === null
           ? "Not signed in, so skills and episodes last for this session only."
           : !leaseHeld
-            ? "Exclusive browser storage is unavailable or held by another tab; this one is session-only."
-            : `Browser storage is unavailable (${sim.memory.error ?? "unknown"}); session only.`,
+            ? "Exclusive browser storage is held by another tab; skills still sync to your account, episodes are session-only here."
+            : `Browser storage is unavailable (${sim.memory.error ?? "unknown"}); skills still sync to your account, episodes are session-only.`,
     });
 
     // The joint stream the sim view consumes. A timer rather than an event per
@@ -346,6 +400,57 @@ export class BrowserSimTransport {
     }
   }
 
+  /**
+   * Pull the account's skills for this body into the local store, and push
+   * up whatever the registry is missing. Returns how many were restored.
+   * Best-effort: a registry that is away leaves the local store as it was.
+   */
+  private async restoreSkills(sim: BrowserSim): Promise<number> {
+    const platform = sim.platform;
+    const rows = await fetchRegistrySkills(this.request, platform);
+    if (rows === null || this.closed) return 0;
+    let report: Awaited<ReturnType<BrowserSim["importSkills"]>>;
+    try {
+      report = await sim.importSkills(rows);
+    } catch (error) {
+      console.error("skill restore failed", error);
+      return 0;
+    }
+    if (this.closed) return 0;
+    if (report.memory) this.reportFlush(sim, report.memory);
+    for (const [name, why] of report.rejected) console.warn(`registry skill ${name} rejected by the store: ${why}`);
+    // Everything now in the store is retryable through sync_skill, and the
+    // registry gets what it lacked — fired and not awaited, like a save's.
+    for (const local of report.push) {
+      const revision: SavedSkill = { code: local.code, description: local.description, proven: local.proven };
+      this.saved.set(local.name, revision);
+      void persistSkill(local.name, revision, this.request, platform).then((ok) =>
+        this.emit({ type: "sync", skill: local.name, ok }),
+      );
+    }
+    return report.restored.length;
+  }
+
+  /**
+   * The store's proof mark, mirrored to the registry: any skill that was
+   * unproven before this call and is proven now was just seen to run. A
+   * registry that never got the skill (404) is sent the whole thing.
+   */
+  private markProven(sim: BrowserSim, unprovenBefore: string[]) {
+    const platform = sim.platform;
+    const still = new Set(sim.unproven);
+    for (const name of unprovenBefore) {
+      if (still.has(name) || !sim.skills.includes(name)) continue;
+      const known = this.saved.get(name);
+      if (known) known.proven = true;
+      void persistProof(name, this.request, platform).then(async (ok) => {
+        if (ok || this.closed) return;
+        const skill = this.saved.get(name);
+        this.emit({ type: "sync", skill: name, ok: skill ? await persistSkill(name, skill, this.request, platform) : false });
+      });
+    }
+  }
+
   /** One job at a time, exactly as the runtime refuses a second. */
   private async run(job: () => Promise<void>, runId?: string) {
     if (this.busy) {
@@ -429,11 +534,13 @@ export class BrowserSimTransport {
       // The gate on saying "done" — the runtime's, not a second copy of it.
       verify: () => sim.verify(),
       dispatch: async (name, args) => {
+        const unprovenBefore = sim.unproven;
         const reply = await sim.runTool(name, args, (arms) =>
           this.emit({ type: "state", arms, objects: sim.scene.objects }),
         );
         const out = reply.output;
         this.reportFlush(sim, reply.memory);
+        this.markProven(sim, unprovenBefore);
         // The skill list can change under save_skill; the sidebar watches this.
         this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
         for (const skill of sim.skills) {
@@ -468,12 +575,14 @@ export class BrowserSimTransport {
 
   private async runSkill(sim: BrowserSim, name: string) {
     this.emit({ type: "status", state: "running", detail: name });
+    const unprovenBefore = sim.unproven;
     const reply = await sim.runTool(
       "run_skill",
       { name, params_json: "{}" },
       (arms) => this.emit({ type: "state", arms, objects: sim.scene.objects }),
     );
     this.reportFlush(sim, reply.memory);
+    this.markProven(sim, unprovenBefore);
     // The owner-facing wording, not the model's. What run_skill returns is
     // written for something that has to repair a skill — primitive counts,
     // rehearsal bookkeeping, advice on approaching an obstacle. The rule that

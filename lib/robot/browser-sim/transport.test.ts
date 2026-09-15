@@ -9,7 +9,8 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 
 import { BrowserSimTransport, transcriptOf } from "@/lib/robot/browser-sim/transport";
-import { BrowserSim } from "@/lib/robot/browser-sim/host";
+import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
+import type { ImportReport } from "@/lib/robot/browser-sim/worker";
 import type { RobotMessage } from "@/lib/robot/protocol";
 
 const originalFetch = globalThis.fetch;
@@ -64,9 +65,11 @@ test("the conversation renders as Owner/Robot lines, in order", () => {
 
 function fakeSim() {
   return {
-    contract: { version: "test" }, skills: [], unproven: [], stopped: false,
+    contract: { version: "test" }, platform: "openarm_v1", skills: [] as string[], unproven: [] as string[], stopped: false,
     scene: { fixtures: {}, objects: {} }, state: {}, memory: { durable: false },
     close: mock(() => {}), clearAbort: mock(() => {}),
+    importSkills: mock(async (): Promise<ImportReport & { memory: FlushReport | null }> =>
+      ({ restored: [], kept: [], rejected: [], push: [], memory: null })),
     runTool: mock(async (): Promise<{ plain: string; output: string; memory: { flushed: boolean; error?: string } | null }> =>
       ({ plain: "Ran skill", output: "ok", memory: null })),
     stop: mock(async () => {}), resetStop: mock(async () => {}),
@@ -270,6 +273,7 @@ test("a sync retry cannot submit A's cached skill after signing in as B", async 
   const posted: string[] = [];
   apiStub(async (url) => {
     if (url === "/api/me") return Response.json({ user: { id: account } });
+    if (url.startsWith("/api/skills?")) return new Response(null, { status: 404 });
     if (url === "/api/skills") { posted.push(account); return new Response(null, { status: 503 }); }
     return Response.json({ choices: [{ message: turn++ === 0
       ? { tool_calls: [{ id: "save", function: { name: "save_skill", arguments: JSON.stringify({ name: "private_a", code: "private fixture" }) } }] }
@@ -293,4 +297,105 @@ test("a sync retry cannot submit A's cached skill after signing in as B", async 
   expect(posted).toEqual(["A"]);
   expect(changed).toHaveBeenCalledTimes(1);
   expect(sim.close).toHaveBeenCalledTimes(1);
+});
+
+test("signed in, the store is rebuilt from the account registry before the hello, and what it lacks is pushed up", async () => {
+  useLocks();
+  const posted: Record<string, unknown>[] = [];
+  const rows = [
+    { name: "wave", description: "Wave.", code: "def run(ctx): pass", platform: "roarm_m2", proven: true, updatedAt: 1000 },
+  ];
+  apiStub(async (url, init) => {
+    if (url === "/api/me") return Response.json({ user: { id: "acct-7" } });
+    if (url === "/api/skills?platform=roarm_m2") return Response.json({ skills: rows });
+    if (url === "/api/skills" && init?.method === "POST") { posted.push(JSON.parse(String(init.body))); return Response.json({ ok: true }); }
+    return new Response(null, { status: 404 });
+  });
+  const sim = fakeSim();
+  sim.platform = "roarm_m2";
+  sim.memory = { durable: true };
+  sim.importSkills.mockImplementation(async () => {
+    sim.skills = ["wave", "local_only"];
+    sim.unproven = ["local_only"];
+    return { restored: ["wave"], kept: [], rejected: [], push: [{ name: "local_only", description: "Mine.", code: "def run(ctx): return 1", proven: false }], memory: { flushed: true } };
+  });
+  spyOn(BrowserSim, "boot").mockResolvedValue(sim as unknown as BrowserSim);
+  const events: RobotMessage[] = [];
+  const transport = new BrowserSimTransport((event) => events.push(event));
+  try {
+    await transport.open();
+    await settle();
+    expect(sim.importSkills).toHaveBeenCalledWith(rows);
+    // The hello already knows the restored skill.
+    expect(events.find((event) => event.type === "hello")).toMatchObject({ skills: ["wave", "local_only"], unproven: ["local_only"] });
+    expect(events.find((event) => event.type === "memory")).toMatchObject({ durable: true, detail: expect.stringContaining("1 restored") });
+    // The registry gets the skill only this browser had, with its platform.
+    expect(posted).toEqual([{ name: "local_only", description: "Mine.", code: "def run(ctx): return 1", platform: "roarm_m2", proven: false }]);
+    expect(events.find((event) => event.type === "sync")).toEqual({ type: "sync", skill: "local_only", ok: true });
+  } finally { transport.close(); }
+});
+
+test("a registry that is away leaves the local store alone", async () => {
+  useLocks();
+  apiStub(async (url) => {
+    if (url === "/api/me") return Response.json({ user: { id: "acct-7" } });
+    return new Response(null, { status: 503 });
+  });
+  const sim = fakeSim();
+  sim.skills = ["wave"];
+  spyOn(BrowserSim, "boot").mockResolvedValue(sim as unknown as BrowserSim);
+  const events: RobotMessage[] = [];
+  const transport = new BrowserSimTransport((event) => events.push(event));
+  try {
+    await transport.open();
+    expect(sim.importSkills).not.toHaveBeenCalled();
+    expect(events.find((event) => event.type === "hello")).toMatchObject({ skills: ["wave"] });
+  } finally { transport.close(); }
+});
+
+test("a skill seen to run is marked proven in the registry; one the registry never got is sent whole", async () => {
+  useLocks();
+  const calls: string[] = [];
+  const posted: Record<string, unknown>[] = [];
+  let ranStatus = 200;
+  apiStub(async (url, init) => {
+    if (url === "/api/me") return Response.json({ user: { id: "acct-7" } });
+    if (url.startsWith("/api/skills?")) return Response.json({ skills: [] });
+    if (url === "/api/skills/wave/ran") { calls.push(JSON.parse(String(init?.body)).platform); return new Response(null, { status: ranStatus }); }
+    if (url === "/api/skills" && init?.method === "POST") { posted.push(JSON.parse(String(init.body))); return Response.json({ ok: true }); }
+    return new Response(null, { status: 404 });
+  });
+  const sim = fakeSim();
+  sim.platform = "roarm_m2";
+  sim.importSkills.mockImplementation(async () => {
+    sim.skills = ["wave"];
+    sim.unproven = ["wave"];
+    return { restored: [], kept: ["wave"], rejected: [], push: [{ name: "wave", description: "Wave.", code: "def run(ctx): pass", proven: false }], memory: null };
+  });
+  sim.runTool.mockImplementation(async () => {
+    sim.unproven = [];
+    return { plain: "Ran skill", output: "ok", memory: null };
+  });
+  spyOn(BrowserSim, "boot").mockResolvedValue(sim as unknown as BrowserSim);
+  const events: RobotMessage[] = [];
+  const transport = new BrowserSimTransport((event) => events.push(event));
+  try {
+    await transport.open();
+    await settle();
+    expect(posted).toHaveLength(1);
+    await transport.send({ type: "run_skill", name: "wave", dryRun: true }, "test");
+    await settle();
+    expect(calls).toEqual(["roarm_m2"]);
+    expect(posted).toHaveLength(1);
+
+    // The registry lost the row: the proof call 404s and the whole skill,
+    // now proven, goes up instead.
+    ranStatus = 404;
+    sim.unproven = ["wave"];
+    await transport.send({ type: "run_skill", name: "wave", dryRun: true }, "test");
+    await settle();
+    await settle();
+    expect(calls).toEqual(["roarm_m2", "roarm_m2"]);
+    expect(posted.at(-1)).toMatchObject({ name: "wave", platform: "roarm_m2", proven: true });
+  } finally { transport.close(); }
 });
