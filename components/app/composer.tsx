@@ -106,7 +106,6 @@ export function Composer({
             </TooltipContent>
           </Tooltip>
           <RanOnNotice />
-          <CreditReadout />
         </div>
         <Button
           size="icon"
@@ -119,43 +118,6 @@ export function Composer({
         </Button>
       </div>
     </div>
-  );
-}
-
-/**
- * The balance, beside the thing that spends it.
- *
- * It lives in the sidebar too, but the sidebar collapses to a 16px icon rail
- * — and there the figure is not shortened, it is GONE, leaving a coin icon
- * that says nothing. Reported, reasonably, as "credit is not visible". A rail
- * that narrow cannot hold a currency figure at all, so the readout belongs
- * where it is always on screen and where it is actually relevant: next to the
- * model picker, in the row that chooses what the next teach will cost.
- *
- * Hidden entirely unless the connected robot can spend it — the same reason
- * the sidebar row hides the number for an unpaired robot. A balance shown
- * beside a Send button implies pressing it draws down that balance.
- */
-function CreditReadout() {
-  const { credit, pairing } = useRobot();
-  if (!credit || pairing !== "paired") return null;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        {/* "left", not a bare figure. Unlabelled beside a Send button it read
-            as the price of this task; the sidebar shows used/total and
-            Settings shows both, so this is the third rendering of one number
-            and the only one that had no word attached. */}
-        <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-xs text-muted-foreground sm:flex">
-          <span className="font-mono">{credit.display}</span>
-          <span className="opacity-70">left</span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>
-        {credit.display} of BotCortex credit left · {credit.spentDisplay} used
-        so far. Teaching spends it; skills already learned run free.
-      </TooltipContent>
-    </Tooltip>
   );
 }
 

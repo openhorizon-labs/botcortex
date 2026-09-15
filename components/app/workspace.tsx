@@ -575,18 +575,16 @@ function AppInner() {
                 <div>
                   <Coins />
                   <span className="flex-1 truncate">Credit</span>
-                  {/* used / total, not what is left. Consumption is the thing
-                      an owner is actually tracking, and a fraction moves
-                      visibly against a fixed denominator where a lone
-                      remaining figure just drifts down. The balance itself
-                      sits in the composer, beside the send button. */}
+                  {/* What is left, and only that (Sai, Sep 16). The used /
+                      granted breakdown lives in Settings; the composer no
+                      longer repeats the figure beside Send. */}
                   <span className="font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                     {pairing === "half"
                       ? "not paired"
                       : pairing === "byo"
                         ? "own key"
                         : credit
-                          ? `${credit.usedDisplay} / ${credit.grantedDisplay}`
+                          ? `${credit.display} left`
                           : "—"}
                   </span>
                 </div>
