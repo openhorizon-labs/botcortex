@@ -1135,9 +1135,13 @@ export function RobotProvider({ children, accountId = null }: { children: React.
       setSimBooting(null);
       setStatus("connected");
       setHost("this browser");
-      // Not remembered in localStorage: nothing was paired, and silently
-      // booting 14 MB of WASM on the next visit is not a decision to make on
-      // someone's behalf.
+      // Remembered, so a reload boots the same body again instead of coming
+      // back as "No robot". The runtime is cached by the browser after the
+      // first download, and an explicit Disconnect forgets this (Sai's call,
+      // Sep 15 2026 — a reload that dropped the robot felt like a bug).
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ sim: true, platform: chosen }));
+      } catch { /* optional */ }
     } catch (e) {
       if (simRef.current !== transport) return;
       transport.close();
@@ -1303,7 +1307,16 @@ export function RobotProvider({ children, accountId = null }: { children: React.
       try { saved = localStorage.getItem(STORAGE_KEY); } catch { /* optional */ }
       if (saved) {
         try {
-          const remembered = JSON.parse(saved) as { host?: string; secure?: boolean; explicitScheme?: boolean };
+          const remembered = JSON.parse(saved) as {
+            host?: string; secure?: boolean; explicitScheme?: boolean; sim?: boolean; platform?: string | null;
+          };
+          if (remembered.sim) {
+            // The in-tab robot was what this browser last used: boot it on the
+            // same body. connectBrowserSim marks the choice manual, exactly as
+            // clicking the card did.
+            if (!manualChoiceRef.current) void connectBrowserSim(remembered.platform ?? undefined);
+            return;
+          }
           if (remembered.host) {
             // Re-dial exactly what worked, scheme included.
             const scheme = remembered.explicitScheme ? (remembered.secure ? "wss://" : "ws://") : "";
