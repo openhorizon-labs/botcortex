@@ -220,7 +220,14 @@ json.dumps([str(p) for p in pathlib.Path("${modelDir}").rglob("*") if p.is_file(
   } catch (error) {
     memoryError = error instanceof Error ? error.message : String(error);
   }
-  const dataDir = namespace ? `${DATA_ROOT}/${encodeURIComponent(namespace)}` : DATA_ROOT;
+  // Skills are written for a body: one that reads ctx.arms may run on the
+  // next robot, one that hardcodes "right" will not, and an agent shown a
+  // skill it cannot run wastes its first attempt on it. So each body keeps
+  // its own skills. The default body keeps the pre-existing location, so
+  // nobody's OpenArm skills move; other bodies live beside it.
+  const accountDir = namespace ? `${DATA_ROOT}/${encodeURIComponent(namespace)}` : DATA_ROOT;
+  const bootedPlatform = py.runPython(`config.PLATFORM.name`) as string;
+  const dataDir = bootedPlatform === "openarm_v1" ? accountDir : `${accountDir}/bodies/${bootedPlatform}`;
 
   progress("Waking the robot");
   py.globals.set("js_mujoco", mj);
@@ -250,13 +257,20 @@ session = RobotSession(
   session = py.globals.get("session");
 
   return {
-    // Read out of the installed wheel, never a copy in this repo.
+    // The wheel ships one contract per browser-capable body (exported at
+    // release, botcortex/agent_contracts/<body>.json): the prompt and tool
+    // descriptions name THAT body's arms, joints and gripper degrees. Read
+    // for the body that booted; the default file is the fallback. Never a
+    // copy in this repo, and never built here — the builder needs the
+    // Anthropic SDK, which the browser does not carry.
     contract: py.runPython(`
 import pathlib, botcortex
-(pathlib.Path(botcortex.__file__).parent / "agent_contract.json").read_text()
+_root = pathlib.Path(botcortex.__file__).parent
+_own = _root / "agent_contracts" / (config.PLATFORM.name + ".json")
+(_own if _own.exists() else _root / "agent_contract.json").read_text()
 `),
     memory: { durable, error: memoryError },
-    platform: py.runPython(`config.PLATFORM.name`) as string,
+    platform: bootedPlatform,
     displayName: py.runPython(`config.PLATFORM.display_name`) as string,
     catalog: JSON.parse(catalogJson),
     kinematics: kinematics(),

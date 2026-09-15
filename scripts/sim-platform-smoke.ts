@@ -38,8 +38,13 @@ try {
       const saved = await ask({ type: "callTool", name: "save_skill", args: { name: "portable_pick_and_place", code: source } });
       if (!saved.output.startsWith("saved ")) throw new Error(saved.output);
       const run = await ask({ type: "callTool", name: "run_skill", args: { name: "portable_pick_and_place", params_json: "{}" } });
+      const contract = JSON.parse(boot.contract);
       return {
-        version: JSON.parse(boot.contract).version,
+        version: contract.version,
+        // The prompt must describe THIS body: its display name and its arm
+        // names, never another body's "right" and "left".
+        promptNamesBody: contract.system_prompt.includes(boot.displayName),
+        promptArms: Object.keys(boot.state).every((arm: string) => contract.system_prompt.includes(`"${arm}"`)),
         platform: boot.platform,
         catalog: boot.catalog,
         bodies: boot.kinematics?.bodies?.length ?? 0,
@@ -57,6 +62,7 @@ try {
   }, { source: code, deadlines: DEADLINES_MS, platform });
   assert.equal(result.version, artifact.contractVersion);
   assert.equal(result.platform, platform, `booted ${result.platform}, asked for ${platform}`);
+  assert(result.promptNamesBody && result.promptArms, "the agent contract does not describe the booted body");
   assert(result.output.startsWith("Rehearsed clean"), result.output);
   assert(result.motionFrames > 0, "successful task returned no motion");
   const red = result.after.red_block.position as number[];
