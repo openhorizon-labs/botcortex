@@ -17,6 +17,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { LiveDot } from "@/components/kit/live-dot";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useRobot } from "@/components/app/robot-provider";
 
 /** three.js is browser-only; ssr:false keeps the server render clean. */
@@ -36,8 +43,12 @@ export function SimPanel({
   open: boolean;
   onClose: () => void;
 }) {
-  const { robot, activity, status } = useRobot();
+  const { robot, activity, status, host, connectBrowserSim, simBooting } = useRobot();
   if (!open) return null;
+  // The picker exists only for the in-tab robot, and only when the wheel
+  // offers more than one body. A paired physical robot IS its platform.
+  const catalog = host === "this browser" ? (robot?.catalog ?? []) : [];
+  const pickable = catalog.length > 1 && robot != null;
 
   return (
     <div className="relative z-10 flex h-full w-1/2 min-w-0 flex-col overflow-hidden border-l border-border bg-background">
@@ -56,7 +67,31 @@ export function SimPanel({
           </TooltipTrigger>
           <TooltipContent>Hide the simulation</TooltipContent>
         </Tooltip>
-        <span className="text-sm">{robot?.name ?? "Simulation"}</span>
+        {pickable ? (
+          <Select
+            value={robot.platform}
+            disabled={simBooting != null}
+            onValueChange={(name) => {
+              if (name !== robot.platform) void connectBrowserSim(name);
+            }}
+          >
+            <SelectTrigger size="sm" className="h-7 w-auto gap-1.5 border-none bg-transparent px-1.5 text-sm shadow-none" aria-label="Which robot to simulate">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start">
+              {catalog.map((entry) => (
+                <SelectItem key={entry.name} value={entry.name}>
+                  {entry.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="text-sm">{robot?.name ?? "Simulation"}</span>
+        )}
+        {simBooting && (
+          <span className="text-xs text-muted-foreground">{simBooting}…</span>
+        )}
         {status === "connected" && (
           <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <LiveDot />

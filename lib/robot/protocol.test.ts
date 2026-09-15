@@ -155,3 +155,26 @@ test("rejects geometry that would divide by zero or crash the scene", () => {
   expect(parseRobotMessage(JSON.stringify({ type: "hello", robot: { name: "Sim", platform: "wasm", gripper: { minDeg: 0, maxDeg: 0, travelM: 1 } }, skills: [] }))).toBeNull();
   expect(parseRobotMessage(JSON.stringify({ type: "state", arms: {}, objects: { cube: { position: [1, 2] } } }))).toBeNull();
 });
+
+test("a hello may carry the sim's body catalog and a kinematic tree, and they are checked", () => {
+  const tree = {
+    bodies: [{ name: "link1", parent: "world", pos: [0, 0, 0.1], quat: [1, 0, 0, 0], joints: [], geoms: [] }],
+    drive: { arm: { j1: [{ joint: "joint1", a: 0.0174, b: 0 }] } },
+  };
+  const hello = {
+    type: "hello" as const,
+    robot: {
+      name: "RoArm (browser sim)",
+      platform: "roarm_m2",
+      catalog: [{ name: "openarm_v1", displayName: "OpenArm v1" }, { name: "roarm_m2", displayName: "RoArm" }],
+      kinematics: tree,
+    },
+    skills: [],
+  };
+  expect(parseRobotMessage(JSON.stringify(hello))).toEqual(hello);
+  // a body without a tree says so with null, and that is fine
+  expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, kinematics: null } }))).not.toBeNull();
+  // a catalog entry without a display name, or a tree without bodies, is refused
+  expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, catalog: [{ name: "x" }] } }))).toBeNull();
+  expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, kinematics: { drive: {} } } }))).toBeNull();
+});

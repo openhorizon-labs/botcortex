@@ -11,7 +11,7 @@
  * message the runtime does not send, the two would have diverged.
  */
 
-import type { ChatHistoryEntry, ClientMessage, RobotMessage } from "@/lib/robot/protocol";
+import type { ChatHistoryEntry, ClientMessage, RobotInfo, RobotMessage } from "@/lib/robot/protocol";
 import { teach } from "@/lib/robot/agent/loop";
 import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
 import { explain } from "@/lib/robot/agent/explain";
@@ -53,7 +53,7 @@ type SavedSkill = { code: string; description: string };
  * Push one saved skill to the account registry, through the same-origin
  * rewrite the inference calls use.
  */
-async function persistSkill(name: string, skill: SavedSkill, request: ReturnType<typeof accountFetcher>): Promise<boolean> {
+async function persistSkill(name: string, skill: SavedSkill, request: ReturnType<typeof accountFetcher>, platform = "openarm_v1"): Promise<boolean> {
   try {
     const response = await request("/api/skills", {
       method: "POST",
@@ -62,9 +62,10 @@ async function persistSkill(name: string, skill: SavedSkill, request: ReturnType
         name,
         description: skill.description,
         code: skill.code,
-        // The wheel the sim boots is the openarm_v1 build; when a second
-        // platform ships, this should ride in the agent contract instead.
-        platform: "openarm_v1",
+        // The body this skill was taught on. A skill that reads ctx.arms and
+        // ctx.gripper_range runs elsewhere too; the registry still records
+        // where it was proven.
+        platform,
       }),
     });
     return response.ok;
@@ -90,6 +91,8 @@ async function accountNamespace(signal: AbortSignal): Promise<string | null> {
 }
 
 export type TransportOptions = {
+  /** Which body to boot, by catalog name; null for the wheel's default. */
+  platform?: string | null;
   /** The worker died or hung past its deadline; the sim is already closed. */
   onDead?: (reason: string) => void;
   /** Identity of the provider that owns this transport, when available. */
@@ -128,6 +131,7 @@ export class BrowserSimTransport {
   private readonly lifetime = new AbortController();
   private readonly accountId: string | null | undefined;
   private readonly onAccountChanged: () => void;
+  private readonly platform: string | null;
   private request!: ReturnType<typeof accountFetcher>;
 
   constructor(emit: Emit, options: TransportOptions = {}) {
@@ -135,6 +139,7 @@ export class BrowserSimTransport {
     this.onDead = options.onDead ?? (() => {});
     this.accountId = options.accountId;
     this.onAccountChanged = options.onAccountChanged ?? (() => this.onDead(new AccountChangedError().message));
+    this.platform = options.platform ?? null;
   }
 
   private emit: Emit = (message) => {
@@ -198,6 +203,7 @@ export class BrowserSimTransport {
         if (!this.closed) onProgress(stage);
       }, {
         namespace: leaseHeld ? namespace : null,
+        platform: this.platform,
         signal: this.lifetime.signal,
         onDead: (reason) => {
           if (this.closed) return;
@@ -221,10 +227,14 @@ export class BrowserSimTransport {
     this.emit({
       type: "hello",
       robot: {
-        name: "OpenArm v1 (browser sim)",
-        platform: "wasm",
+        name: `${this.sim.displayName} (browser sim)`,
+        // The body's real catalog name, so the viewer can pick the right
+        // drawing; "this browser" as the host is what marks it a sim.
+        platform: this.sim.platform,
         version: this.sim.contract.version,
         gripper: this.sim.gripper,
+        catalog: this.sim.catalog,
+        kinematics: this.sim.kinematics as RobotInfo["kinematics"],
       },
       skills: this.sim.skills,
       unproven: this.sim.unproven,
@@ -329,7 +339,7 @@ export class BrowserSimTransport {
           this.emit({ type: "sync", skill: message.name, ok: false });
           return;
         }
-        this.emit({ type: "sync", skill: message.name, ok: await persistSkill(message.name, skill, this.request) });
+        this.emit({ type: "sync", skill: message.name, ok: await persistSkill(message.name, skill, this.request, this.sim?.platform) });
         return;
       }
     }
@@ -441,7 +451,7 @@ export class BrowserSimTransport {
             description: describedAs(String(args.code ?? "")),
           };
           this.saved.set(skill, revision);
-          void persistSkill(skill, revision, this.request).then((ok) =>
+          void persistSkill(skill, revision, this.request, this.sim?.platform).then((ok) =>
             this.emit({ type: "sync", skill, ok }),
           );
         }

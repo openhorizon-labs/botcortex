@@ -14,6 +14,35 @@ export type RobotInfo = {
    *  mapping jointmap.py owns — right for openarm_v1 and silently wrong for
    *  whatever platform comes next. */
   gripper?: { minDeg: number; maxDeg: number; travelM: number };
+  /** The bodies this runtime can boot, for a picker. Only the browser sim
+   *  sends one; a physical robot IS its platform. */
+  catalog?: { name: string; displayName: string }[];
+  /** The loaded model's kinematic tree and primitive geometry, for bodies
+   *  the viewer has no URDF for. From the MuJoCo model itself. */
+  kinematics?: Kinematics | null;
+};
+
+export type KinematicJoint = { name: string; type: "hinge" | "slide" | "other"; axis: number[]; pos: number[] };
+export type KinematicGeom = {
+  type: "sphere" | "capsule" | "cylinder" | "box";
+  size: number[];
+  pos: number[];
+  quat: number[];
+  rgba: number[];
+};
+export type KinematicBody = {
+  name: string;
+  parent: string;
+  pos: number[];
+  quat: number[];
+  joints: KinematicJoint[];
+  geoms: KinematicGeom[];
+};
+/** `drive[arm][joint]` says how runtime degrees reach each model joint:
+ *  qpos = a * deg + b, measured off the runtime's own JointMap. */
+export type Kinematics = {
+  bodies: KinematicBody[];
+  drive: Record<string, Record<string, { joint: string; a: number; b: number }[]>>;
 };
 
 export type PlanStep = {
@@ -168,6 +197,10 @@ export function parseRobotMessage(raw: string): RobotMessage | null {
           finite(msg.robot.gripper.minDeg) && finite(msg.robot.gripper.maxDeg) &&
           msg.robot.gripper.maxDeg > msg.robot.gripper.minDeg &&
           finite(msg.robot.gripper.travelM) && msg.robot.gripper.travelM > 0)) &&
+        (msg.robot.catalog === undefined || (Array.isArray(msg.robot.catalog) &&
+          msg.robot.catalog.every((entry: unknown) => record(entry) && text(entry.name) && text(entry.displayName)))) &&
+        (msg.robot.kinematics === undefined || msg.robot.kinematics === null ||
+          (record(msg.robot.kinematics) && Array.isArray(msg.robot.kinematics.bodies) && record(msg.robot.kinematics.drive))) &&
         strings(msg.skills) && optional("unproven", strings) && optional("fixtures", scene) &&
         ["stopped", "resettable", "paired", "halfPaired"].every((key) => optional(key, bool));
       break;

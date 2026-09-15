@@ -44,7 +44,15 @@ export type WorkerRequest =
   /** `namespace` is the signed-in account's id, or null for a session-only
    *  robot. Skills and episodes are mounted from IndexedDB under it, so two
    *  accounts on one browser never read each other's files. */
-  | { id: number; type: "boot"; namespace: string | null }
+  | {
+      id: number;
+      type: "boot";
+      namespace: string | null;
+      /** Which body to simulate — a name from the runtime's catalog. Null
+       *  or unknown boots the default (openarm_v1); the hello names the
+       *  catalog so the picker only offers what this wheel can load. */
+      platform?: string | null;
+    }
   | { id: number; type: "callTool"; name: string; args: Record<string, unknown> }
   | { id: number; type: "reset" }
   | {
@@ -135,7 +143,7 @@ async function mountMemory(namespace: string | null) {
   }
 }
 
-async function boot(namespace: string | null) {
+async function boot(namespace: string | null, platform: string | null = null) {
   progress("Starting Python");
   const { loadPyodide } = await import(
     /* webpackIgnore: true */ /* turbopackIgnore: true */ PYODIDE_ENTRY
@@ -164,20 +172,33 @@ sys.path.insert(0, "/pkg")
   mj = await mujocoFactory();
 
   progress("Loading the arm");
+  // Which body. The runtime reads BOTCORTEX_PLATFORM once, when its config
+  // module is first imported, so the choice has to land before anything
+  // below touches botcortex.config. Only bodies whose model ships in the
+  // wheel and parses in WASM are offered; anything else is the default.
+  py.globals.set("wanted_platform", platform);
+  const [modelDir, worldFile, catalogJson]: [string, string, string] = JSON.parse(
+    py.runPython(`
+import json, os
+from botcortex.platform import available_platforms, load_platform
+_catalog = [
+    {"name": p.name, "displayName": p.display_name}
+    for p in (load_platform(n) for n in available_platforms())
+    if p.browser_capable and p.model_available
+]
+_names = {c["name"] for c in _catalog}
+os.environ["BOTCORTEX_PLATFORM"] = wanted_platform if wanted_platform in _names else "openarm_v1"
+from botcortex import config
+_world = config.PLATFORM.world_path
+json.dumps([str(_world.parent), _world.name, json.dumps(_catalog)])
+`),
+  );
   // The model rides in the same wheel as the code, so they cannot disagree.
   // The two WASM modules have separate filesystems, hence the copy.
   // Ask the PLATFORM which file to load, rather than naming one here. The
   // workcell (table, trays, blocks) lives in scene.xml and `<include>`s the
   // vendored arm; hardcoding the arm would silently give the browser a robot
   // with nothing to manipulate while the runtime had a full workcell.
-  const [modelDir, worldFile]: [string, string] = JSON.parse(
-    py.runPython(`
-import json, pathlib
-from botcortex import config
-_world = config.PLATFORM.world_path
-json.dumps([str(_world.parent), _world.name])
-`),
-  );
   const assets: string[] = JSON.parse(
     py.runPython(`
 import json, pathlib
@@ -235,8 +256,96 @@ import pathlib, botcortex
 (pathlib.Path(botcortex.__file__).parent / "agent_contract.json").read_text()
 `),
     memory: { durable, error: memoryError },
+    platform: py.runPython(`config.PLATFORM.name`) as string,
+    displayName: py.runPython(`config.PLATFORM.display_name`) as string,
+    catalog: JSON.parse(catalogJson),
+    kinematics: kinematics(),
     ...snapshot(),
   };
+}
+
+/**
+ * The robot's kinematic tree and primitive geometry, straight from the loaded
+ * MuJoCo model, for a viewer that has no URDF for this body.
+ *
+ * Bodies come in MuJoCo's order (parents first) with their pose in the
+ * parent's frame, their joints (axis and anchor in the body frame), and their
+ * primitive geoms — meshes are skipped, which is why the OpenArm keeps its
+ * URDF path. `drive` says how each runtime joint (degrees, per arm) reaches
+ * each model joint's qpos: q = a * deg + b, measured off JointMap rather than
+ * re-derived here, so the browser cannot disagree with the runtime about
+ * which way a jaw closes. Null when this WASM build does not expose the
+ * fields, and the viewer then says so instead of drawing a guess.
+ */
+function kinematics(): unknown {
+  try {
+    return JSON.parse(
+      py.runPython(`
+import json
+from botcortex import config, mjcompat, scene
+
+_mj, _model = js_mujoco, js_model
+def _name(kind, i):
+    return _mj.mj_id2name(_model, mjcompat.enum_value(getattr(_mj.mjtObj, kind)), i) or ""
+_robot = scene.robot_bodies(_mj, _model, config.PLATFORM.sim)
+_nbody = int(_model.nbody)
+_body_names = {i: _name("mjOBJ_BODY", i) for i in range(_nbody)}
+_joints_by_body, _qpos_joint = {}, {}
+for j in range(int(_model.njnt)):
+    _b, _t = int(_model.jnt_bodyid[j]), int(_model.jnt_type[j])
+    _entry = {
+        "name": _name("mjOBJ_JOINT", j),
+        "type": {2: "slide", 3: "hinge"}.get(_t, "other"),
+        "axis": mjcompat.row(_model.jnt_axis, j, 3),
+        "pos": mjcompat.row(_model.jnt_pos, j, 3),
+    }
+    _joints_by_body.setdefault(_b, []).append(_entry)
+    _qpos_joint[int(_model.jnt_qposadr[j])] = _entry["name"]
+_GEOM = {2: "sphere", 3: "capsule", 5: "cylinder", 6: "box"}
+_geoms_by_body = {}
+for g in range(int(_model.ngeom)):
+    _b, _t = int(_model.geom_bodyid[g]), int(_model.geom_type[g])
+    if _t not in _GEOM:
+        continue
+    _mat = int(_model.geom_matid[g])
+    _rgba = mjcompat.row(_model.mat_rgba, _mat, 4) if _mat >= 0 else mjcompat.row(_model.geom_rgba, g, 4)
+    _geoms_by_body.setdefault(_b, []).append({
+        "type": _GEOM[_t],
+        "size": mjcompat.row(_model.geom_size, g, 3),
+        "pos": mjcompat.row(_model.geom_pos, g, 3),
+        "quat": mjcompat.row(_model.geom_quat, g, 4),
+        "rgba": _rgba,
+    })
+_bodies = []
+for i in range(1, _nbody):
+    _n = _body_names[i]
+    if _n not in _robot:
+        continue
+    _bodies.append({
+        "name": _n,
+        "parent": _body_names[int(_model.body_parentid[i])],
+        "pos": mjcompat.row(_model.body_pos, i, 3),
+        "quat": mjcompat.row(_model.body_quat, i, 4),
+        "joints": _joints_by_body.get(i, []),
+        "geoms": _geoms_by_body.get(i, []),
+    })
+_jm = session.robot.joints
+_drive = {}
+for _arm in config.ARMS:
+    _drive[_arm] = {}
+    for _joint in config.JOINT_LIMITS[_arm]:
+        _w0, _w1 = _jm.qpos_writes(_arm, _joint, 0.0), _jm.qpos_writes(_arm, _joint, 10.0)
+        _drive[_arm][_joint] = [
+            {"joint": _qpos_joint.get(_i0, ""), "a": (_v1 - _v0) / 10.0, "b": _v0}
+            for (_i0, _v0), (_i1, _v1) in zip(_w0, _w1)
+        ]
+json.dumps({"bodies": _bodies, "drive": _drive})
+`),
+    );
+  } catch (error) {
+    console.warn("[botcortex] no kinematic tree from this build", error);
+    return null;
+  }
 }
 
 /** Tools whose side effects live in /data and must reach IndexedDB. */
@@ -248,7 +357,7 @@ function snapshot() {
     state: JSON.parse(
       py.runPython(`
 import json
-json.dumps({arm: session.robot.get_positions(arm) for arm in ("right", "left")})
+json.dumps({arm: session.robot.get_positions(arm) for arm in config.ARMS})
 `),
     ),
     // The workcell, split the way the protocol splits it: objects move and
@@ -312,7 +421,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     let result: unknown;
     switch (request.type) {
       case "boot":
-        result = await boot(request.namespace);
+        result = await boot(request.namespace, request.platform ?? null);
         break;
       case "callTool": {
         const output = String(session.call_tool(request.name, py.toPy(request.args)));

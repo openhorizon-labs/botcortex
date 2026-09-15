@@ -22,9 +22,12 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   Box3,
   BoxGeometry,
+  type BufferGeometry,
+  CapsuleGeometry,
   Color,
+  CylinderGeometry,
   DoubleSide,
-  type Group,
+  Group,
   LoadingManager,
   type Material,
   MathUtils,
@@ -32,12 +35,13 @@ import {
   MeshStandardMaterial,
   type Object3D,
   Quaternion,
+  SphereGeometry,
   type Texture,
   Vector3,
 } from "three";
 import URDFLoader, { type URDFRobot } from "urdf-loader";
 
-import type { JointState, SceneBodies } from "@/lib/robot/protocol";
+import type { JointState, Kinematics, SceneBodies } from "@/lib/robot/protocol";
 import { useRobot } from "@/components/app/robot-provider";
 
 /**
@@ -233,6 +237,139 @@ function Workcell({
   return <group ref={group} rotation={[-Math.PI / 2, 0, 0]} />;
 }
 
+/**
+ * A robot drawn from its MuJoCo model rather than a URDF: the RoArm, and any
+ * body the wheel ships without meshes.
+ *
+ * The tree comes from the runtime in the hello (worker.ts `kinematics()`):
+ * bodies with their pose in the parent's frame, joints with an axis and an
+ * anchor in the body frame, primitive geoms. Each joint becomes a pivot group
+ * at its anchor whose rotation (hinge) or offset (slide) is driven from the
+ * joint stream through `drive` — q = a·deg + b, the same numbers the runtime's
+ * JointMap writes into physics, so the drawn jaw closes the way the simulated
+ * one does. Eased with the same CATCH_UP as the URDF arm, for the same reason.
+ *
+ * MuJoCo's capsule and cylinder axes are z; three.js's are y. Each such geom
+ * sits in a group turned +90° about x, so its size and pose stay exactly as
+ * the model states them and nothing here does frame arithmetic by hand.
+ */
+function PrimitiveRobot({
+  stateRef,
+  kinematics,
+}: {
+  stateRef: React.RefObject<JointState | null>;
+  kinematics: Kinematics;
+}) {
+  const root = useRef<Group>(null);
+  /** joint name → its pivot, anchor, axis and type, for the per-frame drive. */
+  const pivots = useRef(new Map<string, { pivot: Group; anchor: Vector3; axis: Vector3; slide: boolean }>());
+  const shown = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    const host = root.current;
+    if (!host) return;
+    const groups = new Map<string, Object3D>([["world", host]]);
+    const owned: Object3D[] = [];
+    for (const body of kinematics.bodies) {
+      const parent = groups.get(body.parent) ?? host;
+      const frame = new Group();
+      frame.position.set(body.pos[0], body.pos[1], body.pos[2]);
+      frame.quaternion.set(body.quat[1], body.quat[2], body.quat[3], body.quat[0]);
+      parent.add(frame);
+      owned.push(frame);
+      // Joints nest: the innermost holds the geoms and the child bodies.
+      let inner: Object3D = frame;
+      for (const joint of body.joints) {
+        if (joint.type === "other") continue;
+        const anchor = new Vector3(joint.pos[0], joint.pos[1], joint.pos[2]);
+        const pivot = new Group();
+        pivot.position.copy(anchor);
+        const back = new Group();
+        back.position.copy(anchor).negate();
+        pivot.add(back);
+        inner.add(pivot);
+        pivots.current.set(joint.name, {
+          pivot,
+          anchor,
+          axis: new Vector3(joint.axis[0], joint.axis[1], joint.axis[2]).normalize(),
+          slide: joint.type === "slide",
+        });
+        inner = back;
+      }
+      for (const geom of body.geoms) {
+        let geometry: BufferGeometry;
+        let turned = false;
+        switch (geom.type) {
+          case "box":
+            geometry = new BoxGeometry(geom.size[0] * 2, geom.size[1] * 2, geom.size[2] * 2);
+            break;
+          case "sphere":
+            geometry = new SphereGeometry(geom.size[0], 24, 16);
+            break;
+          case "capsule":
+            geometry = new CapsuleGeometry(geom.size[0], geom.size[1] * 2, 6, 16);
+            turned = true;
+            break;
+          case "cylinder":
+            geometry = new CylinderGeometry(geom.size[0], geom.size[0], geom.size[1] * 2, 24);
+            turned = true;
+            break;
+        }
+        const mesh = new Mesh(
+          geometry,
+          new MeshStandardMaterial({
+            color: new Color(geom.rgba[0], geom.rgba[1], geom.rgba[2]),
+            roughness: 0.6,
+            metalness: 0.15,
+          }),
+        );
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        const placed = new Group();
+        placed.position.set(geom.pos[0], geom.pos[1], geom.pos[2]);
+        placed.quaternion.set(geom.quat[1], geom.quat[2], geom.quat[3], geom.quat[0]);
+        if (turned) mesh.rotation.x = Math.PI / 2;
+        placed.add(mesh);
+        inner.add(placed);
+      }
+      groups.set(body.name, inner);
+    }
+    const map = pivots.current;
+    return () => {
+      for (const node of owned) {
+        node.removeFromParent();
+        disposeTree(node);
+      }
+      map.clear();
+      shown.current.clear();
+    };
+  }, [kinematics]);
+
+  useFrame((_, delta) => {
+    const state = stateRef.current;
+    if (!state) return;
+    for (const [arm, joints] of Object.entries(state)) {
+      const drive = kinematics.drive[arm];
+      if (!drive) continue;
+      for (const [joint, deg] of Object.entries(joints)) {
+        for (const { joint: name, a, b } of drive[joint] ?? []) {
+          const entry = pivots.current.get(name);
+          if (!entry) continue;
+          const q = approach(shown.current, name, a * deg + b, delta);
+          if (entry.slide) {
+            entry.pivot.position.copy(entry.anchor).addScaledVector(entry.axis, q);
+          } else {
+            entry.pivot.quaternion.setFromAxisAngle(entry.axis, q);
+          }
+        }
+      }
+    }
+  });
+
+  // Z-up to Y-up on the root, exactly as the workcell does it.
+  return <group ref={root} rotation={[-Math.PI / 2, 0, 0]} />;
+}
+
 function ArmModel({
   stateRef,
   gripper,
@@ -403,14 +540,17 @@ export default function SimView() {
   // Read OUTSIDE the R3F Canvas boundary — the scene is its own React root.
   const { jointStateRef, objectsRef, fixturesRef, robot } = useRobot();
   const gripper = robot?.gripper ?? ASSUMED_GRIPPER;
-  // No robot yet: draw the arm as before. A robot that named a platform this
-  // model does not describe: draw its workcell, say so, and leave the arm out.
+  // No robot yet: draw the arm as before. A robot with a URDF here (the
+  // OpenArm and its twins) is drawn from it; any other body is drawn from
+  // the kinematic tree it sent, and only if it sent one — a robot the viewer
+  // cannot describe gets its workcell, a note, and no invented arm.
   const armSupported = !robot || ARM_PLATFORMS.has(robot.platform);
+  const kinematics = !armSupported ? (robot?.kinematics ?? null) : null;
   const [loadFailed, setLoadFailed] = useState(false);
 
   return (
     <div ref={containerRef} className="relative h-full w-full">
-      {!armSupported && (
+      {!armSupported && !kinematics && (
         <p
           role="status"
           className="pointer-events-none absolute left-3 top-3 z-10 rounded-lg border border-border bg-background/90 px-2.5 py-1.5 text-xs text-muted-foreground"
@@ -457,6 +597,7 @@ export default function SimView() {
         {armSupported && (
           <ArmModel stateRef={jointStateRef} gripper={gripper} onError={() => setLoadFailed(true)} />
         )}
+        {kinematics && <PrimitiveRobot stateRef={jointStateRef} kinematics={kinematics} />}
         <Workcell objectsRef={objectsRef} fixturesRef={fixturesRef} />
         <Grid
           args={[4, 4]}

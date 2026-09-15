@@ -31,6 +31,8 @@ import {
 } from "@/lib/robot/protocol";
 
 const STORAGE_KEY = "botcortex.robot";
+/** Which simulated body the owner last chose. A preference, not a pairing. */
+const SIM_PLATFORM_KEY = "botcortex.simPlatform";
 /** Retries for a robot that has ALREADY answered once — a Wi-Fi blip, a
  *  runtime restart. Patience is right there: the robot is real and coming back. */
 const MAX_RETRIES = 5;
@@ -130,8 +132,10 @@ type RobotContextValue = {
   newConversation: () => Promise<void>;
   openConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
-  /** Boot the robot INSIDE this tab — no runtime, no hardware. */
-  connectBrowserSim: () => Promise<void>;
+  /** Boot the robot INSIDE this tab — no runtime, no hardware. `platform`
+   *  picks a body from the runtime's catalog and is remembered; omitted, the
+   *  last choice (or the default) boots. */
+  connectBrowserSim: (platform?: string) => Promise<void>;
   /** Which stage the in-page robot is at while it loads, or null. */
   simBooting: string | null;
   /** Which model the last teach REALLY ran on — echoed by the robot, never
@@ -1083,8 +1087,13 @@ export function RobotProvider({ children, accountId = null }: { children: React.
    * is why it is never on the path of an owner who has real hardware — it
    * happens only when someone asks for it.
    */
-  const connectBrowserSim = useCallback(async () => {
+  const connectBrowserSim = useCallback(async (platform?: string) => {
     manualChoiceRef.current = true;
+    let chosen: string | null = platform ?? null;
+    try {
+      if (chosen) localStorage.setItem(SIM_PLATFORM_KEY, chosen);
+      else chosen = localStorage.getItem(SIM_PLATFORM_KEY);
+    } catch { /* optional */ }
     teardown();
     endpointRef.current = null;
     setError(null);
@@ -1103,6 +1112,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
       },
       {
         accountId,
+        platform: chosen,
         onAccountChanged: accountChanged,
         // The worker hung past its deadline or crashed (audit B05). The
         // transport has already closed it; this is the connection dying.

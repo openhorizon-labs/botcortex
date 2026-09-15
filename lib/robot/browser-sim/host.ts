@@ -96,6 +96,8 @@ interface ToolReply {
 export type BrowserSimOptions = {
   /** The account to mount memory under, or null for session-only. */
   namespace?: string | null;
+  /** Which body to simulate, by catalog name. Null boots the default. */
+  platform?: string | null;
   signal?: AbortSignal;
   /** Called once if the worker dies or hangs past a deadline, after every
    *  pending call has been rejected. The transport reports it upward. */
@@ -127,6 +129,14 @@ export class BrowserSim {
   contract!: AgentContract;
   /** How the robot's files are kept, as the worker reported at boot. */
   memory: MemoryReport = { durable: false };
+  /** The body that actually booted (the worker falls back to the default
+   *  for a name it cannot load), its display name, and the bodies this
+   *  wheel can boot in a browser. */
+  platform = "openarm_v1";
+  displayName = "OpenArm v1";
+  catalog: { name: string; displayName: string }[] = [];
+  /** The loaded model's kinematic tree for bodies without a URDF, or null. */
+  kinematics: unknown = null;
   private onDead: (reason: string) => void = () => {};
   private deadReported = false;
   private detachAbort: (() => void) | null = null;
@@ -175,7 +185,7 @@ export class BrowserSim {
       this.die(event.message || "the robot's thread stopped");
     };
 
-    const booted = await this.ask({ type: "boot", namespace: options.namespace ?? null });
+    const booted = await this.ask({ type: "boot", namespace: options.namespace ?? null, platform: options.platform ?? null });
     this.contract = parseContract(booted.contract);
     this.state = booted.state;
     this.skills = booted.skills;
@@ -184,6 +194,10 @@ export class BrowserSim {
     this.gripper = booted.gripper;
     this.scene = booted.scene;
     this.memory = booted.memory ?? { durable: false };
+    this.platform = booted.platform ?? "openarm_v1";
+    this.displayName = booted.displayName ?? "OpenArm v1";
+    this.catalog = booted.catalog ?? [];
+    this.kinematics = booted.kinematics ?? null;
   }
 
   /** Reject everything in flight, terminate, and say so once. */
