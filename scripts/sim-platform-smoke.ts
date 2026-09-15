@@ -38,6 +38,18 @@ try {
       const saved = await ask({ type: "callTool", name: "save_skill", args: { name: "portable_pick_and_place", code: source } });
       if (!saved.output.startsWith("saved ")) throw new Error(saved.output);
       const run = await ask({ type: "callTool", name: "run_skill", args: { name: "portable_pick_and_place", params_json: "{}" } });
+      // A motion-only skill: the report must say what the ARM did, never
+      // "NOTHING MOVED" — the wording that once convinced an agent a wave
+      // it had just performed never happened.
+      const wave = `META = {"name": "wave_check", "description": "wave", "params": {}}
+def run(ctx, **params):
+    arm = ctx.arms[0]
+    here = ctx.get_positions(arm)
+    ctx.move_to(arm, {"j2": here["j2"] + 20.0})
+    ctx.move_to(arm, {"j2": here["j2"]})
+`;
+      await ask({ type: "callTool", name: "save_skill", args: { name: "wave_check", code: wave } });
+      const waved = await ask({ type: "callTool", name: "run_skill", args: { name: "wave_check", params_json: "{}" } });
       const contract = JSON.parse(boot.contract);
       return {
         version: contract.version,
@@ -55,6 +67,7 @@ try {
         after: run.scene.objects,
         output: run.output,
         motionFrames: run.motion.length,
+        waveOutput: waved.output,
       };
     } finally {
       worker.terminate();
@@ -65,6 +78,7 @@ try {
   assert(result.promptNamesBody && result.promptArms, "the agent contract does not describe the booted body");
   assert(result.output.startsWith("Rehearsed clean"), result.output);
   assert(result.motionFrames > 0, "successful task returned no motion");
+  assert(/swept j2 \d+°/.test(result.waveOutput) && !result.waveOutput.includes("NOTHING MOVED"), `wave reported: ${result.waveOutput}`);
   const red = result.after.red_block.position as number[];
   const tray = result.tray as number[];
   assert(Math.abs(red[0] - tray[0]) < 0.085 && Math.abs(red[1] - tray[1]) < 0.085 && red[2] > tray[2], `red ended at ${red}, tray at ${tray}`);
