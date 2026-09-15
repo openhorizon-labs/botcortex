@@ -233,6 +233,7 @@ export class BrowserSimTransport {
         platform: this.sim.platform,
         version: this.sim.contract.version,
         gripper: this.sim.gripper,
+        arms: Object.keys(this.sim.state),
         catalog: this.sim.catalog,
         kinematics: this.sim.kinematics as RobotInfo["kinematics"],
       },

@@ -178,3 +178,9 @@ test("a hello may carry the sim's body catalog and a kinematic tree, and they ar
   expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, catalog: [{ name: "x" }] } }))).toBeNull();
   expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, kinematics: { drive: {} } } }))).toBeNull();
 });
+
+test("a hello may name the body's arms, and rejects a malformed list", () => {
+  const hello = { type: "hello" as const, robot: { name: "RoArm (browser sim)", platform: "roarm_m2", arms: ["arm"] }, skills: [] };
+  expect(parseRobotMessage(JSON.stringify(hello))).toEqual(hello);
+  expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, arms: "arm" } }))).toBeNull();
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -103,16 +103,42 @@ type PairedRobot = {
  * they paid credit to find out. Every entry below names something that exists
  * in the scene the robot reports.
  */
-const SUGGESTED = [
-  { icon: Blocks, label: "Put the red block in the right tray" },
-  { icon: Layers, label: "Move the blue block next to the red one" },
-  { icon: Hand, label: "Wave the right arm" },
-  { icon: Bot, label: "Open and close the right gripper twice" },
-  { icon: Blocks, label: "Put the green block in the left tray" },
-  { icon: Layers, label: "Line the three blocks up in a row" },
-  { icon: Hand, label: "Raise both arms together, slowly" },
-  { icon: Bot, label: "Hold the red block up, then put it back" },
-];
+type Suggestion = { icon: typeof Blocks; label: string };
+
+/**
+ * Phrased for the body that is connected. The copy was written on the
+ * bimanual OpenArm — "the right arm", "the left tray" — and offered
+ * unchanged to a one-armed RoArm with one tray, so its first click was a task
+ * naming an arm it does not have. Arms come from the hello; trays from the
+ * fixtures the robot reports; with no robot yet, the OpenArm wording stands.
+ */
+function suggestionsFor(arms: string[], fixtures: string[]): Suggestion[] {
+  const single = arms.length === 1;
+  const arm = single ? "the arm" : `the ${arms[0]} arm`;
+  const gripper = single ? "the gripper" : `the ${arms[0]} gripper`;
+  const trays = fixtures.filter((name) => name.startsWith("tray"));
+  const trayName = (name: string) => name.replace(/^tray_?/, "").replace(/_/g, " ").trim();
+  const first = trays[0] ? `the ${trayName(trays[0])} tray` : "the right tray";
+  const second = trays[1] ? `the ${trayName(trays[1])} tray` : null;
+  const list: Suggestion[] = [
+    { icon: Blocks, label: `Put the red block in ${first}` },
+    { icon: Layers, label: "Move the blue block next to the red one" },
+    { icon: Hand, label: `Wave ${arm}` },
+    { icon: Bot, label: `Open and close ${gripper} twice` },
+    second
+      ? { icon: Blocks, label: `Put the green block in ${second}` }
+      : { icon: Blocks, label: `Put the green block in ${first}, then the blue one` },
+    { icon: Layers, label: "Line the three blocks up in a row" },
+    single
+      ? { icon: Hand, label: "Lift the arm high, then bring it back down slowly" }
+      : { icon: Hand, label: "Raise both arms together, slowly" },
+    { icon: Bot, label: "Hold the red block up, then put it back" },
+  ];
+  return list;
+}
+
+const DEFAULT_ARMS = ["right", "left"];
+const DEFAULT_FIXTURES = ["table", "tray_right", "tray_left"];
 
 /** How many of them the panel shows at once. */
 const SUGGESTED_SHOWN = 4;
@@ -131,7 +157,7 @@ function AppInner() {
   const toggleSim = () => setSimOpen((open) => !open);
 
   const {
-    status, robot, skills, unproven, activity, messages, sendChat, runSkill, connect, host,
+    status, robot, skills, unproven, activity, messages, sendChat, runSkill, connect, host, fixturesRef,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
     credit,
     stopped,
@@ -141,6 +167,14 @@ function AppInner() {
     // reset them out from under the owner.
     simOpen, setSimOpen, dryRun, setDryRun, model, setModel,
   } = useRobot();
+
+  // Re-phrased whenever a different body says hello; the fixtures ride in the
+  // same message, so reading the ref here is current.
+  const suggested = useMemo(
+    () => suggestionsFor(robot?.arms ?? DEFAULT_ARMS, Object.keys(fixturesRef.current ?? {}).length ? Object.keys(fixturesRef.current ?? {}) : DEFAULT_FIXTURES),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [robot],
+  );
   const [paired, setPaired] = useState<PairedRobot[]>([]);
 
   // The robots this account has paired via `botcortex login`. Listing the real
@@ -673,8 +707,8 @@ function AppInner() {
                 </div>
                 <CollapsibleContent>
                   <div className="mt-1 flex flex-col divide-y divide-border">
-                    {Array.from({ length: SUGGESTED_SHOWN }, (_, i) => SUGGESTED[
-                      (suggestedFrom + i) % SUGGESTED.length
+                    {Array.from({ length: SUGGESTED_SHOWN }, (_, i) => suggested[
+                      (suggestedFrom + i) % suggested.length
                     ]).map(({ icon: Icon, label }) => (
                       <button
                         key={label}

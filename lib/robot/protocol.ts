@@ -14,6 +14,10 @@ export type RobotInfo = {
    *  mapping jointmap.py owns — right for openarm_v1 and silently wrong for
    *  whatever platform comes next. */
   gripper?: { minDeg: number; maxDeg: number; travelM: number };
+  /** The arm names this body has — ("right", "left") on an OpenArm, ("arm",)
+   *  on a RoArm — so the UI can phrase suggestions for the body in front of
+   *  the owner instead of for the one the copy was written on. */
+  arms?: string[];
   /** The bodies this runtime can boot, for a picker. Only the browser sim
    *  sends one; a physical robot IS its platform. */
   catalog?: { name: string; displayName: string }[];
@@ -201,6 +205,7 @@ export function parseRobotMessage(raw: string): RobotMessage | null {
           finite(msg.robot.gripper.minDeg) && finite(msg.robot.gripper.maxDeg) &&
           msg.robot.gripper.maxDeg > msg.robot.gripper.minDeg &&
           finite(msg.robot.gripper.travelM) && msg.robot.gripper.travelM > 0)) &&
+        (msg.robot.arms === undefined || strings(msg.robot.arms)) &&
         (msg.robot.catalog === undefined || (Array.isArray(msg.robot.catalog) &&
           msg.robot.catalog.every((entry: unknown) => record(entry) && text(entry.name) && text(entry.displayName)))) &&
         (msg.robot.kinematics === undefined || msg.robot.kinematics === null ||
