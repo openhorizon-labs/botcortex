@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Globe, GlobeLock, Loader2, MoreHorizontal, Play } from "lucide-react";
+import { Check, Globe, Loader2, MoreHorizontal, Play } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,13 +14,19 @@ import { SidebarMenuAction } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
 /**
- * The hover menu on a skill row: run it, or put it on the public registry.
+ * The hover menu on a skill row: run it, and see where it stands on the
+ * public registry.
  *
- * Publishing is the owner's call and only ever offered for a skill that has
- * run (the api refuses otherwise, and so does this menu, with the reason).
- * State is read when the menu opens rather than kept in the provider: it
- * is one small request per open, and the sidebar never has to track a
- * flag that lives in the account, not on the robot.
+ * Publishing is automatic and not reversible here. A skill joins the registry
+ * the first time it runs, and taking one down is a paid capability, so the
+ * control is shown disabled rather than hidden: an owner should be able to
+ * see that the choice exists and is not theirs yet, which a missing menu item
+ * cannot say. The api refuses the same thing with the same reason, so this is
+ * not a lock that a curl gets past.
+ *
+ * State is read when the menu opens rather than kept in the provider: it is
+ * one small request per open, and the sidebar never has to track a flag that
+ * lives in the account, not on the robot.
  */
 export function SkillRowMenu({
   name,
@@ -53,15 +59,18 @@ export function SkillRowMenu({
     }
   }
 
-  async function toggle() {
-    if (!platform || working) return;
+  /** Only ever puts a skill BACK. A re-taught skill is unlisted by the
+   *  runtime until its new version runs; this is the manual nudge for that
+   *  case. Withdrawing is refused by the api. */
+  async function relist() {
+    if (!platform || working || published) return;
     setWorking(true);
     setNote(null);
     try {
       const res = await fetch(`/api/skills/${encodeURIComponent(name)}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform, published: !published }),
+        body: JSON.stringify({ platform, published: true }),
       });
       const body = (await res.json().catch(() => ({}))) as { published?: boolean; error?: string };
       if (!res.ok) {
@@ -69,7 +78,7 @@ export function SkillRowMenu({
         return;
       }
       setPublished(body.published === true);
-      setNote(body.published ? "Listed on the public registry." : "Removed from the public registry.");
+      setNote("Listed on the public registry.");
     } catch {
       setNote("Could not reach the registry.");
     } finally {
@@ -104,13 +113,13 @@ export function SkillRowMenu({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          disabled={unproven || working || !platform || published === null}
+          disabled={published === true || unproven || working || !platform || published === null}
           onSelect={(event) => {
             event.preventDefault();
-            void toggle();
+            void relist();
           }}
         >
-          {working ? <Loader2 className="animate-spin" /> : published ? <GlobeLock /> : <Globe />}
+          {working ? <Loader2 className="animate-spin" /> : <Globe />}
           {published ? "Remove from public registry" : "Put back on public registry"}
         </DropdownMenuItem>
         <p className={cn("px-2 pt-1 pb-1.5 text-xs leading-relaxed text-muted-foreground", note && "text-foreground")}>
@@ -121,8 +130,8 @@ export function SkillRowMenu({
               : published === null
                 ? "Checking the registry…"
                 : published
-                  ? "Listed on the public registry at /skills, as every successful skill is."
-                  : "Taken down by you. Put it back on the public /skills page."}
+                  ? "Listed on the public registry at /skills, as every successful skill is. Taking one down comes with a paid plan."
+                  : "Unlisted until this version runs. Run it, or put it back now."}
         </p>
         {note?.startsWith("Listed") && <Check className="sr-only" />}
       </DropdownMenuContent>
