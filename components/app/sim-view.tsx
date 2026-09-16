@@ -42,7 +42,7 @@ import {
 } from "three";
 import URDFLoader, { type URDFRobot } from "urdf-loader";
 
-import type { JointState, Kinematics, SceneBodies } from "@/lib/robot/protocol";
+import type { JointState, Kinematics, SceneBodies, SceneBody } from "@/lib/robot/protocol";
 import { bodyFor } from "@/lib/robot/bodies";
 import { useRobot } from "@/components/app/robot-provider";
 
@@ -147,6 +147,15 @@ const sameTriple = (a: readonly number[], b: readonly number[]) =>
  * alone in a void while the simulation it was mirroring had a table with three
  * blocks on it, which made every manipulation task impossible to follow.
  */
+/** What this body looks like, as a key. Its own box, plus every part box —
+ *  so a container that gains or loses a wall is rebuilt rather than patched. */
+function shapeOf(body: SceneBody): string {
+  const parts = (body.parts ?? [])
+    .map((p) => `${p.size_m.join(",")}@${p.position.join(",")}`)
+    .join("|");
+  return `${body.size_m.join(",")}#${parts}`;
+}
+
 function Workcell({
   objectsRef,
   fixturesRef,
@@ -155,9 +164,10 @@ function Workcell({
   fixturesRef: React.RefObject<SceneBodies | null>;
 }) {
   const group = useRef<Group>(null);
-  /** Each drawn body with the size/colour it was built from, so a changed
-   *  report replaces the geometry instead of keeping a stale box. */
-  const drawn = useRef<Map<string, { mesh: Mesh; size: number[]; colour: number[] }>>(new Map());
+  /** Each drawn body with the shape it was built from, so a changed report
+   *  replaces the geometry instead of keeping a stale box. `shape` covers the
+   *  parts too, because a container's walls are part of what it looks like. */
+  const drawn = useRef<Map<string, { mesh: Object3D; shape: string; colour: number[] }>>(new Map());
 
   // Everything in the map is owned here; free it when the scene goes away.
   useEffect(() => {
@@ -185,32 +195,65 @@ function Workcell({
     for (const [name, body] of Object.entries(bodies)) {
       let entry = drawn.current.get(name);
       const fresh = !entry;
+      const shape = shapeOf(body);
+      if (entry && entry.shape !== shape) {
+        // The body is a different shape than what is drawn. Rebuilding beats
+        // patching: a tray that gained walls is not a resized box.
+        entry.mesh.removeFromParent();
+        disposeTree(entry.mesh);
+        drawn.current.delete(name);
+        entry = undefined;
+      }
       if (!entry) {
         // Built on first sight rather than from a fixed list: a platform with
         // a different workcell needs no change here.
-        const mesh = new Mesh(
-          new BoxGeometry(...body.size_m),
-          new MeshStandardMaterial({
-            color: new Color(body.colour[0], body.colour[1], body.colour[2]),
-            roughness: 0.75,
-            metalness: 0.02,
-          }),
-        );
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        entry = { mesh, size: [...body.size_m], colour: [...body.colour] };
+        //
+        // A body made of several boxes is drawn as several boxes. Without
+        // this a tray is its floor geom alone — a flat plate — and a tray and
+        // a shallow pocket render identically, which is exactly how they
+        // looked. Parts carry world positions; they are placed relative to the
+        // body origin so the body's own easing and rotation still apply.
+        const material = new MeshStandardMaterial({
+          color: new Color(body.colour[0], body.colour[1], body.colour[2]),
+          roughness: 0.75,
+          metalness: 0.02,
+        });
+        const box = (size: readonly number[]) => {
+          const mesh = new Mesh(new BoxGeometry(size[0], size[1], size[2]), material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          return mesh;
+        };
+        let object: Object3D;
+        if (body.parts && body.parts.length > 1) {
+          const shell = new Group();
+          for (const part of body.parts) {
+            const piece = box(part.size_m);
+            piece.position.set(
+              part.position[0] - body.position[0],
+              part.position[1] - body.position[1],
+              part.position[2] - body.position[2],
+            );
+            shell.add(piece);
+          }
+          object = shell;
+        } else {
+          object = box(body.size_m);
+        }
+        entry = { mesh: object, shape, colour: [...body.colour] };
         drawn.current.set(name, entry);
-        group.current.add(mesh);
-      } else {
-        if (!sameTriple(entry.size, body.size_m)) {
-          entry.mesh.geometry.dispose();
-          entry.mesh.geometry = new BoxGeometry(...body.size_m);
-          entry.size = [...body.size_m];
-        }
-        if (!sameTriple(entry.colour, body.colour)) {
-          (entry.mesh.material as MeshStandardMaterial).color.setRGB(body.colour[0], body.colour[1], body.colour[2]);
-          entry.colour = [...body.colour];
-        }
+        group.current.add(object);
+      } else if (!sameTriple(entry.colour, body.colour)) {
+        entry.mesh.traverse((child) => {
+          if (child instanceof Mesh) {
+            (child.material as MeshStandardMaterial).color.setRGB(
+              body.colour[0],
+              body.colour[1],
+              body.colour[2],
+            );
+          }
+        });
+        entry.colour = [...body.colour];
       }
       const mesh = entry.mesh;
       // MuJoCo quaternions are wxyz; three.js wants xyzw.

@@ -105,6 +105,17 @@ export type SceneBody = {
   orientation: [number, number, number, number];
   size_m: [number, number, number];
   colour: [number, number, number, number];
+  /**
+   * The boxes a container is actually built from, for drawing it honestly.
+   *
+   * `size_m` is the body's FIRST geom, which for a tray is its floor — that is
+   * deliberate, because `position[2] + size_m[2] / 2` is the surface things
+   * rest on and the runtime's placement checks read it that way. It also meant
+   * a tray and a shallow pocket drew as two identical grey plates, with
+   * nothing to say which was which. Present only for bodies made of more than
+   * one box; world positions, so no parent transform is needed.
+   */
+  parts?: { position: [number, number, number]; size_m: [number, number, number] }[];
 };
 export type SceneBodies = Record<string, SceneBody>;
 
@@ -196,7 +207,12 @@ const vector = (value: unknown, length: number) =>
   Array.isArray(value) && value.length === length && value.every(finite);
 const scene = (value: unknown): boolean => record(value) && Object.values(value).every((body) =>
   record(body) && vector(body.position, 3) && vector(body.orientation, 4) &&
-  vector(body.size_m, 3) && vector(body.colour, 4),
+  vector(body.size_m, 3) && vector(body.colour, 4) &&
+  (body.parts === undefined ||
+    (Array.isArray(body.parts) &&
+      body.parts.every((part: unknown) =>
+        record(part) && vector(part.position, 3) && vector(part.size_m, 3),
+      ))),
 );
 
 /** WebSocket JSON is untrusted at runtime, regardless of its TypeScript type. */
