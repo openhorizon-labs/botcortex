@@ -8,7 +8,7 @@
  */
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 
-import { BrowserSimTransport, transcriptOf } from "@/lib/robot/browser-sim/transport";
+import { BrowserSimTransport, shortBodyName, transcriptOf } from "@/lib/robot/browser-sim/transport";
 import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
 import type { ImportReport } from "@/lib/robot/browser-sim/worker";
 import type { RobotMessage } from "@/lib/robot/protocol";
@@ -398,4 +398,25 @@ test("a skill seen to run is marked proven in the registry; one the registry nev
     expect(calls).toEqual(["roarm_m2", "roarm_m2"]);
     expect(posted.at(-1)).toMatchObject({ name: "wave", platform: "roarm_m2", proven: true });
   } finally { transport.close(); }
+});
+
+test("a body's name drops the provenance its descriptor carries, and nothing else", () => {
+  // "Franka Emika Panda (MuJoCo Menagerie) (browser sim)" was 50 characters
+  // of two nested parentheticals, and it widened the connect dialog until the
+  // Disconnect button fell off the right edge. Where a model came from is
+  // credited on /skills; a robot's name is not the place for it.
+  expect(shortBodyName("Franka Emika Panda (MuJoCo Menagerie)")).toBe("Franka Emika Panda");
+  expect(shortBodyName("Trossen ViperX 300s (ALOHA, MuJoCo Menagerie)")).toBe("Trossen ViperX 300s");
+  expect(shortBodyName("SO-101 (LeRobot, MuJoCo Menagerie)")).toBe("SO-101");
+  // A parenthetical that is part of the name, not a source, stays: the
+  // OpenArm is bimanual and the RoArm comes in two variants, and dropping
+  // that would make two different bodies read the same.
+  expect(shortBodyName("OpenArm v1 (bimanual)")).toBe("OpenArm v1");
+  expect(shortBodyName("Waveshare RoArm-M2 (S/Pro)")).toBe("Waveshare RoArm-M2");
+  // Never strip to nothing.
+  expect(shortBodyName("(only a parenthetical)")).toBe("(only a parenthetical)");
+  expect(shortBodyName("Plain Name")).toBe("Plain Name");
+  // A body that never said what it is called still gets a name, because the
+  // alternative is a crash inside the hello.
+  expect(shortBodyName(undefined)).toBe("Robot");
 });

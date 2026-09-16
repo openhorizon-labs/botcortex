@@ -172,9 +172,14 @@ export function ConnectRobotDialog({
         </DialogHeader>
 
         {connected ? (
-          <div className="flex items-center justify-between rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">
+          /* min-w-0 twice and shrink-0 on the button, or `truncate` cannot
+             bite: a grid child and a flex child both default to min-width
+             auto, so a long robot name widened the row, the row widened the
+             dialog, and the description and the Disconnect button were
+             clipped off the right edge rather than the name being shortened. */
+          <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium" title={robot?.name ?? undefined}>
                 {robot?.name ?? "Robot"}
               </p>
               <p className="truncate text-xs text-muted-foreground">
@@ -184,7 +189,7 @@ export function ConnectRobotDialog({
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="shrink-0 gap-1.5"
               onClick={disconnect}
             >
               <Unplug className="size-3.5" /> Disconnect

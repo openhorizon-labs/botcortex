@@ -153,6 +153,20 @@ function describedAs(code: string): string {
   return match ? match[2] : "";
 }
 
+/**
+ * A body's name without the provenance its descriptor carries.
+ *
+ * Menagerie bodies are called things like "Franka Emika Panda (MuJoCo
+ * Menagerie)", which is right on the registry page and wrong in a robot's
+ * name: appending "(browser sim)" made two nested parentheticals and a
+ * 50-character name that blew the connect dialog out sideways. Where the
+ * model came from is provenance, and /skills is where it is credited.
+ */
+export function shortBodyName(displayName: string | undefined): string {
+  if (!displayName) return "Robot";
+  return displayName.replace(/\s*\([^()]*\)\s*$/, "").trim() || displayName;
+}
+
 export class BrowserSimTransport {
   private sim: BrowserSim | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
@@ -281,7 +295,7 @@ export class BrowserSimTransport {
     this.emit({
       type: "hello",
       robot: {
-        name: `${this.sim.displayName} (browser sim)`,
+        name: `${shortBodyName(this.sim.displayName)} (browser sim)`,
         // The body's real catalog name, so the viewer can pick the right
         // drawing; "this browser" as the host is what marks it a sim.
         platform: this.sim.platform,
