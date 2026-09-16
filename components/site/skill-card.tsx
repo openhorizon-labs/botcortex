@@ -24,7 +24,11 @@ export function SkillCard({ skill }: { skill: PublishedSkill }) {
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h3 className="font-mono text-[15px] font-medium text-foreground">{skill.name}</h3>
+            {/* break-all, not truncate: a snake_case name gives the browser no soft
+            wrap opportunity at "_", so without this the name paints straight out
+            of the card and takes the page into horizontal scroll. The name is
+            what identifies the skill, so it wraps rather than being cut. */}
+          <h3 className="min-w-0 break-all font-mono text-[15px] font-medium text-foreground">{skill.name}</h3>
             <span className="inline-flex items-center gap-1 rounded-md bg-surface-3 px-2 py-0.5 text-xs text-foreground/80">
               <Check className="size-3" /> ran on this robot
             </span>
@@ -44,7 +48,7 @@ export function SkillCard({ skill }: { skill: PublishedSkill }) {
       {open && (
         <div className="border-t border-border">
           <div className="flex items-center justify-between px-4 py-2 sm:px-5">
-            <span className="font-mono text-xs text-muted-foreground">{skill.name}.py</span>
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{skill.name}.py</span>
             <button
               type="button"
               onClick={() => {
@@ -53,7 +57,7 @@ export function SkillCard({ skill }: { skill: PublishedSkill }) {
                   setTimeout(() => setCopied(false), 1600);
                 }, () => {});
               }}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors duration-150 ease-standard hover:bg-surface-3 hover:text-foreground"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors duration-150 ease-standard hover:bg-surface-3 hover:text-foreground"
             >
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
               {copied ? "Copied" : "Copy"}

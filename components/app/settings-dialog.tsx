@@ -133,11 +133,14 @@ export function SettingsDialog({
                   </p>
                 </div>
                 <dl className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-lg border border-border p-3">
+                  {/* min-w-0: a grid item defaults to min-width auto, and this wrapper is
+                      a plain block, so the dd's `truncate` could never fire and a long
+                      account name overlapped the Tasks cell beside it. */}
+                  <div className="min-w-0 rounded-lg border border-border p-3">
                     <dt className="text-xs text-muted-foreground">Name</dt>
                     <dd className="truncate">{session?.user.name || "—"}</dd>
                   </div>
-                  <div className="rounded-lg border border-border p-3">
+                  <div className="min-w-0 rounded-lg border border-border p-3">
                     <dt className="text-xs text-muted-foreground">Tasks</dt>
                     <dd>{conversations.length}</dd>
                   </div>

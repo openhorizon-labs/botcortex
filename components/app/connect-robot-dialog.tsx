@@ -294,7 +294,7 @@ export function ConnectRobotDialog({
                 anything — a first-timer's first impression of the product was
                 "Lost connection to the robot." */}
             {error && !connecting && attempted && (
-              <p className="text-xs text-destructive">{error}</p>
+              <p className="break-words text-xs text-destructive">{error}</p>
             )}
           </>
         )}

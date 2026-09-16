@@ -8,7 +8,8 @@
  */
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 
-import { BrowserSimTransport, shortBodyName, transcriptOf } from "@/lib/robot/browser-sim/transport";
+import { BrowserSimTransport, transcriptOf } from "@/lib/robot/browser-sim/transport";
+import { shortBodyName } from "@/lib/robot/bodies";
 import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
 import type { ImportReport } from "@/lib/robot/browser-sim/worker";
 import type { RobotMessage } from "@/lib/robot/protocol";

@@ -90,10 +90,10 @@ export function StatusStrip() {
           <TooltipTrigger asChild>
             <Link
               href={`/app/tasks/${elsewhere.id}`}
-              className="flex h-6 items-center gap-1.5 rounded-full border border-border px-2 text-xs text-muted-foreground hover:text-foreground"
+              className="flex h-6 min-w-0 items-center gap-1.5 rounded-full border border-border px-2 text-xs text-muted-foreground hover:text-foreground"
             >
-              <span className="size-1.5 animate-pulse rounded-full bg-foreground" />
-              <span className="hidden sm:inline">working in {elsewhere.title ?? "another task"}</span>
+              <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-foreground" />
+              <span className="hidden truncate sm:inline">working in {elsewhere.title ?? "another task"}</span>
             </Link>
           </TooltipTrigger>
           <TooltipContent>The robot is still on a task you started elsewhere. Its events file under that task, not this one.</TooltipContent>

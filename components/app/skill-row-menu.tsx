@@ -107,7 +107,7 @@ export function SkillRowMenu({
         </SidebarMenuAction>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="right" align="start" className="w-64">
-        <DropdownMenuLabel className="font-mono text-xs font-normal text-muted-foreground">{name}</DropdownMenuLabel>
+        <DropdownMenuLabel className="break-all font-mono text-xs font-normal text-muted-foreground">{name}</DropdownMenuLabel>
         <DropdownMenuItem disabled={busy} onSelect={onRun}>
           <Play /> {busy ? "Robot busy" : "Run"}
         </DropdownMenuItem>

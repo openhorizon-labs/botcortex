@@ -102,7 +102,7 @@ export default async function Page() {
                       )}
                     </div>
                     <div className="mt-5 flex flex-wrap items-center gap-3">
-                      <h2 className="text-[26px] font-medium leading-tight tracking-tight sm:text-[28px]">
+                      <h2 className="break-words text-[26px] font-medium leading-tight tracking-tight sm:text-[28px]">
                         {arm.displayName}
                       </h2>
                       <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm">

@@ -73,6 +73,22 @@ export const MESH_CREDITS: Record<string, { source: string; licence: string; url
   },
 };
 
+/**
+ * A body's name without the provenance its descriptor carries.
+ *
+ * Menagerie bodies are called things like "Franka Emika Panda (MuJoCo
+ * Menagerie)", which is right on the registry page and wrong anywhere the
+ * name has to fit: a sidebar row, a dialog, a robot's own name. Where the
+ * model came from is credited in MESH_CREDITS. A parenthetical that
+ * DISTINGUISHES rather than attributes is kept, because "OpenArm v1
+ * (bimanual)" and "Waveshare RoArm-M2 (S/Pro)" would otherwise read the same
+ * as other bodies.
+ */
+export function shortBodyName(displayName: string | undefined): string {
+  if (!displayName) return "Robot";
+  return displayName.replace(/\s*\([^()]*\)\s*$/, "").trim() || displayName;
+}
+
 /** What the registry calls each kind of body. */
 export const KIND_LABELS: Record<string, string> = {
   arm: "Robot arm",

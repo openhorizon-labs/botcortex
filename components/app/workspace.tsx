@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  MonitorPlay,
   ArrowRight,
   Blocks,
   Bot,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { BOOTABLE_BODIES, shortBodyName } from "@/lib/robot/bodies";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -209,6 +211,7 @@ function AppInner() {
   const {
     status, robot, skills, unproven, activity, messages, sendChat, runSkill, connect, host, fixturesRef,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
+    connectBrowserSim,
     credit,
     stopped,
     pairing,
@@ -359,11 +362,15 @@ function AppInner() {
                       <span className="truncate text-sm">
                         {robot?.name ?? "No robot"}
                       </span>
-                      <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                      {/* The ellipsis has to live on a BLOCK. `truncate` on this
+                          flex span hid the overflow but drew no "…", so a robot
+                          reporting "running — a_long_skill_name" was cut
+                          mid-word and looked like a rendering bug. */}
+                      <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                         {connected ? (
                           <>
-                            <LiveDot />
-                            {activity}
+                            <LiveDot className="shrink-0" />
+                            <span className="truncate">{activity}</span>
                           </>
                         ) : status === "connecting" ? (
                           <>
@@ -382,58 +389,88 @@ function AppInner() {
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-52">
+                  {/* Hardware first, because a real arm in the room beats a
+                      simulated one and someone who owns one is looking for it.
+                      The simulated bodies are listed too: this menu used to
+                      say "None paired yet" to an owner who was, at that exact
+                      moment, connected to a robot in this tab. */}
+                  {paired.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        Your robots
+                      </DropdownMenuLabel>
+                      {paired.map((r) => {
+                        const live = Boolean(r.address) && host === r.address && connected;
+                        const stale = !live && isStale(r.lastSeenAt);
+                        return (
+                          <DropdownMenuItem
+                            key={r.id}
+                            className={cn("cursor-pointer", stale && "text-muted-foreground")}
+                            disabled={!r.address}
+                            onSelect={() => r.address && connect(r.address)}
+                          >
+                            <Bot className="size-4 shrink-0" />
+                            <span className="grid min-w-0 flex-1 leading-tight">
+                              <span className="truncate">
+                                {r.name} · {r.platform}
+                              </span>
+                              {/* A paired robot that has not announced itself
+                                  in an hour is listed as what it is — last
+                                  seen then — not as something to connect to. */}
+                              <span className="truncate text-[11px] text-muted-foreground">
+                                {live ? "connected" : seenAgo(r.lastSeenAt)}
+                              </span>
+                            </span>
+                            {live ? (
+                              <LiveDot />
+                            ) : (
+                              <button
+                                type="button"
+                                aria-label={`Forget ${r.name}`}
+                                title="Forget this robot"
+                                className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  event.preventDefault();
+                                  void forgetRobot(r.id);
+                                }}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    Robots
+                    Simulated in this tab
                   </DropdownMenuLabel>
-                  {paired.length === 0 ? (
-                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                      None paired yet — run{" "}
-                      <code className="font-mono">botcortex login</code> on your
-                      robot.
+                  {BOOTABLE_BODIES.map((body) => {
+                    const live = connected && host === "this browser" && robot?.platform === body.name;
+                    return (
+                      <DropdownMenuItem
+                        key={body.name}
+                        className="cursor-pointer"
+                        onSelect={() => {
+                          if (!live) void connectBrowserSim(body.name);
+                        }}
+                      >
+                        <MonitorPlay className="size-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {shortBodyName(body.displayName)}
+                        </span>
+                        {live && <LiveDot />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                  {paired.length === 0 && (
+                    <p className="px-2 pb-1 pt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                      Own an arm? Run{" "}
+                      <code className="font-mono">botcortex login</code> on it to
+                      pair it here.
                     </p>
-                  ) : (
-                    paired.map((r) => {
-                      const live = Boolean(r.address) && host === r.address && connected;
-                      const stale = !live && isStale(r.lastSeenAt);
-                      return (
-                        <DropdownMenuItem
-                          key={r.id}
-                          className={cn("cursor-pointer", stale && "text-muted-foreground")}
-                          disabled={!r.address}
-                          onSelect={() => r.address && connect(r.address)}
-                        >
-                          <Bot className="size-4 shrink-0" />
-                          <span className="grid min-w-0 flex-1 leading-tight">
-                            <span className="truncate">
-                              {r.name} · {r.platform}
-                            </span>
-                            {/* A paired robot that has not announced itself
-                                in an hour is listed as what it is — last
-                                seen then — not as something to connect to. */}
-                            <span className="truncate text-[11px] text-muted-foreground">
-                              {live ? "connected" : seenAgo(r.lastSeenAt)}
-                            </span>
-                          </span>
-                          {live ? (
-                            <LiveDot />
-                          ) : (
-                            <button
-                              type="button"
-                              aria-label={`Forget ${r.name}`}
-                              title="Forget this robot"
-                              className="rounded-md p-1 text-muted-foreground hover:bg-surface-3 hover:text-foreground"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                event.preventDefault();
-                                void forgetRobot(r.id);
-                              }}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => setConnectOpen(true)}>
@@ -874,7 +911,8 @@ function AppInner() {
                       setCmdOpen(false);
                     }}
                   >
-                    <MessageSquare /> {c.title ?? "Untitled task"}
+                    <MessageSquare className="shrink-0" />{" "}
+                    <span className="min-w-0 truncate">{c.title ?? "Untitled task"}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -891,7 +929,7 @@ function AppInner() {
                   setCmdOpen(false);
                 }}
               >
-                <Play /> {s}
+                <Play className="shrink-0" /> <span className="min-w-0 truncate">{s}</span>
               </CommandItem>
             ))}
           </CommandGroup>

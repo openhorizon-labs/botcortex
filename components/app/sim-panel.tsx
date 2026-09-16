@@ -56,12 +56,12 @@ export function SimPanel({
           </TooltipTrigger>
           <TooltipContent>Hide the simulation</TooltipContent>
         </Tooltip>
-        <span className="text-sm">{robot?.name ?? "Simulation"}</span>
+        <span className="min-w-0 truncate text-sm">{robot?.name ?? "Simulation"}</span>
         {simBooting && (
-          <span className="text-xs text-muted-foreground">{simBooting}…</span>
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{simBooting}…</span>
         )}
         {status === "connected" && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
             <LiveDot />
             {activity}
           </span>

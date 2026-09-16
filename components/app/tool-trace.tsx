@@ -116,9 +116,9 @@ export function ToolTrace({ call }: { call: ToolCall }) {
   return (
     <Tool defaultOpen={typeof code === "string"}>
       <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 p-3">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <WrenchIcon className="size-4 text-muted-foreground" />
-          <span className="font-medium text-sm">{describe(call)}</span>
+          <span className="truncate text-sm font-medium">{describe(call)}</span>
           <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
             {badge(call)}
           </Badge>

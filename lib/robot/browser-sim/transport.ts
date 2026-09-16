@@ -13,6 +13,7 @@
 
 import type { ChatHistoryEntry, ClientMessage, RobotInfo, RobotMessage } from "@/lib/robot/protocol";
 import { teach } from "@/lib/robot/agent/loop";
+import { shortBodyName } from "@/lib/robot/bodies";
 import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
 import type { RegistrySkill } from "@/lib/robot/browser-sim/worker";
 import { explain } from "@/lib/robot/agent/explain";
@@ -151,20 +152,6 @@ export type TransportOptions = {
 function describedAs(code: string): string {
   const match = /["']description["']\s*:\s*(["'])((?:\\.|(?!\1).)*)\1/.exec(code);
   return match ? match[2] : "";
-}
-
-/**
- * A body's name without the provenance its descriptor carries.
- *
- * Menagerie bodies are called things like "Franka Emika Panda (MuJoCo
- * Menagerie)", which is right on the registry page and wrong in a robot's
- * name: appending "(browser sim)" made two nested parentheticals and a
- * 50-character name that blew the connect dialog out sideways. Where the
- * model came from is provenance, and /skills is where it is credited.
- */
-export function shortBodyName(displayName: string | undefined): string {
-  if (!displayName) return "Robot";
-  return displayName.replace(/\s*\([^()]*\)\s*$/, "").trim() || displayName;
 }
 
 export class BrowserSimTransport {
