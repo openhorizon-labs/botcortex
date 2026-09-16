@@ -420,3 +420,32 @@ test("a body's name drops the provenance its descriptor carries, and nothing els
   // alternative is a crash inside the hello.
   expect(shortBodyName(undefined)).toBe("Robot");
 });
+
+test("interrupt stops a running task without latching the e-stop", async () => {
+  apiStub();
+  const sim = fakeSim();
+  let finish!: (reply: { plain: string; output: string; memory: null }) => void;
+  sim.runTool.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  spyOn(BrowserSim, "boot").mockResolvedValue(sim as unknown as BrowserSim);
+  const events: RobotMessage[] = [];
+  const transport = new BrowserSimTransport((event) => events.push(event));
+  try {
+    await transport.open();
+    // Nothing running: the control must not claim to have stopped anything.
+    expect(transport.interrupt()).toBe(false);
+
+    const job = transport.send({ type: "run_skill", name: "wave", dryRun: true }, "test");
+    expect(transport.interrupt()).toBe(true);
+    // The e-stop is the OTHER button. Interrupting must not latch it, or
+    // "not that task" would leave the robot needing a deliberate reset.
+    expect(sim.stop).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === "estop")).toBe(false);
+    expect(events.some((e) => e.type === "chat" && e.text.startsWith("Stopped."))).toBe(true);
+
+    finish({ plain: "Done", output: "ok", memory: null });
+    await job;
+    expect(events.at(-1)).toEqual({ type: "status", state: "idle" });
+    // And it is idle again, so a second press has nothing to stop.
+    expect(transport.interrupt()).toBe(false);
+  } finally { transport.close(); }
+});

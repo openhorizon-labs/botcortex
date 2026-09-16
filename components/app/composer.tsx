@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, ShieldCheck } from "lucide-react";
+import { ArrowUp, ShieldCheck, Square } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ export function Composer({
   onNeedRobot?: () => void;
   className?: string;
 }) {
-  const { activity, stopped, status } = useRobot();
+  const { activity, stopped, status, interrupt, interruptible } = useRobot();
   const connected = status === "connected";
   const blocked = stopped || activity.startsWith("teaching") || activity.startsWith("running");
   const needRobot = () => {
@@ -107,15 +107,33 @@ export function Composer({
           </Tooltip>
           <RanOnNotice />
         </div>
-        <Button
-          size="icon"
-          disabled={connected ? !value.trim() || blocked : false}
-          onClick={connected ? onSend : needRobot}
-          className="size-7 rounded-full"
-          aria-label="Send"
-        >
-          <ArrowUp className="size-4" />
-        </Button>
+        {/* While the agent is working this IS the stop button, the way it is
+            in every chat the owner already uses. Not the red STOP in the
+            header: that is the e-stop and it latches, which is right for "the
+            arm is about to hit something" and far too heavy for "not that
+            task". This one leaves the robot idle and ready. */}
+        {interruptible ? (
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={() => interrupt()}
+            className="size-7 rounded-full"
+            aria-label="Stop the robot's current task"
+            title="Stop this task"
+          >
+            <Square className="size-3 fill-current" />
+          </Button>
+        ) : (
+          <Button
+            size="icon"
+            disabled={connected ? !value.trim() || blocked : false}
+            onClick={connected ? onSend : needRobot}
+            className="size-7 rounded-full"
+            aria-label="Send"
+          >
+            <ArrowUp className="size-4" />
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -354,6 +354,26 @@ export class BrowserSimTransport {
     this.saved.clear();
   }
 
+  /**
+   * Interrupt the agent without latching the e-stop.
+   *
+   * STOP is the e-stop: it halts motion and latches, and clearing it is a
+   * deliberate act, which is right for "the arm is about to hit something"
+   * and much too heavy for "this is not the task I meant". The agent loop
+   * checks its signal between every turn and every tool call, so aborting it
+   * stops the authoring within a tool call rather than mid-motion, and the
+   * robot is idle and immediately usable afterwards.
+   *
+   * Returns false when there was nothing running, so the caller can leave the
+   * UI alone rather than reporting a stop that did not happen.
+   */
+  interrupt(): boolean {
+    if (this.closed || !this.busy || !this.abort) return false;
+    this.abort.abort();
+    this.emit({ type: "chat", text: "Stopped. The robot is idle — tell me what to do instead." });
+    return true;
+  }
+
   /** The runtime's REST STOP, which has no host here — same latch either way. */
   async stop() {
     const sim = this.sim;

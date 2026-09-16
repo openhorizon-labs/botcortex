@@ -182,6 +182,42 @@ async function mountMemory(namespace: string | null) {
   }
 }
 
+/**
+ * Fetch something the sim cannot boot without, and fail with a sentence a
+ * person can act on.
+ *
+ * A tab open across a deploy is the case this exists for. The wheel and the
+ * mesh bundles are named by version, so an old worker asks for a file that is
+ * no longer there, gets the 404 page, and hands Python an HTML document to
+ * unzip — which fails as `BadZipFile: File is not a zip file`, a message that
+ * reads like a corrupt download and sends you looking in the wrong place. It
+ * cost me an hour. The fix is not to make the file eternal; it is to say what
+ * actually happened.
+ */
+async function required(url: string, what: string): Promise<Uint8Array> {
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (cause) {
+    throw new Error(`Could not download ${what} (${url}): ${cause instanceof Error ? cause.message : cause}`);
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Could not download ${what}: ${url} returned ${response.status}. ` +
+        `This tab is running an older version of the app than the server. Reload the page.`,
+    );
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  // Every artifact here is a zip, and every zip starts "PK".
+  if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+    throw new Error(
+      `${url} did not return ${what} — the first bytes are not a zip. ` +
+        `This tab is probably running an older version of the app than the server. Reload the page.`,
+    );
+  }
+  return bytes;
+}
+
 async function boot(namespace: string | null, platform: string | null = null) {
   progress("Starting Python");
   const { loadPyodide } = await import(
@@ -190,8 +226,7 @@ async function boot(namespace: string | null, platform: string | null = null) {
   py = await loadPyodide({ indexURL: PYODIDE_URL });
 
   progress("Loading the robot runtime");
-  const wheel = new Uint8Array(await (await fetch(WHEEL_URL)).arrayBuffer());
-  py.FS.writeFile("/botcortex.whl", wheel);
+  py.FS.writeFile("/botcortex.whl", await required(WHEEL_URL, "the robot runtime"));
   // Unzipped rather than micropip-installed: a wheel is a zip, the package is
   // pure Python, and micropip would fetch itself from a CDN and then try to
   // resolve fastapi/uvicorn — which the browser does not use and cannot
@@ -223,8 +258,10 @@ sys.path.insert(0, "/pkg")
 from botcortex.platform import load_platform
 str(load_platform(bundle_platform).model_dir)
 `) as string;
-    const zip = new Uint8Array(await (await fetch(`/botcortex/models/${bundle.zip}`)).arrayBuffer());
-    py.FS.writeFile("/model.zip", zip);
+    py.FS.writeFile(
+      "/model.zip",
+      await required(`/botcortex/models/${bundle.zip}`, `the ${platform} meshes`),
+    );
     py.globals.set("model_dir", modelDir);
     py.runPython(`
 import pathlib, zipfile

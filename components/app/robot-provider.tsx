@@ -116,6 +116,14 @@ type RobotContextValue = {
   disconnect: () => void;
   sendChat: (text: string, dryRun: boolean, model?: string | null) => boolean;
   runSkill: (name: string, dryRun: boolean) => boolean;
+  /** Stop the agent mid-task WITHOUT latching the e-stop — "not that task",
+   *  not "the arm is about to hit something". False when nothing was running,
+   *  or when this robot cannot be interrupted (a real runtime authors on the
+   *  robot, and the wire protocol has no word for this yet). */
+  interrupt: () => boolean;
+  /** Whether `interrupt` would do anything right now, for a control that
+   *  should not offer itself when it cannot act. */
+  interruptible: boolean;
   stop: () => Promise<boolean>;
   /** True while the e-stop is latched — motion stays blocked until cleared. */
   stopped: boolean;
@@ -1268,6 +1276,26 @@ export function RobotProvider({ children, accountId = null }: { children: React.
     [send, appendTo, startRun],
   );
 
+  /**
+   * Stop the agent mid-task. Only the browser sim for now, and deliberately:
+   * there the authoring loop runs in this tab, so aborting its signal is the
+   * whole of it. A real runtime authors on the robot and `ClientMessage` has
+   * no word for "stop authoring" — adding one means a runtime change too, and
+   * a button that silently did nothing on hardware would be worse than one
+   * that does not appear.
+   */
+  const interrupt = useCallback(() => {
+    const stopped = simRef.current?.interrupt() ?? false;
+    if (stopped) {
+      workingRef.current = false;
+      setActivity("idle");
+      liveCallsRef.current.clear();
+      activeRunRef.current = null;
+    }
+    return stopped;
+  }, []);
+  const interruptible = Boolean(simRef.current) && activity !== "idle";
+
   /** Ask the browser sim to copy a saved skill to the registry again. */
   const retrySync = useCallback((name: string) => send({ type: "sync_skill", name }), [send]);
 
@@ -1420,6 +1448,8 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         host,
         error,
         activity,
+        interrupt,
+        interruptible,
         lastChat,
         messages,
         jointStateRef,
