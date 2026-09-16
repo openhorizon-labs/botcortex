@@ -18,10 +18,9 @@ export default function Page() {
         <div className="w-full max-w-sm">
           <h1 className="text-[28px] font-normal tracking-[-0.01em]">Sign in</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Waitlist access is invite-based — use the credentials we emailed
-            you. Not invited yet?{" "}
+            No account yet?{" "}
             <a href="/signup" className="underline underline-offset-2 hover:text-foreground">
-              Join the waitlist
+              Create one
             </a>
             .
           </p>

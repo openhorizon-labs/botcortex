@@ -19,15 +19,15 @@ export function FinalCta() {
           Teach your robot its first task tonight.
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted-foreground">
-          Join the waitlist and we&rsquo;ll onboard you as spots open — bring the job
-          you&rsquo;ve been putting off.
+          Create an account and a simulated arm boots in your browser — no
+          hardware needed. Bring the job you&rsquo;ve been putting off.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
           <Button
             asChild
             className="h-11 rounded-lg bg-foreground px-5 text-sm font-medium text-background hover:bg-foreground/90"
           >
-            <a href="/signup">Join the waitlist</a>
+            <a href="/signup">Start teaching a robot</a>
           </Button>
           <Button asChild variant="outline" className="h-11 rounded-lg border-border px-5 text-sm">
             <a href="/demo">Book a demo</a>

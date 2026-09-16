@@ -10,7 +10,8 @@ const COLUMNS = [
       { label: "Skill registry", href: "/skills" },
       { label: "Pricing", href: "/#pricing" },
       { label: "Book a demo", href: "/demo" },
-      { label: "Join the waitlist", href: "/signup" },
+      { label: "Sign up", href: "/signup" },
+      { label: "Sign in", href: "/signin" },
     ],
   },
   {

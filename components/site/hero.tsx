@@ -23,7 +23,7 @@ export function Hero() {
               asChild
               className="h-11 rounded-lg bg-foreground px-5 text-sm font-medium text-background hover:bg-foreground/90"
             >
-              <Link href="/signup">Join the waitlist</Link>
+              <Link href="/signup">Start teaching a robot</Link>
             </Button>
             <Button asChild variant="outline" className="h-11 rounded-lg border-border px-5 text-sm">
               <Link href="/demo">Book a demo</Link>

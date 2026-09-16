@@ -49,9 +49,17 @@ export function Nav() {
           <Button
             asChild
             size="sm"
+            variant="outline"
+            className="hidden h-9 rounded-lg px-3.5 text-sm sm:inline-flex"
+          >
+            <Link href="/signin">Sign in</Link>
+          </Button>
+          <Button
+            asChild
+            size="sm"
             className="h-9 rounded-lg bg-foreground px-3.5 text-sm text-background hover:bg-foreground/90"
           >
-            <Link href="/signup">Join the waitlist</Link>
+            <Link href="/signup">Sign up</Link>
           </Button>
         </div>
       </nav>
