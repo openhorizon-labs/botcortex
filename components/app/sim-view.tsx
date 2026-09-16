@@ -311,10 +311,18 @@ function PrimitiveRobot({
         switch (geom.type) {
           case "mesh": {
             const mesh = geom.mesh ? kinematics.meshes?.[geom.mesh] : undefined;
-            if (!mesh) continue;
+            const buffer = kinematics.meshBuffer;
+            if (!mesh || !buffer) continue;
+            // Views onto the transferred buffer, not copies of it: three.js
+            // uploads these to the GPU and never needs them to be JS numbers.
             geometry = new BufferGeometry();
-            geometry.setAttribute("position", new BufferAttribute(new Float32Array(mesh.vertices), 3));
-            geometry.setIndex(mesh.faces);
+            geometry.setAttribute(
+              "position",
+              new BufferAttribute(new Float32Array(buffer, mesh.vertexOffset, mesh.vertexCount), 3),
+            );
+            geometry.setIndex(
+              new BufferAttribute(new Uint32Array(buffer, mesh.faceOffset, mesh.faceCount), 1),
+            );
             geometry.computeVertexNormals();
             break;
           }

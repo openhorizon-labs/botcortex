@@ -356,11 +356,11 @@ _own = _root / "agent_contracts" / (config.PLATFORM.name + ".json")
  * which way a jaw closes. Null when this WASM build does not expose the
  * fields, and the viewer then says so instead of drawing a guess.
  */
-function kinematics(): unknown {
+function kinematics(): { meshBuffer?: ArrayBuffer } | null {
   try {
-    return JSON.parse(
+    const described = JSON.parse(
       py.runPython(`
-import json
+import array, json
 from botcortex import config, mjcompat, scene
 
 _mj, _model = js_mujoco, js_model
@@ -393,6 +393,8 @@ def _span(array, start, stop):
             return [array[i] for i in range(start, stop)]
 _GEOM = {2: "sphere", 3: "capsule", 5: "cylinder", 6: "box", 7: "mesh"}
 _geoms_by_body, _meshes = {}, {}
+#: Every mesh's vertices then faces, back to back. Offsets above index it.
+_blob = bytearray()
 for g in range(int(_model.ngeom)):
     _b, _t = int(_model.geom_bodyid[g]), int(_model.geom_type[g])
     if _t not in _GEOM:
@@ -413,18 +415,28 @@ for g in range(int(_model.ngeom)):
     }
     if _t == 7:
         # The COMPILED mesh — re-centred exactly as the geom's pos/quat
-        # expect — as flat vertex and face arrays, so the drawing is the
-        # mesh physics sees and not the file it came from.
+        # expect — so the drawing is the mesh physics sees and not the file it
+        # came from. Packed into one binary blob rather than written out as
+        # JSON numbers: the Panda's visual meshes are 1.6 million of them, and
+        # as text that was a 12 MB string to build in Python, parse in JS and
+        # structured-clone to the main thread on every boot. As float32 and
+        # uint32 it is a third of that and moves by transfer, without a parse.
         _mid = int(_model.geom_dataid[g])
         _mname = _name("mjOBJ_MESH", _mid)
         _entry["mesh"] = _mname
         if _mname not in _meshes:
             _va, _vn = int(_model.mesh_vertadr[_mid]), int(_model.mesh_vertnum[_mid])
             _fa, _fn = int(_model.mesh_faceadr[_mid]), int(_model.mesh_facenum[_mid])
+            _verts = array.array("f", (float(v) for v in _span(_model.mesh_vert, _va * 3, (_va + _vn) * 3)))
+            _faces = array.array("I", (int(v) for v in _span(_model.mesh_face, _fa * 3, (_fa + _fn) * 3)))
             _meshes[_mname] = {
-                "vertices": [round(float(v), 5) for v in _span(_model.mesh_vert, _va * 3, (_va + _vn) * 3)],
-                "faces": [int(v) for v in _span(_model.mesh_face, _fa * 3, (_fa + _fn) * 3)],
+                "vertexOffset": len(_blob),
+                "vertexCount": len(_verts),
+                "faceOffset": len(_blob) + _verts.itemsize * len(_verts),
+                "faceCount": len(_faces),
             }
+            _blob.extend(_verts.tobytes())
+            _blob.extend(_faces.tobytes())
     _geoms_by_body.setdefault(_b, []).append(_entry)
 _bodies = []
 for i in range(1, _nbody):
@@ -449,9 +461,21 @@ for _arm in config.ARMS:
             {"joint": _qpos_joint.get(_i0, ""), "a": (_v1 - _v0) / 10.0, "b": _v0}
             for (_i0, _v0), (_i1, _v1) in zip(_w0, _w1)
         ]
+mesh_blob = bytes(_blob)
 json.dumps({"bodies": _bodies, "drive": _drive, "meshes": _meshes})
 `),
     );
+    // The blob comes across as its own object, never inside the JSON: bytes
+    // in JSON means base64, which is a third bigger than the binary it hides.
+    const blob = py.globals.get("mesh_blob") as { toJs?: () => Uint8Array } | null;
+    const bytes = blob && typeof blob.toJs === "function" ? blob.toJs() : null;
+    if (bytes && bytes.byteLength) {
+      described.meshBuffer = bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer;
+    }
+    return described;
   } catch (error) {
     // Surfaced in the boot result rather than only logged: a worker's
     // console is easy to lose, and "no 3D model" with no reason is a guess.
@@ -675,7 +699,16 @@ json.dumps(_report)
         result = true;
         break;
     }
-    self.postMessage({ id: request.id, ok: true, result } as WorkerResponse);
+    // Geometry moves by transfer, not by copy: the Panda's meshes are several
+    // megabytes and a structured clone of them on every boot is a pause the
+    // owner sees. The buffer is detached here and owned by the main thread
+    // after this line, which is fine — the worker never reads it again.
+    const geometry = (result as { kinematics?: { meshBuffer?: ArrayBuffer } } | null)?.kinematics
+      ?.meshBuffer;
+    self.postMessage(
+      { id: request.id, ok: true, result } as WorkerResponse,
+      geometry ? [geometry] : [],
+    );
   } catch (error) {
     self.postMessage({
       id: request.id,

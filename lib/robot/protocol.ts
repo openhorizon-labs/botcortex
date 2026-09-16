@@ -49,8 +49,20 @@ export type KinematicBody = {
 export type Kinematics = {
   bodies: KinematicBody[];
   drive: Record<string, Record<string, { joint: string; a: number; b: number }[]>>;
-  /** Compiled meshes as flat xyz vertex and triangle-index arrays. */
-  meshes?: Record<string, { vertices: number[]; faces: number[] }>;
+  /**
+   * Compiled meshes, as offsets into `meshBuffer` rather than arrays of
+   * numbers. The Panda's visual meshes are 1.6 million floats; as JSON that
+   * was a 12 MB string built in Python, parsed in JS and cloned to the main
+   * thread on every boot. Vertices are float32 xyz, faces uint32 triangle
+   * indices, laid out vertices-then-faces per mesh.
+   */
+  meshes?: Record<
+    string,
+    { vertexOffset: number; vertexCount: number; faceOffset: number; faceCount: number }
+  >;
+  /** The bytes those offsets index. Transferred from the worker, so it is
+   *  owned by whoever received the hello. */
+  meshBuffer?: ArrayBuffer;
 };
 
 export type PlanStep = {
