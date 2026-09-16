@@ -14,6 +14,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
 import { useRobot } from "@/components/app/robot-provider";
 import { BODY_CARDS, BOOTABLE_BODIES } from "@/lib/robot/bodies";
 
@@ -50,58 +57,95 @@ export function ConnectRobotDialog({
   if (step === "choose") {
     return (
       <Dialog open={open} onOpenChange={(next) => { if (!next) setStep("connect"); onOpenChange(next); }}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Which robot?</DialogTitle>
             <DialogDescription>
-              Both run the real runtime and real physics in this tab. Pick the
-              body to teach; you can switch later from the simulation panel.
+              Every one of these runs the real runtime and real physics in this
+              tab. Pick the body to teach; you can switch later from the
+              simulation panel.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {SIM_BODIES.map((body) => {
-              const card = BODY_CARDS[body.name];
-              return (
-                <button
-                  key={body.name}
-                  disabled={connecting}
-                  onClick={() => {
-                    setAttempted(true);
-                    setStep("connect");
-                    void connectBrowserSim(body.name);
-                  }}
-                  className={cn(
-                    "group flex flex-col overflow-hidden rounded-xl border border-border bg-surface-2 text-left transition-colors",
-                    "hover:border-foreground/40 hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70",
-                  )}
-                >
-                  <span className="relative block aspect-[4/3] w-full bg-surface-3">
-                    {/* Rendered from the simulation itself — the same model the
-                        tab will boot — not an illustration. */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`/robots/cards/${body.name}.png`}
-                      alt={`${body.displayName} in the simulation`}
-                      className="absolute inset-0 size-full object-cover"
-                      draggable={false}
-                    />
-                  </span>
-                  <span className="flex flex-1 flex-col gap-1 p-3.5">
-                    <span className="text-sm font-medium">{body.displayName}</span>
-                    {card && <span className="text-xs text-muted-foreground">{card.tagline}</span>}
-                    {card && <span className="mt-1 text-xs leading-relaxed">{card.body}</span>}
-                    <span className="mt-2 flex items-center gap-1 text-xs font-medium">
-                      {simBooting ? (
-                        <><Loader2 className="size-3.5 animate-spin" /> {simBooting}…</>
-                      ) : (
-                        <>Teach this robot <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></>
+          {/* One row that scrolls sideways, not a grid that grows downward.
+              With two bodies a 2-column grid fitted; with six it was three
+              rows of tall cards and the dialog ran off the bottom of a laptop
+              screen, taking the Back button with it. A carousel keeps the
+              dialog one screenful whatever the wheel ships. */}
+          {/* min-w-0: the track is a flex row six cards wide, and a grid child
+              defaults to min-width:auto, so without this the dialog stretched
+              to the track's full width and clipped its own heading. */}
+          <Carousel
+            opts={{ align: "start", containScroll: "trimSnaps" }}
+            className="w-full min-w-0"
+          >
+            {/* Above the cards, in flow. They were overlaid on the track,
+                which put the left arrow on top of the first card and the
+                right one on top of the third: hovering an arrow lit the card
+                underneath, and a click that missed the 28-pixel circle booted
+                that robot instead of scrolling. Nothing now overlaps anything
+                clickable, and a disabled arrow is legible as an end rather
+                than as a dead control stuck to a card. */}
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                {SIM_BODIES.length} bodies — drag or use the arrows
+              </p>
+              <div className="flex shrink-0 gap-1.5">
+                <CarouselPrevious className="static size-7 translate-x-0 translate-y-0" />
+                <CarouselNext className="static size-7 translate-x-0 translate-y-0" />
+              </div>
+            </div>
+            <CarouselContent className="-ml-3">
+              {SIM_BODIES.map((body) => {
+                const card = BODY_CARDS[body.name];
+                return (
+                  <CarouselItem key={body.name} className="basis-[15rem] pl-3 sm:basis-[16rem]">
+                    <button
+                      disabled={connecting}
+                      onClick={() => {
+                        setAttempted(true);
+                        setStep("connect");
+                        void connectBrowserSim(body.name);
+                      }}
+                      className={cn(
+                        "group flex h-full w-full flex-col overflow-hidden rounded-xl border border-border bg-surface-2 text-left transition-colors",
+                        "hover:border-foreground/40 hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70",
                       )}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                    >
+                      <span className="relative block aspect-[4/3] w-full bg-surface-3">
+                        {/* Rendered from the simulation itself — the same model
+                            the tab will boot — not an illustration. */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/robots/cards/${body.name}.png`}
+                          alt={`${body.displayName} in the simulation`}
+                          className="absolute inset-0 size-full object-cover"
+                          draggable={false}
+                        />
+                      </span>
+                      <span className="flex flex-1 flex-col gap-1 p-3.5">
+                        <span className="text-sm font-medium">{body.displayName}</span>
+                        {/* The tagline only. The full card copy is what made
+                            these tall enough to overflow; it lives on /skills,
+                            where there is room to read it. */}
+                        {card && (
+                          <span className="text-xs leading-relaxed text-muted-foreground">
+                            {card.tagline}
+                          </span>
+                        )}
+                        <span className="mt-auto flex items-center gap-1 pt-2 text-xs font-medium">
+                          {simBooting ? (
+                            <><Loader2 className="size-3.5 animate-spin" /> {simBooting}…</>
+                          ) : (
+                            <>Teach this robot <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></>
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  </CarouselItem>
+                );
+              })}
+            </CarouselContent>
+          </Carousel>
           <DialogFooter className="sm:justify-start">
             <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setStep("connect")}>
               <ArrowLeft className="size-3.5" /> Back
@@ -114,7 +158,7 @@ export function ConnectRobotDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Connect a robot</DialogTitle>
           <DialogDescription>

@@ -16,6 +16,26 @@ import { expect, test } from "bun:test";
 
 const DIR = join(import.meta.dir, "../../public/botcortex");
 
+/**
+ * The Menagerie commit the runtime fetches models from, read from the runtime
+ * repo when it is checked out beside this one so the two cannot drift.
+ *
+ * Null when it is not — a web-only checkout, or CI for this repo alone. The
+ * bundle test then falls back to checking the shape, because a test that
+ * needs a sibling repo to exist is a test that fails for the wrong reason.
+ */
+const MENAGERIE_COMMIT = (() => {
+  try {
+    const source = readFileSync(
+      join(import.meta.dir, "../../../botcortex-runtime/scripts/fetch_models.py"),
+      "utf8",
+    );
+    return /MENAGERIE_COMMIT = "([0-9a-f]{40})"/.exec(source)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+})();
+
 const manifest = JSON.parse(readFileSync(join(DIR, "MANIFEST.json"), "utf8")) as {
   wheel: string;
   sha256: string;
@@ -25,10 +45,31 @@ const manifest = JSON.parse(readFileSync(join(DIR, "MANIFEST.json"), "utf8")) as
   runtimeRepo: string;
   recordedAt: string;
   catalog: { name: string; displayName: string }[];
+  models: { platform: string; modelDir: string; zip: string; sha256: string; bytes: number; source: string }[];
   bodies: { name: string; displayName: string; kind: string; joints: number; arms: number; reachM: number; browser: boolean }[];
 };
 
 const wheelPath = join(DIR, manifest.wheel);
+
+/**
+ * Whether the browser can boot this body.
+ *
+ * Two ways to be bootable, and the second is newer than the first. A body may
+ * ship its model INSIDE the wheel (OpenArm, RoArm), or it may declare
+ * `sim.model_dir` — a MuJoCo Menagerie directory — and have its meshes packed
+ * into a zip this manifest names, which the worker fetches only when someone
+ * boots that body. Before the zips existed, `model_dir` meant native-only, and
+ * four of six arms were unreachable from the connect dialog.
+ */
+function bootable(
+  name: string,
+  sim: { browser?: boolean; mjcf?: string; model_dir?: string },
+  listing: string[],
+): boolean {
+  if (!sim.mjcf) return false;
+  if (sim.model_dir) return manifest.models.some((m) => m.platform === name);
+  return listing.includes(`botcortex/platforms/${name}/${sim.mjcf}`);
+}
 
 test("the manifest names a wheel that exists and matches its SHA-256", () => {
   const bytes = readFileSync(wheelPath);
@@ -57,8 +98,8 @@ test("the manifest's catalog is exactly the wheel's browser-capable bodies", () 
       name: string; display_name: string; sim?: { browser?: boolean; mjcf?: string; model_dir?: string };
     };
     const sim = platform.sim ?? {};
-    const shipsModel = !!sim.mjcf && !sim.model_dir && listing.includes(`botcortex/platforms/${platform.name}/${sim.mjcf}`);
-    if ((sim.browser ?? true) && shipsModel) expected.push({ name: platform.name, displayName: platform.display_name });
+    if ((sim.browser ?? true) && bootable(platform.name, sim, listing))
+      expected.push({ name: platform.name, displayName: platform.display_name });
   }
   expected.sort((a, b) => a.name.localeCompare(b.name));
   expect([...manifest.catalog].sort((a, b) => a.name.localeCompare(b.name))).toEqual(expected);
@@ -78,7 +119,6 @@ test("the manifest's bodies are every platform in the wheel, with the descriptor
     };
     const caps = platform.capabilities ?? {};
     const sim = platform.sim ?? {};
-    const shipsModel = !!sim.mjcf && !sim.model_dir && listing.includes(`botcortex/platforms/${platform.name}/${sim.mjcf}`);
     return {
       name: platform.name,
       displayName: platform.display_name,
@@ -86,7 +126,7 @@ test("the manifest's bodies are every platform in the wheel, with the descriptor
       joints: caps.positioning_joints ?? 0,
       arms: platform.arms.length,
       reachM: caps.reach_m ?? 0,
-      browser: (sim.browser ?? true) && shipsModel,
+      browser: (sim.browser ?? true) && bootable(platform.name, sim, listing),
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
   expect([...manifest.bodies].sort((a, b) => a.name.localeCompare(b.name))).toEqual(expected);
@@ -99,4 +139,44 @@ test("the manifest's provenance fields are filled in", () => {
   expect(manifest.runtimeRepo).toBe("openhorizon-labs/botcortex-runtime");
   expect(manifest.runtimeCommit).toMatch(/^[0-9a-f]{40}$/);
   expect(Number.isNaN(Date.parse(manifest.recordedAt))).toBe(false);
+});
+
+test("every model bundle the manifest names exists and matches its SHA-256", () => {
+  // The bundles are third-party meshes served from our own origin, so they get
+  // the same provenance treatment as the wheel: named, hashed, and checked.
+  for (const model of manifest.models) {
+    const bytes = readFileSync(join(DIR, "models", model.zip));
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(model.sha256);
+    expect(bytes.byteLength).toBe(model.bytes);
+    // The commit must be the one the runtime pins, not merely A commit:
+    // bundles from a different Menagerie would be meshes the runtime's own
+    // tests never ran against.
+    expect(model.source).toBe(
+      MENAGERIE_COMMIT ? `MuJoCo Menagerie @ ${MENAGERIE_COMMIT}` : model.source,
+    );
+    expect(model.source).toMatch(/^MuJoCo Menagerie @ [0-9a-f]{40}$/);
+  }
+});
+
+test("a model bundle carries its upstream licence and the mesh the descriptor names", () => {
+  // Apache-2.0 and BSD-3 both let us redistribute the meshes and both require
+  // the notice to travel with them. Shipping the zip without LICENSE would be
+  // the one way this breaks that is not a crash.
+  for (const model of manifest.models) {
+    const listing = Bun.spawnSync(["unzip", "-Z1", join(DIR, "models", model.zip)])
+      .stdout.toString()
+      .split("\n")
+      .filter(Boolean);
+    expect(listing).toContain("LICENSE");
+    const spec = JSON.parse(
+      Bun.spawnSync([
+        "unzip",
+        "-p",
+        wheelPath,
+        `botcortex/platforms/${model.platform}/platform.json`,
+      ]).stdout.toString(),
+    ) as { sim: { mjcf: string; model_dir: string } };
+    expect(spec.sim.model_dir).toBe(model.modelDir);
+    expect(listing).toContain(spec.sim.mjcf);
+  }
 });

@@ -43,6 +43,7 @@ import {
 import URDFLoader, { type URDFRobot } from "urdf-loader";
 
 import type { JointState, Kinematics, SceneBodies } from "@/lib/robot/protocol";
+import { bodyFor } from "@/lib/robot/bodies";
 import { useRobot } from "@/components/app/robot-provider";
 
 /**
@@ -115,6 +116,7 @@ function gripperDegToMeters(deg: number, map: GripperMap): number {
  * an OpenArm must not be silently rendered as one.
  */
 const ARM_PLATFORMS = new Set(["openarm_v1", "wasm", "mock"]);
+
 
 /** Free every GPU object an Object3D tree owns. three.js never does this on
  *  its own: removing a mesh from the scene leaves its buffers on the GPU. */
@@ -239,8 +241,14 @@ function Workcell({
 }
 
 /**
- * A robot drawn from its MuJoCo model rather than a URDF: the RoArm, and any
- * body the wheel ships without meshes.
+ * A robot drawn from its MuJoCo model rather than a URDF: every body except
+ * the OpenArm, which has decimated GLBs with material colours.
+ *
+ * Named for the primitive geoms it started with — the RoArm is boxes and
+ * cylinders — but it draws mesh geoms too, which is how the four Menagerie
+ * arms render their official geometry without a single extra asset: the
+ * vertices arrive in the hello, already compiled by the physics that will
+ * move them.
  *
  * The tree comes from the runtime in the hello (worker.ts `kinematics()`):
  * bodies with their pose in the parent's frame, joints with an axis and an
@@ -547,9 +555,14 @@ const VIEW_DIRECTION = new Vector3(0.95, 0.85, 1.15).normalize();
 function FrameOnLoad({
   fixturesRef,
   frameKey,
+  reachM,
 }: {
   fixturesRef: React.RefObject<SceneBodies | null>;
   frameKey: string;
+  /** The body's reach, from the manifest. The fixtures say how wide the scene
+   *  is and nothing said how TALL, so a 0.855 m Panda was framed as if it were
+   *  a 0.35 m box and its shoulder sat off the top of the frame. */
+  reachM: number;
 }) {
   const controls = useRef<any>(null);
   const { camera } = useThree();
@@ -557,7 +570,9 @@ function FrameOnLoad({
     const fixtures = fixturesRef.current ?? {};
     // Bounds in MuJoCo coordinates (z up), seeded with the robot's base.
     const min = [-0.1, -0.1, 0];
-    const max = [0.1, 0.1, 0.35];
+    // An arm standing at the origin sweeps a sphere of its own reach; three
+    // quarters of that is the working height, measured across the six bodies.
+    const max = [0.1, 0.1, Math.max(0.35, reachM * 0.75)];
     for (const body of Object.values(fixtures)) {
       const [x, y, z] = body.position;
       const [sx, sy, sz] = body.size_m;
@@ -565,7 +580,7 @@ function FrameOnLoad({
       min[1] = Math.min(min[1], y - sy / 2); max[1] = Math.max(max[1], y + sy / 2);
       min[2] = Math.min(min[2], z - sz / 2); max[2] = Math.max(max[2], z + sz / 2);
     }
-    const extent = Math.max(max[0] - min[0], max[1] - min[1], 0.5);
+    const extent = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2], 0.5);
     // Y-up for three.js: (x, y, z)_mujoco -> (x, z, -y).
     const target = new Vector3((min[0] + max[0]) / 2, Math.max(0.15, max[2] * 0.6), -(min[1] + max[1]) / 2);
     camera.position.copy(target).addScaledVector(VIEW_DIRECTION, 1.2 * extent + 0.5);
@@ -574,7 +589,7 @@ function FrameOnLoad({
       controls.current.target.copy(target);
       controls.current.update();
     }
-  }, [camera, fixturesRef, frameKey]);
+  }, [camera, fixturesRef, frameKey, reachM]);
   return (
     <OrbitControls
       ref={controls}
@@ -598,6 +613,9 @@ export default function SimView() {
   // the kinematic tree it sent, and only if it sent one — a robot the viewer
   // cannot describe gets its workcell, a note, and no invented arm.
   const armSupported = !robot || ARM_PLATFORMS.has(robot.platform);
+  // How far this body reaches, which is how much room the camera must leave
+  // above the table. Zero for a body the manifest does not know.
+  const reachM = bodyFor(robot?.platform ?? "openarm_v1").reachM;
   const kinematics = !armSupported ? (robot?.kinematics ?? null) : null;
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -662,7 +680,11 @@ export default function SimView() {
           fadeDistance={4.5}
           infiniteGrid
         />
-        <FrameOnLoad fixturesRef={fixturesRef} frameKey={robot ? `${robot.platform}:${robot.name}` : "none"} />
+        <FrameOnLoad
+          fixturesRef={fixturesRef}
+          frameKey={robot ? `${robot.platform}:${robot.name}` : "none"}
+          reachM={reachM}
+        />
       </Canvas>
     </div>
   );

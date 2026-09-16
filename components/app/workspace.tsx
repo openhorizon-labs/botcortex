@@ -140,8 +140,51 @@ function suggestionsFor(arms: string[], fixtures: string[]): Suggestion[] {
       ? { icon: Hand, label: "Lift the arm high, then bring it back down slowly" }
       : { icon: Hand, label: "Raise both arms together, slowly" },
     { icon: Bot, label: "Hold the red block up, then put it back" },
+    // The pool has to be at least twice what the panel shows, or Shuffle
+    // cannot promise a set the owner has not just seen.
+    { icon: Layers, label: `Stack the blue block on top of the red one` },
+    { icon: Blocks, label: `Clear every block off the table into ${first}` },
+    { icon: Layers, label: "Sort the blocks by colour, left to right" },
+    { icon: Bot, label: `Pick up the green block and hold it over ${first}` },
+    ...(second
+      ? [{ icon: Layers as typeof Blocks, label: `Move whatever is in ${first} across to ${second}` }]
+      : []),
+    ...(single
+      ? [{ icon: Hand as typeof Blocks, label: `Trace a square in the air with ${gripper}` }]
+      : [{ icon: Hand as typeof Blocks, label: `Hand the red block from one arm to the other` }]),
   ];
   return list;
+}
+
+/** A fresh order of 0..n-1. Fisher-Yates, called from an effect and never
+ *  during render: the server and the client would shuffle differently and
+ *  React would throw the server's markup away. */
+function shuffled(n: number): number[] {
+  const order = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+/**
+ * A new order whose first window avoids everything in `seen`.
+ *
+ * Shuffle used to step a fixed list by four, so the ideas came back in the
+ * same rotation every time and the panel opened on the same four in every
+ * session. Now the order is random per robot, and a shuffle that has run out
+ * of unseen ideas re-draws rather than wrapping onto them.
+ */
+function reshuffled(n: number, seen: Set<number>): number[] {
+  const order = shuffled(n);
+  for (let i = 0; i < Math.min(SUGGESTED_SHOWN, n); i += 1) {
+    if (!seen.has(order[i])) continue;
+    const swap = order.findIndex((value, j) => j >= SUGGESTED_SHOWN && !seen.has(value));
+    if (swap === -1) break; // fewer unseen ideas than the panel shows
+    [order[i], order[swap]] = [order[swap], order[i]];
+  }
+  return order;
 }
 
 const DEFAULT_ARMS = ["right", "left"];
@@ -182,6 +225,25 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [robot],
   );
+  /** Which ideas to show, in which order. Re-drawn whenever a different body
+   *  connects, so two robots never open on the same four and one robot never
+   *  opens on the same four twice. */
+  const [order, setOrder] = useState<number[]>([]);
+  useEffect(() => {
+    setOrder(shuffled(suggested.length));
+    setSuggestedFrom(0);
+  }, [suggested]);
+  // Named `deck`, not `window`: that identifier is the DOM's.
+  const deck = order.length ? order : suggested.map((_, i) => i);
+  const shuffleSuggestions = () => {
+    const next = suggestedFrom + SUGGESTED_SHOWN;
+    if (next + SUGGESTED_SHOWN <= deck.length) {
+      setSuggestedFrom(next);
+      return;
+    }
+    setOrder(reshuffled(suggested.length, new Set(deck.slice(suggestedFrom, next))));
+    setSuggestedFrom(0);
+  };
   const [paired, setPaired] = useState<PairedRobot[]>([]);
 
   // The robots this account has paired via `botcortex login`. Listing the real
@@ -741,11 +803,12 @@ function AppInner() {
                       />
                     </button>
                   </CollapsibleTrigger>
-                  {/* This used to be inert: clicking it four times gave the
-                      same four ideas in the same order. There were only ever
-                      four to draw from, so it now has a pool to rotate. */}
+                  {/* This used to be inert, then it rotated a fixed list by
+                      four — which meant the same ideas in the same order every
+                      session. It now draws a random order per robot and never
+                      hands back the four you are looking at. */}
                   <button
-                    onClick={() => setSuggestedFrom((n) => n + SUGGESTED_SHOWN)}
+                    onClick={shuffleSuggestions}
                     className="flex cursor-pointer items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
                   >
                     Shuffle <Shuffle className="size-3.5" />
@@ -753,9 +816,9 @@ function AppInner() {
                 </div>
                 <CollapsibleContent>
                   <div className="mt-1 flex flex-col divide-y divide-border">
-                    {Array.from({ length: SUGGESTED_SHOWN }, (_, i) => suggested[
-                      (suggestedFrom + i) % suggested.length
-                    ]).map(({ icon: Icon, label }) => (
+                    {Array.from({ length: Math.min(SUGGESTED_SHOWN, deck.length) }, (_, i) =>
+                      suggested[deck[(suggestedFrom + i) % deck.length]],
+                    ).map(({ icon: Icon, label }) => (
                       <button
                         key={label}
                         onClick={() => setInput(label)}

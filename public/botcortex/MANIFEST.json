@@ -1,9 +1,9 @@
 {
-  "wheel": "botcortex-0.0.8-py3-none-any.whl",
-  "sha256": "e83cc29297a738bf8d1a67739fb7ae08de10163c43714f6148b297538d1c260a",
-  "contractVersion": "0.0.8",
+  "wheel": "botcortex-0.0.9-py3-none-any.whl",
+  "sha256": "ec0ad3af973f5dd97744d997c53e80bdb8e1cd188b2c7f70d104d1b18670605b",
+  "contractVersion": "0.0.9",
   "platform": "openarm_v1",
-  "runtimeCommit": "2be639c95450f48e99cc32b9783e836050a1cb82",
+  "runtimeCommit": "a1dfa2a9a83f1322ea42a885bad737aebb21d4b9",
   "runtimeRepo": "openhorizon-labs/botcortex-runtime",
   "recordedAt": "2026-09-16",
   "catalog": [
@@ -14,6 +14,22 @@
     {
       "name": "roarm_m2",
       "displayName": "Waveshare RoArm-M2 (S/Pro)"
+    },
+    {
+      "name": "panda",
+      "displayName": "Franka Emika Panda (MuJoCo Menagerie)"
+    },
+    {
+      "name": "xarm7",
+      "displayName": "UFACTORY xArm7 (MuJoCo Menagerie)"
+    },
+    {
+      "name": "so101",
+      "displayName": "SO-101 (LeRobot, MuJoCo Menagerie)"
+    },
+    {
+      "name": "vx300s",
+      "displayName": "Trossen ViperX 300s (ALOHA, MuJoCo Menagerie)"
     }
   ],
   "bodies": [
@@ -42,7 +58,7 @@
       "joints": 7,
       "arms": 1,
       "reachM": 0.855,
-      "browser": false
+      "browser": true
     },
     {
       "name": "xarm7",
@@ -51,7 +67,7 @@
       "joints": 7,
       "arms": 1,
       "reachM": 0.7,
-      "browser": false
+      "browser": true
     },
     {
       "name": "so101",
@@ -60,7 +76,7 @@
       "joints": 5,
       "arms": 1,
       "reachM": 0.3,
-      "browser": false
+      "browser": true
     },
     {
       "name": "vx300s",
@@ -69,7 +85,41 @@
       "joints": 6,
       "arms": 1,
       "reachM": 0.55,
-      "browser": false
+      "browser": true
+    }
+  ],
+  "models": [
+    {
+      "platform": "panda",
+      "modelDir": "menagerie/franka_emika_panda",
+      "zip": "menagerie/franka_emika_panda.zip",
+      "sha256": "8349306181db3888866c5fdb9a57cab298963be85a5e30667bdc51012a60bf1e",
+      "bytes": 5034080,
+      "source": "MuJoCo Menagerie @ 8161bba264d7fa7c99ca301e91e7fb44737676ad"
+    },
+    {
+      "platform": "so101",
+      "modelDir": "menagerie/robotstudio_so101",
+      "zip": "menagerie/robotstudio_so101.zip",
+      "sha256": "681c58d4c675497608acd4704c7ac9b6d323250fffa230d38c4108e949499e50",
+      "bytes": 6500092,
+      "source": "MuJoCo Menagerie @ 8161bba264d7fa7c99ca301e91e7fb44737676ad"
+    },
+    {
+      "platform": "vx300s",
+      "modelDir": "menagerie/trossen_vx300s",
+      "zip": "menagerie/trossen_vx300s.zip",
+      "sha256": "0907a5e3012ecad3852062b9a08869c4b861d8b27e3069d03927333b9c985be2",
+      "bytes": 376970,
+      "source": "MuJoCo Menagerie @ 8161bba264d7fa7c99ca301e91e7fb44737676ad"
+    },
+    {
+      "platform": "xarm7",
+      "modelDir": "menagerie/ufactory_xarm7",
+      "zip": "menagerie/ufactory_xarm7.zip",
+      "sha256": "b23744dfe97166e4105678b07f653ceb2d0b5dbce61fda516a16ac6ce80d962d",
+      "bytes": 1599633,
+      "source": "MuJoCo Menagerie @ 8161bba264d7fa7c99ca301e91e7fb44737676ad"
     }
   ]
 }

@@ -65,6 +65,16 @@ export type ImportReport = {
   push: LocalSkill[];
 };
 const WHEEL_URL = `/botcortex/${runtimeArtifact.wheel}`;
+/** Bodies whose geometry does NOT ride in the wheel.
+ *
+ *  A Menagerie arm is tens of megabytes of mesh; putting the Panda's 34 MB
+ *  into a package every visitor downloads to boot a RoArm would be absurd.
+ *  Each is packed instead into its own zip (see the runtime's
+ *  scripts/bundle_model.py) and fetched ONLY when someone boots that body.
+ *  The manifest names them so this file never hardcodes a body list. */
+const MODEL_BUNDLES: Record<string, { zip: string }> = Object.fromEntries(
+  (runtimeArtifact.models ?? []).map((m) => [m.platform, { zip: m.zip }]),
+);
 
 export type WorkerRequest =
   /** `namespace` is the signed-in account's id, or null for a session-only
@@ -201,11 +211,34 @@ sys.path.insert(0, "/pkg")
   mj = await mujocoFactory();
 
   progress("Loading the arm");
+  // A Menagerie body's meshes arrive now, before anything asks the runtime
+  // whether its model is available — `Platform.model_available` is a file
+  // existence check, so an un-fetched body would be judged unbootable and
+  // silently swapped for the default.
+  const bundle = platform ? MODEL_BUNDLES[platform] : undefined;
+  if (bundle) {
+    progress("Fetching the arm's meshes");
+    py.globals.set("bundle_platform", platform);
+    const modelDir = py.runPython(`
+from botcortex.platform import load_platform
+str(load_platform(bundle_platform).model_dir)
+`) as string;
+    const zip = new Uint8Array(await (await fetch(`/botcortex/models/${bundle.zip}`)).arrayBuffer());
+    py.FS.writeFile("/model.zip", zip);
+    py.globals.set("model_dir", modelDir);
+    py.runPython(`
+import pathlib, zipfile
+pathlib.Path(model_dir).mkdir(parents=True, exist_ok=True)
+zipfile.ZipFile("/model.zip").extractall(model_dir)
+`);
+  }
+
   // Which body. The runtime reads BOTCORTEX_PLATFORM once, when its config
   // module is first imported, so the choice has to land before anything
   // below touches botcortex.config. Only bodies whose model ships in the
   // wheel and parses in WASM are offered; anything else is the default.
   py.globals.set("wanted_platform", platform);
+  py.globals.set("bundled_platforms", Object.keys(MODEL_BUNDLES));
   const [modelDir, worldFile, catalogJson]: [string, string, string] = JSON.parse(
     py.runPython(`
 import json, os
@@ -213,7 +246,7 @@ from botcortex.platform import available_platforms, load_platform
 _catalog = [
     {"name": p.name, "displayName": p.display_name}
     for p in (load_platform(n) for n in available_platforms())
-    if p.browser_capable and p.model_available
+    if p.browser_capable and (p.model_available or p.name in set(bundled_platforms))
 ]
 _names = {c["name"] for c in _catalog}
 os.environ["BOTCORTEX_PLATFORM"] = wanted_platform if wanted_platform in _names else "openarm_v1"
@@ -314,8 +347,10 @@ _own = _root / "agent_contracts" / (config.PLATFORM.name + ".json")
  *
  * Bodies come in MuJoCo's order (parents first) with their pose in the
  * parent's frame, their joints (axis and anchor in the body frame), and their
- * primitive geoms — meshes are skipped, which is why the OpenArm keeps its
- * URDF path. `drive` says how each runtime joint (degrees, per arm) reaches
+ * geoms. Meshes come too, as the COMPILED vertex and face arrays rather than
+ * a file reference, so the viewer draws what physics actually loaded; the
+ * OpenArm keeps its URDF path because its decimated GLBs carry material
+ * colours these arrays do not. `drive` says how each runtime joint (degrees, per arm) reaches
  * each model joint's qpos: q = a * deg + b, measured off JointMap rather than
  * re-derived here, so the browser cannot disagree with the runtime about
  * which way a jaw closes. Null when this WASM build does not expose the

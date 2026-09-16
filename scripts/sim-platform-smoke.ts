@@ -41,12 +41,17 @@ try {
       // A motion-only skill: the report must say what the ARM did, never
       // "NOTHING MOVED" — the wording that once convinced an agent a wave
       // it had just performed never happened.
+      // The joint is whatever the BODY calls its second one: j2 on the
+      // OpenArm and the Menagerie arms that number their joints, but
+      // "shoulder_lift" on the SO-101 and "shoulder" on the ViperX. Naming
+      // one here made this check a test of the OpenArm's vocabulary.
       const wave = `META = {"name": "wave_check", "description": "wave", "params": {}}
 def run(ctx, **params):
     arm = ctx.arms[0]
     here = ctx.get_positions(arm)
-    ctx.move_to(arm, {"j2": here["j2"] + 20.0})
-    ctx.move_to(arm, {"j2": here["j2"]})
+    joint = [n for n in here if n != "gripper"][1]
+    ctx.move_to(arm, {joint: here[joint] + 20.0})
+    ctx.move_to(arm, {joint: here[joint]})
 `;
       await ask({ type: "callTool", name: "save_skill", args: { name: "wave_check", code: wave } });
       const waved = await ask({ type: "callTool", name: "run_skill", args: { name: "wave_check", params_json: "{}" } });
@@ -78,7 +83,7 @@ def run(ctx, **params):
   assert(result.promptNamesBody && result.promptArms, "the agent contract does not describe the booted body");
   assert(result.output.startsWith("Rehearsed clean"), result.output);
   assert(result.motionFrames > 0, "successful task returned no motion");
-  assert(/swept j2 \d+°/.test(result.waveOutput) && !result.waveOutput.includes("NOTHING MOVED"), `wave reported: ${result.waveOutput}`);
+  assert(/swept \S+ \d+°/.test(result.waveOutput) && !result.waveOutput.includes("NOTHING MOVED"), `wave reported: ${result.waveOutput}`);
   const red = result.after.red_block.position as number[];
   const tray = result.tray as number[];
   assert(Math.abs(red[0] - tray[0]) < 0.085 && Math.abs(red[1] - tray[1]) < 0.085 && red[2] > tray[2], `red ended at ${red}, tray at ${tray}`);

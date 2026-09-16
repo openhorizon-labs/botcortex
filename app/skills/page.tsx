@@ -5,7 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { Nav } from "@/components/site/nav";
 import { Footer } from "@/components/site/footer";
 import { SkillCard } from "@/components/site/skill-card";
-import { KIND_LABELS, SUPPORTED_BODIES, bodyFor } from "@/lib/robot/bodies";
+import { KIND_LABELS, MESH_CREDITS, SUPPORTED_BODIES, bodyFor } from "@/lib/robot/bodies";
 import { type PublishedSkill, fetchRegistry } from "@/lib/registry";
 
 export const metadata: Metadata = {
@@ -113,6 +113,18 @@ export default async function Page() {
                     <p className="mt-2 font-mono text-xs text-muted-foreground">{shape.join(" · ")}</p>
                     {arm.card && (
                       <p className="mt-3 max-w-md text-base leading-relaxed text-muted-foreground">{arm.card.body}</p>
+                    )}
+                    {MESH_CREDITS[arm.name] && (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Model and meshes:{" "}
+                        <Link
+                          href={MESH_CREDITS[arm.name].url}
+                          className="underline underline-offset-2 hover:text-foreground"
+                        >
+                          {MESH_CREDITS[arm.name].source}
+                        </Link>
+                        , {MESH_CREDITS[arm.name].licence}.
+                      </p>
                     )}
                     {arm.browser ? (
                       <Link
