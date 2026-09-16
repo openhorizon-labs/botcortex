@@ -44,5 +44,37 @@ export function explain(error: unknown): string {
   if (text.includes("E-STOP") || text.includes("stop file present")) {
     return "Stopped: the e-stop is latched. Clear it to continue.";
   }
-  return "Teaching failed. The browser console has the details.";
+  // Everything above is a failure we recognise. This is the one we do not, and
+  // two rules pull opposite ways: a vendor stack trace tells a robot owner
+  // nothing, and neither does "check the console" — that is the same sentence
+  // for every unrecognised failure, so two different faults read identically
+  // and a person watching their task fail repeatedly cannot even say WHICH
+  // failure it was. So the reason is shown when it reads like a sentence and
+  // withheld when it is machine noise. Full detail goes to the console either
+  // way. Mirrors `explain()` in the runtime's agent.py.
+  const reason = readable(text);
+  return reason
+    ? `Teaching stopped: ${reason}`
+    : "Teaching stopped for a reason the app does not recognise. " +
+        "If it happens again, tell us what you were teaching.";
+}
+
+/** Braces and brackets mean a serialised vendor payload; a control character
+ *  means it was never prose to begin with. */
+const NOT_PROSE = /[{}[\]<>\u0000-\u001f]/;
+
+/** The first line of an error IF an owner could act on it, else null. */
+function readable(text: string): string | null {
+  const first = text.split("\n").find((part) => part.trim()) ?? "";
+  const line = first
+    .replace(/^(Error|TypeError|RangeError|ReferenceError|ValueError):\s*/, "")
+    .trim();
+  if (!line || NOT_PROSE.test(line)) return null;
+  // Words and letters, not a ratio: "no clear route to (0.45, -0.25, 0.2)" is
+  // the most useful message this will ever pass on and it is half digits and
+  // brackets, while "runtime crashed" is two words and worth saying. A hex
+  // blob or a bare identifier clears neither bar.
+  const words = line.match(/[A-Za-z]{2,}/g) ?? [];
+  if (words.length < 2 || words.join("").length < 8) return null;
+  return line.length > 180 ? `${line.slice(0, 177)}…` : line;
 }

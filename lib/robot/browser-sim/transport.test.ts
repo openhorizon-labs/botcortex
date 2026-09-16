@@ -104,7 +104,14 @@ test("tool rejection is handled, explained and returns the transport to idle", a
   try {
     await transport.open();
     await transport.send({ type: "run_skill", name: "wave", dryRun: true }, "test");
-    expect(events.some((event) => event.type === "chat" && event.text.includes("failed"))).toBe(true);
+    // The REASON has to reach the owner, not just the word "failed". This used
+    // to say "Teaching failed. The browser console has the details.", which is
+    // the same sentence for every unrecognised failure and sends a person with
+    // a robot somewhere they have never opened.
+    const said = events.find((event) => event.type === "chat" && event.text.startsWith("Teaching stopped"));
+    expect(said).toBeDefined();
+    expect((said as { text: string }).text).toContain("runtime crashed");
+    expect((said as { text: string }).text).not.toContain("console");
     expect(events.at(-1)).toEqual({ type: "status", state: "idle" });
   } finally { transport.close(); }
 });
