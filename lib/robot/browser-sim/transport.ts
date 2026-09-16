@@ -599,6 +599,10 @@ export class BrowserSimTransport {
     const unprovenBefore = sim.unproven;
     const reply = await sim.runTool(
       "run_skill",
+      // No as_agent flag: this is the Run button. The runtime refuses to let
+      // the MODEL reuse a skill that has never run successfully, because a
+      // draft someone left behind is not something the robot knows how to do.
+      // An owner running their own draft is how it earns that proof.
       { name, params_json: "{}" },
       (arms) => this.emit({ type: "state", arms, objects: sim.scene.objects }),
     );

@@ -294,7 +294,15 @@ export async function teach({
           // was required never reaches a motion primitive.
           const shape = validateArguments(schemaOf.get(call.function.name), args);
           if (shape) throw new Error(`${shape}. Correct the arguments and retry.`);
-          result = await dispatch(call.function.name, args);
+          // as_agent marks this as the MODEL's hand rather than the owner's.
+          // The runtime refuses to let the model run a skill that has never
+          // run successfully — a draft someone left behind is not something
+          // the robot knows how to do, and reusing one inherits a failure that
+          // was already diagnosed. The Run button sets no such flag.
+          result = await dispatch(
+            call.function.name,
+            call.function.name === "run_skill" ? { ...args, as_agent: true } : args,
+          );
           // Tool bodies report failure by RETURNING it, not by throwing — the
           // model has to read what went wrong to repair it. Classified with
           // the runtime's own prefixes rather than a guess, or a failed call
