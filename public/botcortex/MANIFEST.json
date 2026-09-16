@@ -1,9 +1,9 @@
 {
-  "wheel": "botcortex-0.0.7-py3-none-any.whl",
-  "sha256": "4069011afaacbc06534bbb718fdc16932b7ffc4bc0f6eeb0bc947073abe0e847",
-  "contractVersion": "0.0.7",
+  "wheel": "botcortex-0.0.8-py3-none-any.whl",
+  "sha256": "e83cc29297a738bf8d1a67739fb7ae08de10163c43714f6148b297538d1c260a",
+  "contractVersion": "0.0.8",
   "platform": "openarm_v1",
-  "runtimeCommit": "99d30205818f78a02ebbd8600dcc9b9bc34257e4",
+  "runtimeCommit": "2be639c95450f48e99cc32b9783e836050a1cb82",
   "runtimeRepo": "openhorizon-labs/botcortex-runtime",
   "recordedAt": "2026-09-16",
   "catalog": [
@@ -51,6 +51,24 @@
       "joints": 7,
       "arms": 1,
       "reachM": 0.7,
+      "browser": false
+    },
+    {
+      "name": "so101",
+      "displayName": "SO-101 (LeRobot, MuJoCo Menagerie)",
+      "kind": "arm",
+      "joints": 5,
+      "arms": 1,
+      "reachM": 0.3,
+      "browser": false
+    },
+    {
+      "name": "vx300s",
+      "displayName": "Trossen ViperX 300s (ALOHA, MuJoCo Menagerie)",
+      "kind": "arm",
+      "joints": 6,
+      "arms": 1,
+      "reachM": 0.55,
       "browser": false
     }
   ]

@@ -27,6 +27,14 @@ export const BODY_CARDS: Record<string, BodyCard> = {
     tagline: "One arm, seven joints, a two-finger hand",
     body: "The Franka Emika Panda from MuJoCo Menagerie: the lab-standard collaborative arm, 0.85 m of reach, a tendon-driven parallel gripper. Native simulation only for now.",
   },
+  so101: {
+    tagline: "One arm, five joints, a printed jaw",
+    body: "The LeRobot community's SO-101 from MuJoCo Menagerie: five hobby servos, 30 cm of reach, a 3D-printed clamp. The arm most people teaching a robot for the first time own. Native simulation only for now.",
+  },
+  vx300s: {
+    tagline: "One arm, six joints, a parallel gripper",
+    body: "Trossen's ViperX 300s from MuJoCo Menagerie, the ALOHA arm: six joints, 55 cm of reach, a two-finger gripper whose wrist sags a little at full stretch. Native simulation only for now.",
+  },
   xarm7: {
     tagline: "One arm, seven joints, a parallel gripper",
     body: "UFACTORY's xArm7 from MuJoCo Menagerie, standing on its pedestal: 0.7 m of reach and a two-finger gripper. Native simulation only for now.",
@@ -54,7 +62,7 @@ export type SupportedBody = {
   image?: string;
 };
 
-const IMAGES = new Set(["openarm_v1", "roarm_m2", "panda", "xarm7"]);
+const IMAGES = new Set(["openarm_v1", "roarm_m2", "panda", "xarm7", "so101", "vx300s"]);
 
 /** Every body the shipped runtime knows, with its copy and image. */
 export const SUPPORTED_BODIES: SupportedBody[] = (
