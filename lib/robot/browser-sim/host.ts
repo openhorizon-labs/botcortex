@@ -37,8 +37,10 @@ const CONTROL_HZ = 20;
  */
 export const DEADLINES_MS: Record<WorkerRequest["type"], number> = {
   boot: 240_000,
-  // 0.0.2 takes 59–70 s for one measured transfer; longer skills and slower
-  // machines need headroom until the nested path search is optimized.
+  // 0.0.2 took 59–70 s for one measured transfer. Since 0.0.16 the pose
+  // search no longer runs full dynamics per probe and the same transfer is
+  // about 15 s, but the headroom stays: a three-object skill on a slow laptop
+  // is still minutes, and hitting this kills the worker mid-task.
   callTool: 600_000,
   reset: 15_000,
   seek: 15_000,

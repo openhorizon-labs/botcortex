@@ -119,7 +119,11 @@ export function SettingsDialog({
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Need more? Reply to your invite email and we&apos;ll top you up.
+                  Need more? Email{" "}
+                  <a href="mailto:contact@openhorizon.so" className="underline underline-offset-2 hover:text-foreground">
+                    contact@openhorizon.so
+                  </a>{" "}
+                  with what you are building and we&apos;ll top you up.
                 </p>
               </div>
             )}
