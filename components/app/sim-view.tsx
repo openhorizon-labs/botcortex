@@ -42,7 +42,7 @@ import {
 } from "three";
 import URDFLoader, { type URDFRobot } from "urdf-loader";
 
-import type { JointState, Kinematics, SceneBodies, SceneBody } from "@/lib/robot/protocol";
+import type { JointState, Kinematics, RobotInfo, SceneBodies, SceneBody } from "@/lib/robot/protocol";
 import { bodyFor } from "@/lib/robot/bodies";
 import { useRobot } from "@/components/app/robot-provider";
 
@@ -654,10 +654,33 @@ function FrameOnLoad({
   );
 }
 
+/** What the viewport draws from. The refs are read per frame; `robot` decides
+ *  which drawing to use and how to frame it. */
+export type SimSource = {
+  jointStateRef: React.RefObject<JointState | null>;
+  objectsRef: React.RefObject<SceneBodies | null>;
+  fixturesRef: React.RefObject<SceneBodies | null>;
+  robot: Pick<RobotInfo, "name" | "platform" | "gripper" | "kinematics"> | null;
+};
+
+/** The control room's viewer: whatever robot the account is connected to. */
 export default function SimView() {
-  const containerRef = useRef<HTMLDivElement>(null);
   // Read OUTSIDE the R3F Canvas boundary — the scene is its own React root.
   const { jointStateRef, objectsRef, fixturesRef, robot } = useRobot();
+  return <SimViewport jointStateRef={jointStateRef} objectsRef={objectsRef} fixturesRef={fixturesRef} robot={robot} />;
+}
+
+/**
+ * The viewer itself, fed by props rather than by the robot provider.
+ *
+ * Split out for the public skill player: that page runs a published skill for
+ * someone with no account, so it cannot mount the provider — which exists to
+ * tie a robot to an account, restore that account's skills and write back to
+ * its registry. The drawing never needed any of that; it needs three refs and
+ * a description of the body.
+ */
+export function SimViewport({ jointStateRef, objectsRef, fixturesRef, robot }: SimSource) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const gripper = robot?.gripper ?? ASSUMED_GRIPPER;
   // No robot yet: draw the arm as before. A robot with a URDF here (the
   // OpenArm and its twins) is drawn from it; any other body is drawn from
@@ -694,7 +717,9 @@ export default function SimView() {
         // x 0.12..0.42 in front of the robot, so a camera tight on the torso
         // saw furniture rather than work.
           camera={{ position: [0.95, 0.85, 1.15], fov: 42 }}
-        gl={{ antialias: true, alpha: true }}
+        // preserveDrawingBuffer: the GIF recorder reads this canvas between
+        // frames, and without it a WebGL canvas reads back blank.
+        gl={{ antialias: true, alpha: true, preserveDrawingBuffer: true }}
       >
         {/* A studio backdrop, several shades darker than the page, so the
             robot's near-white covers actually have something to read against.

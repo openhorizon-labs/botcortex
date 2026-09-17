@@ -153,7 +153,7 @@ export default async function Page() {
                         </p>
                       </div>
                     ) : (
-                      skills.map((skill) => <SkillCard key={skill.name} skill={skill} />)
+                      skills.map((skill) => <SkillCard key={skill.id} skill={skill} runnable={arm.browser} />)
                     )}
                   </div>
                 </div>

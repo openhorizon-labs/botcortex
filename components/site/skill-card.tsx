@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, Copy } from "lucide-react";
+import Link from "next/link";
+import { Check, ChevronDown, Copy, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PublishedSkill } from "@/lib/registry";
 
 /** One published skill: the name as the robot knows it, what it does, when
  *  it was last proven, and the program behind a fold. Grayscale, hairlines,
  *  the same card grammar as the rest of the site. */
-export function SkillCard({ skill }: { skill: PublishedSkill }) {
+export function SkillCard({ skill, runnable = false }: { skill: PublishedSkill; runnable?: boolean }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const when = new Date(skill.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -45,6 +46,23 @@ export function SkillCard({ skill }: { skill: PublishedSkill }) {
           )}
         />
       </button>
+      {/* Its own row, not inside the fold button: a link inside a button is not
+          valid HTML and steals the click either way. Every published skill is a
+          program, and running a program needs no model — so this costs nothing
+          however many people press it, which is why it is offered to everyone. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-4 sm:px-5">
+        {runnable ? (
+          <Link
+            href={`/skills/${skill.id}?run=1`}
+            className="group inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-colors hover:bg-foreground/90"
+          >
+            <Play className="size-3 fill-current" /> Run in your browser
+          </Link>
+        ) : null}
+        <Link href={`/skills/${skill.id}`} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+          Open its page
+        </Link>
+      </div>
       {open && (
         <div className="border-t border-border">
           <div className="flex items-center justify-between px-4 py-2 sm:px-5">

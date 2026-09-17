@@ -102,7 +102,7 @@ export async function proxy(request: NextRequest) {
       : NextResponse.next();
   }
   if (session === "valid") {
-    return insideApp || PUBLIC_WHEN_SIGNED_IN.includes(pathname)
+    return insideApp || PUBLIC_WHEN_SIGNED_IN.some((root) => pathname === root || pathname.startsWith(`${root}/`))
       ? NextResponse.next()
       : NextResponse.redirect(new URL(APP_ROOT, request.url));
   }
