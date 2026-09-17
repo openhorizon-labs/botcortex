@@ -87,6 +87,10 @@ interface ModelReply {
   provider: string | null;
   content: string | null;
   toolCalls: ToolCall[];
+  /** The provider's own content blocks, when the api sent them (Claude, via the
+   *  owner's key). Sent back untouched next turn: a thinking block has to be
+   *  replayed exactly, and this loop has no business understanding it. */
+  anthropicContent: unknown[] | null;
 }
 
 function readReply(data: unknown): ModelReply {
@@ -111,6 +115,7 @@ function readReply(data: unknown): ModelReply {
     provider: typeof data.provider === "string" ? data.provider : null,
     content,
     toolCalls,
+    anthropicContent: Array.isArray(choice.anthropic_content) ? choice.anthropic_content : null,
   };
 }
 
@@ -119,6 +124,7 @@ interface ChatMessage {
   content: string | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  anthropic_content?: unknown[];
 }
 
 interface ToolCall {
@@ -247,7 +253,11 @@ export async function teach({
         if (signal?.aborted) return stopped();
         if (pushback && followUps > 0 && !pushback.final) {
           followUps--;
-          messages.push({ role: "assistant", content: reply.content ?? "" });
+          messages.push({
+            role: "assistant",
+            content: reply.content ?? "",
+            ...(reply.anthropicContent ? { anthropic_content: reply.anthropicContent } : {}),
+          });
           messages.push({ role: "user", content: pushback.agent });
           continue;
         }
@@ -262,6 +272,7 @@ export async function teach({
         role: "assistant",
         content: reply.content,
         tool_calls: calls,
+        ...(reply.anthropicContent ? { anthropic_content: reply.anthropicContent } : {}),
       });
 
       for (const call of calls) {

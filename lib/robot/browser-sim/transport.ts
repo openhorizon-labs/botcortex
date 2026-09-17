@@ -13,7 +13,6 @@
 
 import type { ChatHistoryEntry, ClientMessage, RobotInfo, RobotMessage } from "@/lib/robot/protocol";
 import { teach } from "@/lib/robot/agent/loop";
-import { byoRoute, loadByoKey } from "@/lib/robot/byo-key";
 import { shortBodyName } from "@/lib/robot/bodies";
 import { BrowserSim, type FlushReport } from "@/lib/robot/browser-sim/host";
 import type { RegistrySkill } from "@/lib/robot/browser-sim/worker";
@@ -549,21 +548,15 @@ export class BrowserSimTransport {
     // Nothing this teach has not itself shown counts as evidence for it.
     await sim.beginTask();
 
-    // The owner's own key, when they have saved one: the tab calls the
-    // provider directly, our api is never in the path, and the BotCortex
-    // balance does not move. Read per teach, so saving or removing a key in
-    // Settings applies to the very next sentence without a reconnect.
-    const own = loadByoKey();
-    const route = own ? byoRoute(own) : null;
-
     const result = await teach({
       contract: sim.contract,
-      model: route ? route.model : model,
+      // Always through our api. If the owner has saved their own key it is
+      // THERE, not here: the api uses it, skips the credit gate, and answers in
+      // the same shape, naming the model and provider that actually ran.
+      model,
       prompt,
       signal: this.abort?.signal,
-      ...(route
-        ? { endpoint: route.endpoint, fetcher: route.fetcher, provider: route.provider }
-        : { fetcher: this.request }),
+      fetcher: this.request,
       emit: this.emit,
       // The gate on saying "done" — the runtime's, not a second copy of it.
       verify: () => sim.verify(),

@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { ArrowUp, KeyRound, ShieldCheck, Square } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ModelPicker } from "@/components/app/model-picker";
-import { BYO_CHANGED, type ByoKey, loadByoKey } from "@/lib/robot/byo-key";
+import { ANTHROPIC_MODEL_LABEL, useModelKey } from "@/lib/robot/model-key";
 import { useRobot } from "@/components/app/robot-provider";
 import {
   Tooltip,
@@ -39,15 +38,7 @@ export function Composer({
   className?: string;
 }) {
   const { activity, stopped, status, interrupt, interruptible, host } = useRobot();
-  // Read after mount (localStorage does not exist on the server) and again
-  // whenever Settings saves or removes it.
-  const [ownKey, setOwnKey] = useState<ByoKey | null>(null);
-  useEffect(() => {
-    const read = () => setOwnKey(loadByoKey());
-    read();
-    window.addEventListener(BYO_CHANGED, read);
-    return () => window.removeEventListener(BYO_CHANGED, read);
-  }, []);
+  const { key: ownKey } = useModelKey();
   const connected = status === "connected";
   const blocked = stopped || activity.startsWith("teaching") || activity.startsWith("running");
   const needRobot = () => {
@@ -89,22 +80,31 @@ export function Composer({
       />
       <div className="flex items-center justify-between px-2.5 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          {/* With the owner's own key saved, the picker would be a lie: it
-              lists the models BotCortex credit buys, and none of them is what
-              will run. Only for the in-tab robot — a real one teaches with the
-              key in its own environment and never reads this. */}
-          {ownKey && host === "this browser" ? (
+          {/* An Anthropic key makes the picker a lie: it lists GPT models, and
+              Claude is what will run, so it says so instead. An OpenAI key
+              keeps the picker — the model chosen there IS what runs — with a
+              mark that the owner's key, not the balance, is paying. Only for
+              the in-tab robot; a real one teaches from its own environment. */}
+          {ownKey?.provider === "anthropic" && host === "this browser" ? (
             <span
               className="flex h-7 min-w-0 items-center gap-1.5 rounded-lg border border-border px-2 text-xs text-muted-foreground"
-              title="Teaching uses your own key. Change it in Settings, under Model key."
+              title="Teaching uses your own Anthropic key. Change it in Settings, under Model key."
             >
               <KeyRound className="size-3.5 shrink-0" />
-              <span className="truncate">
-                Your key · <span className="font-mono">{ownKey.model}</span>
-              </span>
+              <span className="truncate">Your key · {ANTHROPIC_MODEL_LABEL}</span>
             </span>
           ) : (
-            <ModelPicker value={model} onChange={onModelChange} />
+            <>
+              <ModelPicker value={model} onChange={onModelChange} />
+              {ownKey && host === "this browser" && (
+                <span
+                  className="flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-xs text-muted-foreground"
+                  title="Teaching uses your own OpenAI key, not BotCortex credit. Change it in Settings, under Model key."
+                >
+                  <KeyRound className="size-3.5" /> Your key
+                </span>
+              )}
+            </>
           )}
           {/* A STATE, not a switch.
               This was a Dry run / Execute toggle whose tooltip promised that

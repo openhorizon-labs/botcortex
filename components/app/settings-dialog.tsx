@@ -25,6 +25,7 @@ import { useRobot } from "@/components/app/robot-provider";
 import { RobotKeysPanel } from "@/components/app/robot-keys-panel";
 import { SettingsProfile } from "@/components/app/settings-profile";
 import { forgetProfile, fullName, useProfile } from "@/lib/profile";
+import { forgetModelKey } from "@/lib/robot/model-key";
 import { ModelKeyPanel } from "@/components/app/model-key-panel";
 
 type SectionId = "access" | "credit" | "model" | "account";
@@ -180,6 +181,7 @@ export function SettingsDialog({
                   onClick={async () => {
                     await authClient.signOut();
                     forgetProfile();
+                    forgetModelKey();
                     window.location.href = "/signin";
                   }}
                 >

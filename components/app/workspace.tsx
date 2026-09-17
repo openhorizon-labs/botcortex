@@ -32,6 +32,7 @@ import { ShareCard } from "@/components/app/share-card";
 import { AccountIdentity } from "@/components/app/account-identity";
 import { ProfileDialog } from "@/components/app/profile-dialog";
 import { forgetProfile } from "@/lib/profile";
+import { forgetModelKey } from "@/lib/robot/model-key";
 import { WelcomeDialog } from "@/components/app/welcome-dialog";
 import { BOOTABLE_BODIES, shortBodyName } from "@/lib/robot/bodies";
 import { Button } from "@/components/ui/button";
@@ -724,6 +725,7 @@ function AppInner() {
                       onSelect={async () => {
                         await authClient.signOut();
                         forgetProfile();
+                        forgetModelKey();
                         window.location.href = "/signin";
                       }}
                     >

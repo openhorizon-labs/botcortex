@@ -17,6 +17,7 @@ import { ChevronDown, Sparkles, Zap } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useRobot } from "@/components/app/robot-provider";
+import { useModelKey } from "@/lib/robot/model-key";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +62,10 @@ export function ModelPicker({
   // balance changes keeps the disabled rows honest.
   const { credit } = useRobot();
   const balance = credit?.balanceMicros ?? null;
+  // And of whose key is paying: with the owner's own OpenAI key nothing is
+  // unaffordable, so saving or removing one re-asks too.
+  const { key: ownKey } = useModelKey();
+  const paidBy = ownKey?.provider ?? "credit";
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +83,7 @@ export function ModelPicker({
     // `value`/`onChange` are deliberately not deps: the default is applied
     // once, and re-applying it on every pick would undo the pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balance]);
+  }, [balance, paidBy]);
 
   const current = models.find((m) => m.id === value);
   const families = Array.from(new Set(models.map((m) => m.family)));

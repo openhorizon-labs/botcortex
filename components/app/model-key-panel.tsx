@@ -1,140 +1,127 @@
 "use client";
 
+/**
+ * Settings -> Model key: teach on your own OpenAI or Anthropic account.
+ *
+ * One field. Which provider the key is for is read off the key, and which
+ * model to use is ours to choose well — asking for either was asking the owner
+ * to do our job. The panel says where the key goes before it is typed, because
+ * a field that takes a secret owes the person typing it that much.
+ */
 import { useEffect, useState } from "react";
-import { Check, KeyRound, Trash2 } from "lucide-react";
+import { Check, KeyRound, Loader2, Trash2 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  BYO_CHANGED,
-  BYO_PROVIDERS,
-  type ByoKey,
-  type ByoProvider,
-  clearByoKey,
-  loadByoKey,
-  maskKey,
-  saveByoKey,
-} from "@/lib/robot/byo-key";
+  ANTHROPIC_MODEL_LABEL,
+  PROVIDER_LABEL,
+  forgetLegacyKey,
+  removeModelKey,
+  saveModelKey,
+  useModelKey,
+} from "@/lib/robot/model-key";
 
-/**
- * Settings → Model key: teach on your own OpenAI or Anthropic account.
- *
- * Says where the key goes, in the panel, in plain words — a field that takes
- * a secret owes the person typing it that much before they type it.
- */
 export function ModelKeyPanel() {
-  const [saved, setSaved] = useState<ByoKey | null>(null);
-  const [provider, setProvider] = useState<ByoProvider>("openai");
-  const [key, setKey] = useState("");
-  const [model, setModel] = useState(BYO_PROVIDERS.openai.defaultModel);
-  const [justSaved, setJustSaved] = useState(false);
+  const { key: saved, loaded } = useModelKey();
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState<"save" | "remove" | null>(null);
+  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
+  const [hadLegacy, setHadLegacy] = useState(false);
+  useEffect(() => { setHadLegacy(forgetLegacyKey()); }, []);
 
-  useEffect(() => {
-    const read = () => {
-      const current = loadByoKey();
-      setSaved(current);
-      if (current) {
-        setProvider(current.provider);
-        setModel(current.model);
-      }
-    };
-    read();
-    window.addEventListener(BYO_CHANGED, read);
-    return () => window.removeEventListener(BYO_CHANGED, read);
-  }, []);
-
-  const pick = (next: ByoProvider) => {
-    setProvider(next);
-    // Follow the provider's default unless the owner typed a model of their own.
-    if (!model.trim() || Object.values(BYO_PROVIDERS).some((p) => p.defaultModel === model)) {
-      setModel(BYO_PROVIDERS[next].defaultModel);
+  async function save() {
+    setBusy("save");
+    setNote(null);
+    const outcome = await saveModelKey(value);
+    setBusy(null);
+    if (!outcome.ok) {
+      setNote({ text: outcome.error, bad: true });
+      return;
     }
-  };
+    // Gone from this page the moment it is safe on the server.
+    setValue("");
+    setNote({
+      text: outcome.verified
+        ? `${PROVIDER_LABEL[outcome.key.provider]} accepted the key. Teaching now uses it.`
+        : `Saved. ${PROVIDER_LABEL[outcome.key.provider]} could not be reached to check it, so the first teach will tell.`,
+      bad: false,
+    });
+  }
 
-  const save = () => {
-    const secret = key.trim() || (saved?.provider === provider ? saved.key : "");
-    if (!secret) return;
-    saveByoKey({ provider, key: secret, model: model.trim() || BYO_PROVIDERS[provider].defaultModel });
-    setKey("");
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 1600);
-  };
-
-  const keepsSavedKey = saved?.provider === provider;
+  async function remove() {
+    setBusy("remove");
+    setNote(null);
+    const removed = await removeModelKey();
+    setBusy(null);
+    setNote(removed ? { text: "Removed. Teaching uses BotCortex credit again.", bad: false } : { text: "Could not remove the key. Try again.", bad: true });
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <div>
         <h3 className="text-sm font-medium">Model key</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Teach on your own OpenAI or Anthropic account instead of BotCortex credit. For robots
-          simulated in this browser; a real robot uses the key in its own environment.
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+          Teach on your own OpenAI or Anthropic account instead of BotCortex credit. Your provider bills you
+          directly, and your BotCortex balance is never touched or checked.
         </p>
       </div>
 
       {saved && (
-        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-          <KeyRound className="size-4 shrink-0 text-muted-foreground" />
+        <div className="flex min-w-0 items-center gap-3 rounded-lg border border-border p-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-3">
+            <KeyRound className="size-4" />
+          </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">
-              {BYO_PROVIDERS[saved.provider].label} · <span className="font-mono">{maskKey(saved.key)}</span>
+              {PROVIDER_LABEL[saved.provider]} key <span className="font-mono text-muted-foreground">…{saved.last4}</span>
             </p>
             <p className="break-words text-xs leading-relaxed text-muted-foreground">
-              Teaching uses <span className="font-mono">{saved.model}</span>. Your BotCortex credit is not touched.
+              {saved.provider === "anthropic"
+                ? `Teaching runs on ${ANTHROPIC_MODEL_LABEL}.`
+                : "Teaching runs on the model you pick in the composer."}
             </p>
           </div>
-          <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={clearByoKey}>
-            <Trash2 className="size-3.5" /> Remove
+          <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1.5" disabled={busy !== null} onClick={() => void remove()}>
+            {busy === "remove" ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />} Remove
           </Button>
         </div>
       )}
 
-      <div className="space-y-3">
-        <div className="flex gap-1 rounded-lg bg-surface-3 p-1">
-          {(Object.keys(BYO_PROVIDERS) as ByoProvider[]).map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => pick(id)}
-              className={cn(
-                "flex h-7 flex-1 cursor-pointer items-center justify-center rounded-md text-xs font-medium transition-colors",
-                provider === id ? "border border-border bg-background" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {BYO_PROVIDERS[id].label}
-            </button>
-          ))}
-        </div>
+      <form
+        className="flex min-w-0 flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim() && !busy) void save();
+        }}
+      >
         <Input
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
+          value={value}
+          onChange={(e) => { setValue(e.target.value); setNote(null); }}
           type="password"
+          aria-label="API key"
+          placeholder={saved ? "Paste a different key to replace it" : "Paste your OpenAI or Anthropic API key"}
           autoComplete="off"
           spellCheck={false}
-          aria-label={`${BYO_PROVIDERS[provider].label} API key`}
-          placeholder={keepsSavedKey ? "Leave blank to keep the saved key" : BYO_PROVIDERS[provider].keyHint}
+          disabled={!loaded}
+          className="h-10 min-w-0 flex-1 font-mono text-sm"
         />
-        <Input
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          spellCheck={false}
-          aria-label="Model"
-          placeholder={BYO_PROVIDERS[provider].defaultModel}
-          className="font-mono text-sm"
-        />
-        <Button onClick={save} disabled={!key.trim() && !keepsSavedKey} className="h-9 gap-1.5 rounded-lg">
-          {justSaved && <Check className="size-3.5" />}
-          {justSaved ? "Saved" : saved ? "Update" : "Save key"}
+        <Button type="submit" className="h-10 gap-1.5" disabled={!value.trim() || busy !== null}>
+          {busy === "save" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Save key
         </Button>
-      </div>
+      </form>
+      {note && <p className={`break-words text-xs ${note.bad ? "text-destructive" : "text-muted-foreground"}`}>{note.text}</p>}
 
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        The key is stored in this browser only and is sent straight from this tab to{" "}
-        {BYO_PROVIDERS[provider].label}. It is never sent to BotCortex. Like any key kept in a
-        browser, a script running on this page could read it, so use one you can revoke, with a
-        spending limit.
+      <p className="break-words text-xs leading-relaxed text-muted-foreground">
+        The key is sent to BotCortex once, encrypted, and used only to make your teaching calls. It is never sent
+        back to this or any browser: after saving, all anyone can see here is the provider and the last four
+        characters. Remove it at any time and it is deleted.
       </p>
+      {hadLegacy && (
+        <p className="break-words text-xs leading-relaxed text-muted-foreground">
+          An older version kept a key in this browser. That copy has been deleted; paste the key above to keep using it.
+        </p>
+      )}
     </div>
   );
 }
