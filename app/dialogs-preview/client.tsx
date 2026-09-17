@@ -1,6 +1,7 @@
 "use client";
 
-import { HandleField } from "@/components/app/handle-field";
+import { ProfileDialog } from "@/components/app/profile-dialog";
+import { SettingsProfile } from "@/components/app/settings-profile";
 import { ModelKeyPanel } from "@/components/app/model-key-panel";
 import { RobotProvider } from "@/components/app/robot-provider";
 import { WelcomeDialog } from "@/components/app/welcome-dialog";
@@ -13,9 +14,11 @@ export function DialogsPreviewClient() {
           <ModelKeyPanel />
         </div>
         <div className="mx-auto mt-4 max-w-md rounded-2xl border border-border bg-background p-5">
-          <HandleField />
+          <SettingsProfile />
         </div>
-        <WelcomeDialog />
+        <ProfileDialog>
+          <WelcomeDialog />
+        </ProfileDialog>
       </main>
     </RobotProvider>
   );

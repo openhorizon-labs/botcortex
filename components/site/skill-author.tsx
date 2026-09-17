@@ -14,6 +14,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
+import { AuthorAvatar } from "@/components/site/author-avatar";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import type { SkillAuthor as Author } from "@/lib/registry";
 import { bodyFor, shortBodyName } from "@/lib/robot/bodies";
@@ -36,12 +37,7 @@ export function SkillAuthor({ author }: { author: Author }) {
       </HoverCardTrigger>
       <HoverCardContent align="start" className="w-72 p-4">
         <div className="flex min-w-0 items-center gap-3">
-          <span
-            aria-hidden
-            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-3 text-sm font-medium uppercase"
-          >
-            {[...author.name.trim()][0] ?? "?"}
-          </span>
+          <AuthorAvatar name={author.name} avatar={author.avatar} />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{author.name}</p>
             <p className="truncate text-xs text-muted-foreground">
@@ -49,6 +45,7 @@ export function SkillAuthor({ author }: { author: Author }) {
             </p>
           </div>
         </div>
+        {author.bio && <p className="mt-3 break-words text-xs leading-relaxed text-foreground/80">{author.bio}</p>}
         <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 text-xs">
           <div>
             <dt className="text-muted-foreground">Skills</dt>

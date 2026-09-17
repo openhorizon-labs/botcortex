@@ -23,7 +23,7 @@ import {
 import { authClient, useSession } from "@/lib/auth-client";
 import { useRobot } from "@/components/app/robot-provider";
 import { RobotKeysPanel } from "@/components/app/robot-keys-panel";
-import { HandleField } from "@/components/app/handle-field";
+import { SettingsProfile } from "@/components/app/settings-profile";
 import { ModelKeyPanel } from "@/components/app/model-key-panel";
 
 type SectionId = "access" | "credit" | "model" | "account";
@@ -153,7 +153,7 @@ export function SettingsDialog({
                     <dd>{conversations.length}</dd>
                   </div>
                 </dl>
-                <HandleField />
+                <SettingsProfile />
                 <Button
                   variant="outline"
                   className="cursor-pointer"

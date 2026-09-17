@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
+import { AuthorAvatar } from "@/components/site/author-avatar";
 import { Nav } from "@/components/site/nav";
 import { SkillCard } from "@/components/site/skill-card";
 import { fetchAuthor } from "@/lib/registry";
@@ -21,7 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const page = await fetchAuthor((await params).handle);
   if (!page) return { title: "Nobody here", robots: { index: false, follow: false } };
   const { author } = page;
-  const description = `${author.name} has taught ${author.skills} robot ${author.skills === 1 ? "skill" : "skills"} on BotCortex. Run any of them in your browser.`;
+  const description = author.bio || `${author.name} has taught ${author.skills} robot ${author.skills === 1 ? "skill" : "skills"} on BotCortex. Run any of them in your browser.`;
   return {
     title: `@${author.handle}`,
     description,
@@ -51,17 +52,13 @@ export default async function Page({ params }: Props) {
         </Link>
 
         <header className="mt-6 flex min-w-0 flex-wrap items-center gap-5">
-          <span
-            aria-hidden
-            className="flex size-16 shrink-0 items-center justify-center rounded-full bg-surface-3 text-2xl font-medium uppercase"
-          >
-            {[...author.name.trim()][0] ?? "?"}
-          </span>
+          <AuthorAvatar name={author.name} avatar={author.avatar} className="size-20 text-3xl" />
           <div className="min-w-0">
             <h1 className="break-words text-[32px] font-normal leading-[1.1] tracking-[-0.01em] sm:text-[40px]">{author.name}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               @{author.handle} · joined {joined}
             </p>
+            {author.bio && <p className="mt-3 max-w-xl break-words text-base leading-relaxed text-foreground/80">{author.bio}</p>}
           </div>
         </header>
 

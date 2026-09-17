@@ -29,6 +29,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ShareCard } from "@/components/app/share-card";
+import { ProfileDialog } from "@/components/app/profile-dialog";
 import { WelcomeDialog } from "@/components/app/welcome-dialog";
 import { BOOTABLE_BODIES, shortBodyName } from "@/lib/robot/bodies";
 import { Button } from "@/components/ui/button";
@@ -992,7 +993,9 @@ function AppInner() {
         </Command>
       </CommandDialog>
 
-      <WelcomeDialog />
+      <ProfileDialog>
+        <WelcomeDialog />
+      </ProfileDialog>
       <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </SidebarProvider>

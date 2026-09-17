@@ -13,6 +13,10 @@
 export type SkillAuthor = {
   handle: string;
   name: string;
+  /** A line about them, in their words. May be empty. */
+  bio?: string;
+  /** Their generated avatar; show it through `avatarSrc`. */
+  avatar?: string;
   /** Milliseconds since the epoch. */
   joinedAt: number;
   skills: number;

@@ -45,6 +45,8 @@ const nextConfig: NextConfig = {
       { source: "/api/registry/:path*", destination: `${api}/api/registry/:path*` },
       // The handle skills are published under (Settings -> Account).
       { source: "/api/profile", destination: `${api}/api/profile` },
+      // "Is this username free?", asked while it is typed.
+      { source: "/api/profile/:path*", destination: `${api}/api/profile/:path*` },
     ];
   },
 };
