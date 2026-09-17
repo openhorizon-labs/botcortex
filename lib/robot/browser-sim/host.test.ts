@@ -140,3 +140,32 @@ test("a tool call that keeps pulsing is left alone, and says what it is rehearsi
   }
   expect(heard).toEqual(["2: moving the arm"]);
 });
+
+test("on an isolated page STOP raises a shared flag before it queues its message, and reset lowers it", async () => {
+  const { requests } = workerFixture();
+  const was = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated;
+  (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated = true;
+  try {
+    const sim = await BrowserSim.boot();
+    expect(sim.stopsMidCompute).toBe(true);
+    const flag = new Int32Array((requests.find((r) => r.type === "boot") as unknown as { stopFlag: SharedArrayBuffer }).stopFlag);
+    expect(Atomics.load(flag, 0)).toBe(0);
+    const stopping = sim.stop();
+    // Already up, synchronously: the worker can see it while a tool is still running.
+    expect(Atomics.load(flag, 0)).toBe(1);
+    await stopping;
+    await sim.resetStop();
+    expect(Atomics.load(flag, 0)).toBe(0);
+  } finally {
+    (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated = was;
+  }
+});
+
+test("without isolation there is no flag, and STOP still works between tool calls", async () => {
+  const { requests } = workerFixture();
+  const sim = await BrowserSim.boot();
+  expect(sim.stopsMidCompute).toBe(false);
+  expect("stopFlag" in requests.find((r) => r.type === "boot")!).toBe(false);
+  await sim.stop();
+  expect(requests.some((r) => r.type === "stop")).toBe(true);
+});

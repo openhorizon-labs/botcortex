@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
@@ -14,19 +14,17 @@ import { Input } from "@/components/ui/input";
 const MIN_PASSWORD = 8;
 
 export function SignUpForm() {
-  const router = useRouter();
   const params = useSearchParams();
   // Only ever an in-app path — an absolute URL here would make this an open
   // redirect, and the value arrives from the query string.
   const destination = signInDestination(params.get("next"));
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const short = password.length > 0 && password.length < MIN_PASSWORD;
-  const ready = name.trim() && email.trim() && password.length >= MIN_PASSWORD;
+  const ready = email.trim() && password.length >= MIN_PASSWORD;
 
   async function submit() {
     setBusy(true);
@@ -36,13 +34,18 @@ export function SignUpForm() {
       const result = await authClient.signUp.email({
         email: email.trim(),
         password,
-        name: name.trim(),
+        // Asked in the app's first step, with the username and the picture,
+        // rather than here and then again there.
+        name: "",
       });
       if (result.error) {
         setError(result.error.message ?? "Could not create the account.");
         return;
       }
-      router.push(destination);
+      // A real navigation, not a client-side one: /app is served with the
+      // cross-origin-isolation headers that let STOP reach a skill mid-compute
+      // (next.config.ts), and headers only arrive with a document.
+      window.location.assign(destination);
     } catch {
       setError("Could not reach BotCortex. Check your connection and try again.");
     } finally {
@@ -59,15 +62,6 @@ export function SignUpForm() {
       }}
     >
       <Input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Your name"
-        aria-label="Name"
-        autoComplete="name"
-        className="h-11"
-        autoFocus
-      />
-      <Input
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="you@lab.dev"
@@ -75,6 +69,7 @@ export function SignUpForm() {
         aria-label="Email"
         autoComplete="email"
         className="h-11"
+        autoFocus
       />
       <Input
         value={password}

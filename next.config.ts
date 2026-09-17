@@ -6,6 +6,28 @@ const nextConfig: NextConfig = {
   // the hosted app is the front door; robots and botcortex-api sit behind it.
   // Auth is proxied same-origin so session cookies stay first-party
   // (Safari blocks cross-site cookies) and middleware can gate /app.
+  /**
+   * Cross-origin isolation, on the pages that run a robot in the tab.
+   *
+   * STOP has to reach a skill that is still COMPUTING. The worker runs Python
+   * synchronously, so a message cannot get in until the tool returns; a shared
+   * flag can, and SharedArrayBuffer only exists on a cross-origin-isolated
+   * page. Scoped to where the sim runs, not the whole site: require-corp
+   * refuses any cross-origin subresource that does not opt in, which the
+   * marketing pages have no reason to risk. Everything these pages load is
+   * same-origin (avatars come through /avatar, fonts are self-hosted), and a
+   * CORS fetch to a model provider is allowed. The worker script needs the
+   * header too, or the worker is not isolated even when its page is.
+   */
+  async headers() {
+    const isolated = [
+      { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+      { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+    ];
+    return ["/app", "/app/:path*", "/skills/:path*", "/sim-worker.js", "/simview-preview", "/dialogs-preview"].map(
+      (source) => ({ source, headers: isolated }),
+    );
+  },
   async rewrites() {
     const api = process.env.API_URL ?? "http://localhost:8787";
     // Every account route goes through here for the same reason: the session

@@ -102,6 +102,9 @@ type RobotContextValue = {
   error: string | null;
   /** Robot-side activity: idle / teaching / running. */
   activity: string;
+  /** What is being checked this moment, while a run is rehearsed and the arm
+   *  has not moved yet ("Checking step 7: moving the arm"). Null otherwise. */
+  working: string | null;
   lastChat: string | null;
   /** Full conversation for this session, oldest first. */
   messages: ChatMessage[];
@@ -275,6 +278,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const [host, setHost] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState("idle");
+  const [working, setWorking] = useState<string | null>(null);
   const [lastChat, setLastChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stopState, setStopState] = useState<StopState>("clear");
@@ -879,6 +883,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
           break;
         }
         case "tool_result": {
+          setWorking(null);
           const finished = msg;
           const run = runFor(msg.runId);
           if (run === undefined) break;
@@ -917,9 +922,14 @@ export function RobotProvider({ children, accountId = null }: { children: React.
           setUnproven(now);
           break;
         }
+        case "working":
+          setWorking(`Checking step ${msg.step}: ${msg.label}`);
+          break;
         case "status": {
           if (msg.runId !== undefined && runFor(msg.runId) !== activeRunRef.current) break;
           setActivity(msg.state + (msg.detail ? ` — ${msg.detail}` : ""));
+          // A new phase: whatever was being checked a moment ago is over.
+          setWorking(null);
           // Anything that moves the arm is worth watching — authoring a skill
           // or replaying a saved one. Only on the transition INTO working, so
           // closing the panel mid-run sticks; and here rather than in the page
@@ -1485,6 +1495,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         host,
         error,
         activity,
+        working,
         interrupt,
         interruptible,
         justProven,

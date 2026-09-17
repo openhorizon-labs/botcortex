@@ -46,19 +46,21 @@ export function SkillAuthor({ author }: { author: Author }) {
           </div>
         </div>
         {author.bio && <p className="mt-3 break-words text-xs leading-relaxed text-foreground/80">{author.bio}</p>}
+        {/* Number first, label under it. With the label on top, "Runs by others"
+            wrapped to two lines in a 288 px card and pushed its number a line
+            below the other two. flex-col-reverse keeps dt before dd in the
+            markup, which is what a description list means. */}
         <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 text-xs">
-          <div>
-            <dt className="text-muted-foreground">Skills</dt>
-            <dd className="mt-0.5 text-base font-medium tabular-nums">{author.skills}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Robots</dt>
-            <dd className="mt-0.5 text-base font-medium tabular-nums">{author.platforms.length}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Runs by others</dt>
-            <dd className="mt-0.5 text-base font-medium tabular-nums">{author.runs ?? 0}</dd>
-          </div>
+          {[
+            ["Skills", author.skills],
+            ["Robots", author.platforms.length],
+            ["Runs by others", author.runs ?? 0],
+          ].map(([label, value]) => (
+            <div key={label} className="flex min-w-0 flex-col-reverse justify-end">
+              <dt className="mt-0.5 leading-snug text-muted-foreground">{label}</dt>
+              <dd className="text-base font-medium tabular-nums">{value}</dd>
+            </div>
+          ))}
         </dl>
         {arms.length > 0 && <p className="mt-2 break-words text-xs leading-relaxed text-muted-foreground">{arms.join(" · ")}</p>}
         <Link

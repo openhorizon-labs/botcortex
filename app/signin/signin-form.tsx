@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export function SignInForm() {
-  const router = useRouter();
   const params = useSearchParams();
   // Only ever an in-app path — an absolute URL here would make this an open
   // redirect, and the value arrives from the query string.
@@ -29,7 +28,9 @@ export function SignInForm() {
         setError(result.error.message ?? "Sign-in failed — check your credentials.");
         return;
       }
-      router.push(destination);
+      // A real navigation: /app's isolation headers only arrive with a document
+      // (see next.config.ts), and STOP mid-compute depends on them.
+      window.location.assign(destination);
     } catch {
       setError("Could not reach BotCortex. Check your connection and try again.");
     } finally {

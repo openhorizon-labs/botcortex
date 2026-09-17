@@ -30,7 +30,7 @@ import { SkillText } from "@/components/app/skill-text";
 import { TaskEvidence } from "@/components/app/task-evidence";
 
 export function ChatPane() {
-  const { messages, toolCalls, activity, status, skills } = useRobot();
+  const { messages, toolCalls, activity, working, status, skills } = useRobot();
   const connected = status === "connected";
   const busy = activity.startsWith("teaching") || activity.startsWith("running");
 
@@ -66,7 +66,10 @@ export function ChatPane() {
             <MessageContent>
               <span className="flex items-center gap-2 text-muted-foreground">
                 <Spinner className="size-3.5" />
-                {activity.startsWith("teaching") ? "Authoring a skill…" : "Running…"}
+                {/* While a run is being checked the arm has not moved yet; saying
+                    which step is the difference between a check in progress
+                    and an app that has hung. */}
+                {working ? `${working}…` : activity.startsWith("teaching") ? "Authoring a skill…" : "Running…"}
               </span>
             </MessageContent>
           </Message>

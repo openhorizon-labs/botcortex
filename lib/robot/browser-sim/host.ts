@@ -128,6 +128,11 @@ export class BrowserSim {
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private onProgress: SimProgress = () => {};
   private onWorking: NonNullable<BrowserSimOptions["onWorking"]> = () => {};
+  /** Shared with the worker: 1 while STOP is pressed. Null when the page is not
+   *  cross-origin isolated — see `stop()`. */
+  private stopFlag: Int32Array | null = null;
+  /** Whether STOP can cut a skill short while it is still being computed. */
+  get stopsMidCompute() { return this.stopFlag !== null; }
   /** Restarts the quiet timer of every tool call in flight. */
   private alive = new Set<() => void>();
   /** Cuts playback short when STOP lands. */
@@ -212,7 +217,17 @@ export class BrowserSim {
       this.die(event.message || "the robot's thread stopped");
     };
 
-    const booted = await this.ask({ type: "boot", namespace: options.namespace ?? null, platform: options.platform ?? null });
+    // Only on a cross-origin-isolated page (next.config.ts headers()); anywhere
+    // else STOP still works the old way, between tool calls.
+    if (globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined") {
+      this.stopFlag = new Int32Array(new SharedArrayBuffer(4));
+    }
+    const booted = await this.ask({
+      type: "boot",
+      namespace: options.namespace ?? null,
+      platform: options.platform ?? null,
+      ...(this.stopFlag ? { stopFlag: this.stopFlag.buffer as SharedArrayBuffer } : {}),
+    });
     this.contract = parseContract(booted.contract);
     this.state = booted.state;
     this.skills = booted.skills;
@@ -423,11 +438,15 @@ export class BrowserSim {
   /** The e-stop, through the same file every other backend checks. */
   async stop() {
     this.aborted = true;
+    // First, and without waiting: this is what reaches a skill that is still
+    // computing. The message below cannot be read until that call returns.
+    if (this.stopFlag) Atomics.store(this.stopFlag, 0, 1);
     await this.ask({ type: "stop" });
     this.stopped = true;
   }
 
   async resetStop() {
+    if (this.stopFlag) Atomics.store(this.stopFlag, 0, 0);
     await this.ask({ type: "resetStop" });
     this.stopped = false;
     this.aborted = false;

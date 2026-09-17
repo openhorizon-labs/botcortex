@@ -58,7 +58,7 @@ export default async function Page({ params, searchParams }: Props) {
         <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <div className="min-w-0">
             <SkillPlayer
-              skill={{ id: skill.id, name: skill.name, code: skill.code, platform: skill.platform }}
+              skill={{ id: skill.id, name: skill.name, code: skill.code, platform: skill.platform, runToken: skill.runToken }}
               bodyName={bodyName}
               autorun={autorun && body.browser}
             />

@@ -249,6 +249,9 @@ export class BrowserSimTransport {
         namespace: leaseHeld ? namespace : null,
         platform: this.platform,
         signal: this.lifetime.signal,
+        onWorking: (label, step) => {
+          if (!this.closed) this.emit({ type: "working", label, step });
+        },
         onDead: (reason) => {
           if (this.closed) return;
           this.emit({ type: "chat", text: `${reason}. Reconnect the in-browser robot to continue.` });

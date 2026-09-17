@@ -39,6 +39,9 @@ export type PublishedSkill = {
   runs?: number;
   /** A handle in a list; the whole card on the skill's own page. */
   author?: { handle: string } | SkillAuthor;
+  /** Proof that this skill's page was loaded, which the api asks for before it
+   *  counts a run. Only on a single skill's page. */
+  runToken?: string;
 };
 
 export const isAuthorCard = (author: PublishedSkill["author"]): author is SkillAuthor =>
@@ -69,8 +72,8 @@ export async function fetchSkill(id: string): Promise<PublishedSkill | null> {
   try {
     const res = await fetch(`${API}/api/registry/skills/${encodeURIComponent(id)}`, { next: { revalidate: 60 } });
     if (!res.ok) return null;
-    const body = (await res.json()) as { skill?: PublishedSkill };
-    return body.skill && typeof body.skill.code === "string" ? body.skill : null;
+    const body = (await res.json()) as { skill?: PublishedSkill; runToken?: string };
+    return body.skill && typeof body.skill.code === "string" ? { ...body.skill, runToken: body.runToken } : null;
   } catch {
     return null;
   }

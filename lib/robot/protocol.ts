@@ -158,6 +158,10 @@ export type RobotMessage =
      run this client started. */
   | { type: "status"; state: "idle" | "teaching" | "running"; detail?: string; runId?: string }
   | { type: "chat"; text: string; runId?: string }
+  /* What the robot is checking right now, while a run is being rehearsed and
+     nothing has moved yet: "moving the arm", step 7. Words for a person
+     waiting, not an event in the task's history — nothing stores it. */
+  | { type: "working"; label: string; step: number; runId?: string }
   | { type: "plan"; steps: PlanStep[]; runId?: string }
   | { type: "step"; id: string; state: "start" | "ok" | "fail"; error?: string; runId?: string }
   | { type: "skills"; skills: string[]; unproven?: string[] }
@@ -244,6 +248,7 @@ export function parseRobotMessage(raw: string): RobotMessage | null {
     case "estop": valid = bool(msg.stopped); break;
     case "status": valid = ["idle", "teaching", "running"].includes(String(msg.state)) && optional("detail", text) && optional("runId", text); break;
     case "chat": valid = text(msg.text) && optional("runId", text); break;
+    case "working": valid = text(msg.label) && typeof msg.step === "number" && optional("runId", text); break;
     case "skills": valid = strings(msg.skills) && optional("unproven", strings); break;
     case "model": valid = text(msg.name) && text(msg.provider) && optional("runId", text); break;
     case "tool": valid = text(msg.id) && text(msg.name) && record(msg.input) && optional("runId", text); break;

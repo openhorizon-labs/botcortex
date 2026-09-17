@@ -41,7 +41,7 @@ export function SkillPlayer({
   bodyName,
   autorun = false,
 }: {
-  skill: { id: string; name: string; code: string; platform: string };
+  skill: { id: string; name: string; code: string; platform: string; runToken?: string };
   bodyName: string;
   autorun?: boolean;
 }) {
@@ -132,7 +132,13 @@ export function SkillPlayer({
       // Counted for ranking only when it worked, once per visitor per day, and
       // never for the author (the api decides both). Best effort: a robot that
       // moved is the point, a counter that did not tick is not an error.
-      if (summary.ok) void fetch(`/api/registry/skills/${skill.id}/ran`, { method: "POST" }).catch(() => {});
+      if (summary.ok && skill.runToken) {
+        void fetch(`/api/registry/skills/${skill.id}/ran`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: skill.runToken }),
+        }).catch(() => {});
+      }
       setSaid(summary.text);
       setPhase(summary.ok ? "done" : "failed");
     } catch (error) {

@@ -88,6 +88,9 @@ export type WorkerRequest =
        *  or unknown boots the default (openarm_v1); the hello names the
        *  catalog so the picker only offers what this wheel can load. */
       platform?: string | null;
+      /** One shared integer, 1 while STOP is pressed — see `stopFlag`. Absent
+       *  when the page is not cross-origin isolated. */
+      stopFlag?: SharedArrayBuffer;
     }
   | { id: number; type: "callTool"; name: string; args: Record<string, unknown> }
   | { id: number; type: "reset" }
@@ -208,8 +211,31 @@ function probeBatch(mujoco: any, model: any, data: any) {
 const progress = (stage: string) => self.postMessage({ type: "progress", stage } as WorkerResponse);
 /** Posted from INSIDE a synchronous Python call — a worker's postMessage does
  *  not wait for the call to return, which is the whole reason this works. */
-const working = (label?: string, step?: number) =>
+const working = (label?: string, step?: number) => {
+  pressStopIfAsked();
   self.postMessage({ type: "working", label, step } as WorkerResponse);
+};
+
+/**
+ * STOP, reaching a skill that is still computing.
+ *
+ * A `{type:"stop"}` message waits in the queue until the synchronous Python
+ * call returns — which, for a skill, is after the whole thing has been
+ * computed. This flag does not wait: the main thread sets it, and the runtime's
+ * own pulse (twice a second, from inside the motion loop) lands here and sees
+ * it. What happens next is deliberately nothing new: the STOP FILE is written,
+ * and the runtime's one e-stop check — `stop_file.exists()`, before every
+ * control tick, the same line on every backend — does the stopping.
+ */
+let stopFlag: Int32Array | null = null;
+function pressStopIfAsked() {
+  if (!stopFlag || Atomics.load(stopFlag, 0) !== 1 || !py) return;
+  try {
+    py.FS.writeFile(STOP_PATH, "");
+  } catch {
+    /* the message-driven stop still lands when the tool returns */
+  }
+}
 
 /** Flush IDBFS → IndexedDB, or MEMFS → nothing. Returns why it failed. */
 async function flush(): Promise<{ flushed: boolean; error?: string }> {
@@ -685,6 +711,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     let result: unknown;
     switch (request.type) {
       case "boot":
+        stopFlag = request.stopFlag ? new Int32Array(request.stopFlag) : null;
         result = await boot(request.namespace, request.platform ?? null);
         break;
       case "callTool": {
