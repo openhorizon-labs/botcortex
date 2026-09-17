@@ -33,7 +33,7 @@ type SectionId = "access" | "credit" | "model" | "account";
 const SECTIONS: { id: SectionId; label: string; icon: typeof Cpu }[] = [
   { id: "access", label: "Robot access", icon: Cpu },
   { id: "credit", label: "Credit", icon: Coins },
-  { id: "model", label: "Model key", icon: KeyRound },
+  { id: "model", label: "OpenAI key", icon: KeyRound },
   { id: "account", label: "Account", icon: CircleUser },
 ];
 

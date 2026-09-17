@@ -88,7 +88,7 @@ export function Composer({
           {ownKey && host === "this browser" && (
             <span
               className="flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-xs text-muted-foreground"
-              title="Teaching uses your own OpenAI key, not BotCortex credit. Change it in Settings, under Model key."
+              title="Teaching uses your own OpenAI key, not BotCortex credit. Change it in Settings, under OpenAI key."
             >
               <KeyRound className="size-3.5" /> Your key
             </span>

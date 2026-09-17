@@ -1,7 +1,10 @@
 "use client";
 
 /**
- * Settings -> Model key: teach on your own OpenAI account.
+ * Settings -> OpenAI key: teach on your own OpenAI account.
+ *
+ * Called what it is. "Model key" sat in a menu beside "Robot access", which
+ * is also about keys, and said neither whose key nor what for.
  *
  * One field: the key. OpenAI keys only, for now, and nothing is guessed from
  * what a key looks like — it is shown to OpenAI, and OpenAI says whether it is
@@ -58,7 +61,7 @@ export function ModelKeyPanel() {
   return (
     <div className="min-w-0 space-y-4">
       <div>
-        <h3 className="text-sm font-medium">Model key</h3>
+        <h3 className="text-sm font-medium">Your OpenAI key</h3>
         <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
           Teach on your own OpenAI account instead of BotCortex credit. OpenAI bills you directly, and your
           BotCortex balance is never touched or checked.

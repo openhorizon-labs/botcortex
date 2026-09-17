@@ -31,7 +31,7 @@ export function explain(error: unknown): string {
   // provider it is a bad key, and "sign in again" would send someone with a
   // typo in their key round the wrong loop.
   if (text.includes("invalid_api_key") || text.includes("Incorrect API key") || text.includes("authentication_error")) {
-    return "Your model key was rejected by the provider. Check it in Settings, under Model key.";
+    return "OpenAI rejected your key. Check it in Settings, under OpenAI key.";
   }
   if (text.includes("insufficient_quota") || lower.includes("credit balance is too low")) {
     return "Your provider account is out of quota, so it can't learn anything new. Top it up with them, or remove the key in Settings to use BotCortex credit.";

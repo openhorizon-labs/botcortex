@@ -1,4 +1,4 @@
-/** Isolated mount of the welcome dialog and the Model key panel, outside the
+/** Isolated mount of the welcome dialog and the OpenAI key panel, outside the
  *  auth-gated /app, so a headless browser can render and check them. Same
  *  pattern as /connect-preview. DEV ONLY — 404s in production. */
 import type { Metadata } from "next";
