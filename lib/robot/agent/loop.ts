@@ -305,7 +305,9 @@ export async function teach({
           // was already diagnosed. The Run button sets no such flag.
           result = await dispatch(
             call.function.name,
-            call.function.name === "run_skill" ? { ...args, as_agent: true } : args,
+            // save_skill too: the runtime checks the MODEL's code for baked
+            // coordinates, and leaves an owner restoring their own skill alone.
+            call.function.name === "run_skill" || call.function.name === "save_skill" ? { ...args, as_agent: true } : args,
           );
           // Tool bodies report failure by RETURNING it, not by throwing — the
           // model has to read what went wrong to repair it. Classified with

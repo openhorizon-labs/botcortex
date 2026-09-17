@@ -563,3 +563,24 @@ test("STOP during verification cannot emit a success claim", async () => {
   expect(result).toMatchObject({ outcome: "fail", error: "aborted" });
   expect(events.some((event) => event.type === "chat" && event.text === "Done!")).toBe(false);
 });
+
+test("the model's saves and runs are marked as the model's, and nothing else is", async () => {
+  // The runtime treats the MODEL's code differently from an owner's: it checks
+  // a save for baked coordinates and tests a new skill twice. It can only do
+  // that if it is told whose hand this is, and the model must not be able to
+  // say otherwise — as_agent is added here, never read from the model.
+  const seen: Record<string, any> = {};
+  stubModel([
+    { content: null, tool_calls: [
+      { id: "a", type: "function", function: { name: "save_skill", arguments: "{\"name\":\"wave\",\"as_agent\":false}" } },
+      { id: "b", type: "function", function: { name: "move_to", arguments: "{\"arm\":\"right\"}" } },
+    ] },
+    { content: "Done." },
+  ]);
+  await teach({
+    contract: CONTRACT, model: "gpt-5.6-luna", prompt: "wave", emit: () => {},
+    dispatch: async (name, args) => { seen[name] = args; return "ok"; },
+  });
+  expect(seen.save_skill.as_agent).toBe(true);
+  expect(seen.move_to.as_agent).toBeUndefined();
+});
