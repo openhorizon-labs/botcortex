@@ -8,7 +8,7 @@
  * robot access, credit, and the account itself.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CircleUser, Coins, Cpu, KeyRound, LogOut } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -24,6 +24,7 @@ import { authClient, useSession } from "@/lib/auth-client";
 import { useRobot } from "@/components/app/robot-provider";
 import { RobotKeysPanel } from "@/components/app/robot-keys-panel";
 import { SettingsProfile } from "@/components/app/settings-profile";
+import { forgetProfile, fullName, useProfile } from "@/lib/profile";
 import { ModelKeyPanel } from "@/components/app/model-key-panel";
 
 type SectionId = "access" | "credit" | "model" | "account";
@@ -45,6 +46,25 @@ export function SettingsDialog({
   const [section, setSection] = useState<SectionId>("access");
   const { data: session } = useSession();
   const { credit, conversations, pairing } = useRobot();
+  const { profile } = useProfile();
+
+  // Counted from the api each time this section opens. The provider's list is
+  // the CONNECTED robot's tasks — what the sidebar needs — so it read 0 with no
+  // robot connected and one body's share otherwise, under a label that said
+  // "Tasks". `conversations` is a dependency only so a task created or deleted
+  // while settings is open is counted too.
+  const [taskCount, setTaskCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open || section !== "account") return;
+    let live = true;
+    fetch("/api/conversations")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { conversations?: unknown[] } | null) => {
+        if (live && Array.isArray(body?.conversations)) setTaskCount(body.conversations.length);
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [open, section, conversations]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -146,11 +166,11 @@ export function SettingsDialog({
                       account name overlapped the Tasks cell beside it. */}
                   <div className="min-w-0 rounded-lg border border-border p-3">
                     <dt className="text-xs text-muted-foreground">Name</dt>
-                    <dd className="truncate">{session?.user.name || "—"}</dd>
+                    <dd className="truncate">{(profile && fullName(profile)) || session?.user.name || "—"}</dd>
                   </div>
                   <div className="min-w-0 rounded-lg border border-border p-3">
-                    <dt className="text-xs text-muted-foreground">Tasks</dt>
-                    <dd>{conversations.length}</dd>
+                    <dt className="text-xs text-muted-foreground">Tasks, across all robots</dt>
+                    <dd className="tabular-nums">{taskCount ?? "…"}</dd>
                   </div>
                 </dl>
                 <SettingsProfile />
@@ -159,6 +179,7 @@ export function SettingsDialog({
                   className="cursor-pointer"
                   onClick={async () => {
                     await authClient.signOut();
+                    forgetProfile();
                     window.location.href = "/signin";
                   }}
                 >

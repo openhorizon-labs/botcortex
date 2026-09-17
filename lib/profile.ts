@@ -1,6 +1,8 @@
 /**
  * The signed-in owner's public profile, as the api holds it.
  */
+import { useEffect, useSyncExternalStore } from "react";
+
 export type Profile = {
   handle: string;
   firstName: string;
@@ -35,11 +37,76 @@ export function avatarSrc(url: string | null | undefined): string | null {
 export async function fetchProfile(): Promise<Profile | null> {
   try {
     const res = await fetch("/api/profile");
-    return res.ok ? ((await res.json()) as Profile) : null;
+    const profile = res.ok ? ((await res.json()) as Profile) : null;
+    if (profile) publish(profile);
+    return profile;
   } catch {
     return null;
   }
 }
+
+// --- one copy of the profile for the whole app ---------------------------------
+//
+// The sidebar's account button, the profile step and Settings all show the same
+// person. Each used to hold what it had fetched itself — and the sidebar held
+// nothing, reading the sign-in session instead, which is a snapshot from login:
+// after "Save profile" the form said Ada Lovelace with a robot face and the
+// button six hundred pixels to its left still said "T, Test Owner". So there is
+// one copy, every save publishes to it, and everything that shows a profile
+// subscribes.
+
+let current: Profile | null = null;
+let failed = false;
+let loading: Promise<Profile | null> | null = null;
+const listeners = new Set<() => void>();
+
+/** One object per change, so useSyncExternalStore sees a stable snapshot. */
+let snapshot: { profile: Profile | null; failed: boolean } = { profile: null, failed: false };
+const EMPTY = snapshot;
+
+function announce() {
+  snapshot = { profile: current, failed };
+  for (const listener of listeners) listener();
+}
+
+function publish(profile: Profile) {
+  current = profile;
+  failed = false;
+  announce();
+}
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+};
+
+/** The signed-in owner's profile, kept current across the app. `profile` is
+ *  null until it has loaded; `failed` says the api could not be asked, so
+ *  nothing waiting on the profile waits forever. Fetched once, however many
+ *  components ask. */
+export function useProfile(): { profile: Profile | null; failed: boolean } {
+  const state = useSyncExternalStore(subscribe, () => snapshot, () => EMPTY);
+  useEffect(() => {
+    if (current || loading) return;
+    loading = fetchProfile()
+      .then((found) => {
+        if (!found) { failed = true; announce(); }
+        return found;
+      })
+      .finally(() => { loading = null; });
+  }, []);
+  return state;
+}
+
+/** For sign-out: the next person on this browser is someone else. */
+export function forgetProfile() {
+  current = null;
+  failed = false;
+  announce();
+}
+
+export const fullName = (profile: Pick<Profile, "firstName" | "lastName">) =>
+  [profile.firstName, profile.lastName].filter(Boolean).join(" ");
 
 export type SaveOutcome = { ok: true; profile: Profile } | { ok: false; field: ProfileField | null; error: string };
 
@@ -54,6 +121,7 @@ export async function saveProfile(change: ProfileChange): Promise<SaveOutcome> {
     if (!res.ok || typeof body.handle !== "string") {
       return { ok: false, field: body.field ?? null, error: body.error ?? "Could not save your profile." };
     }
+    publish(body as Profile);
     return { ok: true, profile: body as Profile };
   } catch {
     return { ok: false, field: null, error: "Could not reach BotCortex. Try again." };

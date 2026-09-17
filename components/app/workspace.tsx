@@ -29,7 +29,9 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ShareCard } from "@/components/app/share-card";
+import { AccountIdentity } from "@/components/app/account-identity";
 import { ProfileDialog } from "@/components/app/profile-dialog";
+import { forgetProfile } from "@/lib/profile";
 import { WelcomeDialog } from "@/components/app/welcome-dialog";
 import { BOOTABLE_BODIES, shortBodyName } from "@/lib/robot/bodies";
 import { Button } from "@/components/ui/button";
@@ -91,7 +93,6 @@ import { SimPanel } from "@/components/app/sim-panel";
 import { SkillRowMenu } from "@/components/app/skill-row-menu";
 import { isStale, seenAgo } from "@/lib/robot/seen";
 import { LiveDot } from "@/components/kit/live-dot";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { authClient, useSession } from "@/lib/auth-client";
 
 type PairedRobot = {
@@ -710,19 +711,7 @@ function AppInner() {
                       tooltip={session.user.email}
                       className="cursor-pointer data-[state=open]:bg-surface-3"
                     >
-                      <Avatar className="size-7 rounded-lg">
-                        <AvatarFallback className="rounded-lg bg-foreground text-xs font-medium text-background">
-                          {(session.user.name || session.user.email || "?")[0]?.toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="grid flex-1 text-left leading-tight">
-                        <span className="truncate text-sm font-medium">
-                          {session.user.name || "Owner"}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {session.user.email}
-                        </span>
-                      </div>
+                      <AccountIdentity sessionName={session.user.name} email={session.user.email} />
                       <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
                     </SidebarMenuButton>
                   </DropdownMenuTrigger>
@@ -734,6 +723,7 @@ function AppInner() {
                     <DropdownMenuItem
                       onSelect={async () => {
                         await authClient.signOut();
+                        forgetProfile();
                         window.location.href = "/signin";
                       }}
                     >

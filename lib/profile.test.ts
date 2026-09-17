@@ -13,3 +13,10 @@ test("anything else is left alone, and nothing is not an image", () => {
   expect(avatarSrc(null)).toBeNull();
   expect(avatarSrc("")).toBeNull();
 });
+
+test("a full name is the parts that exist, with no stray space", async () => {
+  const { fullName } = await import("./profile");
+  expect(fullName({ firstName: "Ada", lastName: "Lovelace" })).toBe("Ada Lovelace");
+  expect(fullName({ firstName: "Ada", lastName: "" })).toBe("Ada");
+  expect(fullName({ firstName: "", lastName: "" })).toBe("");
+});
