@@ -61,6 +61,9 @@ export interface TeachOptions {
   verify?: () => Promise<Pushback | null>;
   /** Aborts the run — the STOP button, or the owner starting something else. */
   signal?: AbortSignal;
+  /** Who answers when the reply does not say: our proxy names the provider
+   *  itself, a provider called directly with the owner's key does not. */
+  provider?: string;
   /** Where inference goes. Cookie-authenticated; the browser holds no key. */
   endpoint?: string;
   fetcher?: Fetcher;
@@ -163,6 +166,7 @@ export async function teach({
   signal,
   endpoint = "/api/inference/chat",
   fetcher = (url, init) => fetch(url, init),
+  provider = "openai",
 }: TeachOptions): Promise<TeachOutcome> {
   // Announced from the REPLY, never from the request: an owner who picked an
   // expensive model and was quietly routed to another has been charged for
@@ -171,7 +175,7 @@ export async function teach({
   let ranOn: TeachOutcome["ranOn"] = null;
   const attribute = (reply: ModelReply) => {
     if (ranOn) return;
-    ranOn = { model: reply.model ?? model, provider: reply.provider ?? "openai" };
+    ranOn = { model: reply.model ?? model, provider: reply.provider ?? provider };
     emit({ type: "model", name: ranOn.model, provider: ranOn.provider });
   };
 

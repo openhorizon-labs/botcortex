@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { CircleUser, Coins, Cpu, LogOut } from "lucide-react";
+import { CircleUser, Coins, Cpu, KeyRound, LogOut } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,14 @@ import {
 import { authClient, useSession } from "@/lib/auth-client";
 import { useRobot } from "@/components/app/robot-provider";
 import { RobotKeysPanel } from "@/components/app/robot-keys-panel";
+import { ModelKeyPanel } from "@/components/app/model-key-panel";
 
-type SectionId = "access" | "credit" | "account";
+type SectionId = "access" | "credit" | "model" | "account";
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Cpu }[] = [
   { id: "access", label: "Robot access", icon: Cpu },
   { id: "credit", label: "Credit", icon: Coins },
+  { id: "model", label: "Model key", icon: KeyRound },
   { id: "account", label: "Account", icon: CircleUser },
 ];
 
@@ -83,6 +85,7 @@ export function SettingsDialog({
 
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-5">
             {section === "access" && <RobotKeysPanel />}
+            {section === "model" && <ModelKeyPanel />}
 
             {section === "credit" && (
               <div className="space-y-4">

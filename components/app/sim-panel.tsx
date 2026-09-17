@@ -40,7 +40,7 @@ export function SimPanel({
   if (!open) return null;
 
   return (
-    <div className="relative z-10 flex h-full w-1/2 min-w-0 flex-col overflow-hidden border-l border-border bg-background">
+    <div data-sim-panel className="relative z-10 flex h-full w-1/2 min-w-0 flex-col overflow-hidden border-l border-border bg-background">
       <header className="flex h-12 shrink-0 items-center gap-2 px-3">
         <Tooltip>
           <TooltipTrigger asChild>

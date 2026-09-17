@@ -26,6 +26,19 @@ export function explain(error: unknown): string {
   if (text.includes("not available on BotCortex credits")) {
     return "That model isn't available on BotCortex credits. Pick another one.";
   }
+  // The owner's OWN key, called straight from this tab. These have to come
+  // before the 401 rule below: to our api a 401 is an expired session, to a
+  // provider it is a bad key, and "sign in again" would send someone with a
+  // typo in their key round the wrong loop.
+  if (text.includes("invalid_api_key") || text.includes("Incorrect API key") || text.includes("authentication_error")) {
+    return "Your model key was rejected by the provider. Check it in Settings, under Model key.";
+  }
+  if (text.includes("insufficient_quota") || lower.includes("credit balance is too low")) {
+    return "Your provider account is out of quota, so it can't learn anything new. Top it up with them, or remove the key in Settings to use BotCortex credit.";
+  }
+  if (text.includes("model_not_found") || lower.includes("does not exist") || text.includes("not_found_error")) {
+    return "The provider does not know that model name. Check the model in Settings, under Model key.";
+  }
   if (text.includes("unauthorized") || text.includes("401")) {
     return "Your session expired. Sign in again to keep teaching.";
   }

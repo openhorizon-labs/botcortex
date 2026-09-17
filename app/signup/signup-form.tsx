@@ -99,9 +99,9 @@ export function SignUpForm() {
         Create account
       </Button>
       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-        You get a simulated robot in the browser straight away — no hardware
-        needed to try it. Teaching uses BotCortex credit; tell us what you are
-        building and we will top you up.
+        You get a simulated robot in the browser straight away, no hardware
+        needed, and $2.00 of credit to teach it with. Or bring your own OpenAI
+        or Anthropic key.
       </p>
     </form>
   );

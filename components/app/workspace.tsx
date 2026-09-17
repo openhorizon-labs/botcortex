@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ShareCard } from "@/components/app/share-card";
+import { WelcomeDialog } from "@/components/app/welcome-dialog";
 import { BOOTABLE_BODIES, shortBodyName } from "@/lib/robot/bodies";
 import { Button } from "@/components/ui/button";
 import {
@@ -785,6 +787,7 @@ function AppInner() {
                 </p>
               )}
               <ChatPane />
+              <ShareCard />
               <Composer
                 onNeedRobot={() => setConnectOpen(true)}
                 className="mt-3 shrink-0"
@@ -989,6 +992,7 @@ function AppInner() {
         </Command>
       </CommandDialog>
 
+      <WelcomeDialog />
       <ConnectRobotDialog open={connectOpen} onOpenChange={setConnectOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </SidebarProvider>

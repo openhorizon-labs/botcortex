@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BrowserSimTransport } from "@/lib/robot/browser-sim/transport";
 import { Outbox, type OutboxState, localStorageJournal } from "@/lib/robot/outbox";
 import { AUTO_CONNECT_WITHIN_MS, ageMs } from "@/lib/robot/seen";
+import { newlyProven } from "@/lib/robot/proven";
 import { accountFetcher } from "@/lib/robot/account";
 import { ConversationDraft } from "@/lib/robot/conversation-draft";
 import { ConnectionHealth, PING_INTERVAL_MS } from "@/lib/robot/connection-health";
@@ -121,6 +122,10 @@ type RobotContextValue = {
    *  or when this robot cannot be interrupted (a real runtime authors on the
    *  robot, and the wire protocol has no word for this yet). */
   interrupt: () => boolean;
+  /** A skill that has JUST been seen to work for the first time — the moment
+   *  worth sharing — or null. Cleared by `dismissProven`. */
+  justProven: { name: string; platform: string } | null;
+  dismissProven: () => void;
   /** Whether `interrupt` would do anything right now, for a control that
    *  should not offer itself when it cannot act. */
   interruptible: boolean;
@@ -152,6 +157,8 @@ type RobotContextValue = {
   ranModel: string | null;
   /** Remaining BotCortex credit, or null when signed out / unreachable. */
   credit: Credit | null;
+  /** The owner has read the welcome dialog: tell the api, stop showing it. */
+  acknowledgeWelcome: () => void;
   /** Which wallet the connected robot teaches from — null until it says.
    *  "half" is a broken setup (pointed at BotCortex, no key): the runtime
    *  refuses to teach, so showing a balance would be a lie. */
@@ -197,6 +204,10 @@ export type Credit = {
   spentDisplay: string;
   usedDisplay: string;
   grantedDisplay: string;
+  /** The welcome credit, while the owner has not been told about it yet.
+   *  The api keeps that fact per ACCOUNT, so the dialog appears once on
+   *  whatever device they first sign in from, and never again. */
+  welcome?: { amountMicros: number; display: string } | null;
 };
 
 /** One reach into the runtime, from call to result. Finished calls are also
@@ -256,6 +267,11 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const [robot, setRobot] = useState<RobotInfo | null>(null);
   const [skills, setSkills] = useState<string[] | null>(null);
   const [unproven, setUnproven] = useState<string[]>([]);
+  const [justProven, setJustProven] = useState<{ name: string; platform: string } | null>(null);
+  /** Last unproven list, to notice a skill LEAVING it. Null until a hello has
+   *  set the baseline: everything already proven when a robot connects is old
+   *  news, and offering to share forty skills on connect would be noise. */
+  const unprovenRef = useRef<string[] | null>(null);
   const [host, setHost] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState("idle");
@@ -628,6 +644,15 @@ export function RobotProvider({ children, accountId = null }: { children: React.
     }
   }, []);
 
+  const acknowledgeWelcome = useCallback(() => {
+    // Cleared here first: the dialog must close on the click, not on the
+    // round-trip. If the request is lost the api still has it as unseen and
+    // the owner sees it once more on the next visit, which is the safe way
+    // round for a message about money they were given.
+    setCredit((current) => (current ? { ...current, welcome: null } : current));
+    void fetch("/api/credits/welcome/seen", { method: "POST" }).catch(() => {});
+  }, []);
+
   /** Refreshed from the teach-finished event, not a timer: credit only moves
    *  when the RUNTIME spends it, which is not when a message posts. */
   const refreshCreditRef = useRef(refreshCredit);
@@ -829,6 +854,8 @@ export function RobotProvider({ children, accountId = null }: { children: React.
             void refreshConversationsRef.current();
           }
           setSkills(msg.skills);
+          unprovenRef.current = msg.unproven ?? [];
+          setJustProven(null);
           setUnproven(msg.unproven ?? []);
           // A page loaded while the robot is already stopped must say so.
           setStopState(msg.stopped ? "latched" : "clear");
@@ -876,10 +903,20 @@ export function RobotProvider({ children, accountId = null }: { children: React.
           void persistTool(finished, live.call, live.run ? live.run.thread : ensureConversation(), live.run?.runId);
           break;
         }
-        case "skills":
+        case "skills": {
+          // A name that WAS unproven, still exists, and no longer is: that
+          // skill has just run successfully for the first time, which is also
+          // the moment it was published. Re-teaching counts — saving drops the
+          // proof, and earning it back is a new success worth a new clip.
+          const before = unprovenRef.current;
+          const now = msg.unproven ?? [];
+          const earned = newlyProven(before, msg.skills, now);
+          if (earned && platformRef.current) setJustProven({ name: earned, platform: platformRef.current });
+          unprovenRef.current = now;
           setSkills(msg.skills);
-          setUnproven(msg.unproven ?? []);
+          setUnproven(now);
           break;
+        }
         case "status": {
           if (msg.runId !== undefined && runFor(msg.runId) !== activeRunRef.current) break;
           setActivity(msg.state + (msg.detail ? ` — ${msg.detail}` : ""));
@@ -1450,6 +1487,8 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         activity,
         interrupt,
         interruptible,
+        justProven,
+        dismissProven: () => setJustProven(null),
         lastChat,
         messages,
         jointStateRef,
@@ -1472,6 +1511,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         simBooting,
         ranModel,
         credit,
+        acknowledgeWelcome,
         pairing,
         toolCalls,
         activeRun,
