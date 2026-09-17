@@ -25,6 +25,7 @@ import { ArrowRight, Check, Download, Link2, Loader2, Play, RotateCcw } from "lu
 import { Button } from "@/components/ui/button";
 import { recordCanvas, type GifRecording } from "@/lib/gif";
 import { shortBodyName } from "@/lib/robot/bodies";
+import { visitorSummary } from "@/lib/robot/visitor-summary";
 import type { BrowserSim } from "@/lib/robot/browser-sim/host";
 import type { JointState, RobotInfo, SceneBodies } from "@/lib/robot/protocol";
 
@@ -122,8 +123,11 @@ export function SkillPlayer({
       await new Promise((r) => setTimeout(r, 400));
       const clip = (recording as GifRecording | null)?.stop() ?? null;
       if (clip) setGif(URL.createObjectURL(clip));
-      setSaid(reply.plain);
-      setPhase("done");
+      // The runtime's report is evidence for an owner — joints, ticks,
+      // coordinates. A visitor gets what happened to the block.
+      const summary = visitorSummary(reply.plain);
+      setSaid(summary.text);
+      setPhase(summary.ok ? "done" : "failed");
     } catch (error) {
       (recording as GifRecording | null)?.stop();
       setStage(null);
