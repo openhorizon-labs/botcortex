@@ -111,7 +111,7 @@ export type WorkerRequest =
       outcome: "ok" | "fail";
       error?: string;
     }
-  | { id: number; type: "beginTask" }
+  | { id: number; type: "beginTask"; task?: string }
   /** The account registry's copy of this body's skills, read at boot.
    *  Rebuilds the local store from it (see `importSkills`). */
   | { id: number; type: "importSkills"; skills: RegistrySkill[] }
@@ -125,7 +125,12 @@ export type WorkerResponse =
   | { type: "progress"; stage: string }
   /** The robot is still computing. `label` names the step being rehearsed when
    *  there is one; without it this is only a pulse. See host.ts LIVENESS. */
-  | { type: "working"; label?: string; step?: number };
+  | { type: "working"; label?: string; step?: number }
+  /** A run, kept as training data (wheel 0.0.23+, botcortex/episodes.py): an
+   *  episode, a tag on one, or a link from a success to the failures it
+   *  repaired. JSON text, so nothing of Pyodide's crosses the boundary. A tab
+   *  has no disk, so the page is the only place these can go. */
+  | { type: "episode"; event: string };
 
 let py: any;
 let mj: any;
@@ -466,6 +471,18 @@ session.emit = _forward
 session.robot.on_alive = lambda: js_working(None, None)
 # Wheel 0.0.18+: the pose search hands its whole grid over in one call.
 session.robot.probe_batch = js_probe_batch
+`);
+  // Wheel 0.0.23+: every run is handed over as it ends. States only — a tab
+  // has no camera, and in simulation the pixels are a function of the states
+  // (the runtime renders them later). An older wheel has no such module.
+  py.globals.set("js_episode", (event: string) => self.postMessage({ type: "episode", event } as WorkerResponse));
+  py.runPython(`
+try:
+    import json as _json
+    from botcortex import episodes as _episodes
+    session.robot.recorder = _episodes.Recorder(None, sink=lambda event: js_episode(_json.dumps(event)))
+except ImportError:
+    pass
 `);
   session = py.globals.get("session");
 
@@ -831,7 +848,10 @@ json.dumps(_report)
       case "beginTask":
         // A new task starts with no claims about it. Without this, a skill
         // saved during the LAST teach would count as evidence for this one.
-        py.runPython(`session.forget_evidence()`);
+        py.globals.set("task_text", request.task ?? null);
+        // `task` is what the episode record calls the instruction; an older
+        // wheel's session simply gains an attribute nothing reads.
+        py.runPython(`session.forget_evidence()\nsession.task = task_text`);
         result = true;
         break;
       case "verify":

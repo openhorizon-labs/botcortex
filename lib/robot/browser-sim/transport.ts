@@ -51,6 +51,21 @@ const RUN_SCOPED = new Set<RobotMessage["type"]>(["status", "chat", "tool", "too
  *  racing `list_skills` call later (audit B04). */
 type SavedSkill = { code: string; description: string; proven?: boolean };
 
+/**
+ * Hand one recorder event (an episode, a tag, a repair link) to the account's
+ * database. Fire and forget: a tab has no disk, so an event that does not land
+ * is lost, and that is the contract — a run never waits on it.
+ */
+function persistEpisode(event: unknown, request: ReturnType<typeof accountFetcher>): void {
+  void request("/api/episodes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // No `keepalive`: browsers cap a keepalive body at 64 KB, and a run of a
+    // few hundred ticks is more than that.
+    body: JSON.stringify(event),
+  }).catch(() => {});
+}
+
 /** How long a boot waits for the registry before going on without it. */
 const RESTORE_TIMEOUT_MS = 8_000;
 
@@ -269,6 +284,10 @@ export class BrowserSimTransport {
         signal: this.lifetime.signal,
         onWorking: (label, step) => {
           if (!this.closed) this.emit({ type: "working", label, step });
+        },
+        // Only for an account: a signed-out visitor's runs are nobody's to keep.
+        onEpisode: (event) => {
+          if (!this.closed && namespace) persistEpisode(event, this.request);
         },
         onDead: (reason) => {
           if (this.closed) return;
@@ -565,7 +584,7 @@ export class BrowserSimTransport {
     const saved: string[] = [];
 
     // Nothing this teach has not itself shown counts as evidence for it.
-    await sim.beginTask();
+    await sim.beginTask(text);
 
     const result = await teach({
       contract: sim.contract,

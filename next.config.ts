@@ -61,6 +61,8 @@ const nextConfig: NextConfig = {
       { source: "/api/inference/:path*", destination: `${api}/api/inference/:path*` },
       // And its skill sync: a skill taught in the browser lands in the same
       // account registry a robot's would.
+      { source: "/api/episodes", destination: `${api}/api/episodes` },
+      { source: "/api/episodes/:path*", destination: `${api}/api/episodes/:path*` },
       { source: "/api/skills", destination: `${api}/api/skills` },
       // And the way back: the sim reads the account's skills at boot and
       // marks the registry copy proven when it sees one run.

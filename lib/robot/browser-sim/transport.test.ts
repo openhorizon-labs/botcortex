@@ -489,3 +489,27 @@ test("before a recall the host asks the api which skills MEAN the same, and says
   expect(await rank("tidy the bench")).toBeNull();
   expect(asked.length).toBe(calls);
 });
+
+test("an account's runs are posted as training data; a signed-out visitor's are nobody's to keep", async () => {
+  const episode = { event: "episode", episode: { id: "e1789600000001-wave", ok: true } };
+  for (const [account, expected] of [["acct-7", 1], [null, 0]] as const) {
+    useLocks();
+    const posted: string[] = [];
+    apiStub((url, init) => {
+      if (url.endsWith("/api/me")) return account ? Response.json({ user: { id: account } }) : new Response(null, { status: 401 });
+      if (url === "/api/episodes") { posted.push(String(init?.body)); return Response.json({ ok: true }); }
+      return new Response(null, { status: 404 });
+    });
+    const boot = spyOn(BrowserSim, "boot").mockResolvedValue(fakeSim() as unknown as BrowserSim);
+    const transport = new BrowserSimTransport(() => {});
+    try {
+      await transport.open();
+      const options = boot.mock.calls.at(-1)![1] as { onEpisode: (event: unknown) => void };
+      options.onEpisode(episode);
+      // The account fetcher checks who is signed in before it sends.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(posted).toHaveLength(expected);
+      if (expected) expect(JSON.parse(posted[0])).toEqual(episode);
+    } finally { transport.close(); boot.mockRestore(); }
+  }
+});

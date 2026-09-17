@@ -19,7 +19,10 @@ try {
     const worker = new Worker("/sim-worker.js", { type: "module" });
     let nextId = 0;
     const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+    // Runs handed over as training data (wheel 0.0.23+): one per run_skill.
+    const episodes: any[] = [];
     worker.onmessage = ({ data }) => {
+      if (data.type === "episode") episodes.push(JSON.parse(data.event));
       if (!data.id) return;
       const waiter = pending.get(data.id);
       pending.delete(data.id);
@@ -34,7 +37,7 @@ try {
     });
     try {
       const boot = await ask({ type: "boot", namespace: null, platform });
-      await ask({ type: "beginTask" });
+      await ask({ type: "beginTask", task: "put the red block in the tray" });
       const saved = await ask({ type: "callTool", name: "save_skill", args: { name: "portable_pick_and_place", code: source } });
       if (!saved.output.startsWith("saved ")) throw new Error(saved.output);
       const run = await ask({ type: "callTool", name: "run_skill", args: { name: "portable_pick_and_place", params_json: "{}" } });
@@ -72,6 +75,11 @@ def run(ctx, **params):
         after: run.scene.objects,
         output: run.output,
         motionFrames: run.motion.length,
+        episodes: episodes.filter((e) => e.event === "episode").map((e) => ({
+          skill: e.episode.skill, ok: e.episode.ok, phase: e.episode.phase, backend: e.episode.backend,
+          instruction: e.episode.instruction, ticks: e.episode.ticks.state.length,
+          width: e.episode.ticks.state[0].length, names: e.episode.names.length, kb: Math.round(JSON.stringify(e).length / 1024),
+        })),
         waveOutput: waved.output,
       };
     } finally {
@@ -84,10 +92,19 @@ def run(ctx, **params):
   assert(result.output.startsWith("Rehearsed clean"), result.output);
   assert(result.motionFrames > 0, "successful task returned no motion");
   assert(/swept \S+ \d+°/.test(result.waveOutput) && !result.waveOutput.includes("NOTHING MOVED"), `wave reported: ${result.waveOutput}`);
+  // Wheel 0.0.23+: each run_skill hands over one episode, states only, that is
+  // the executed run (in a tab a clean rehearsal IS the run) and carries the
+  // task sentence. If this breaks, the browser silently stops producing data.
+  const kept = result.episodes as { skill: string; ok: boolean; phase: string; backend: string; instruction: string; ticks: number; width: number; names: number }[];
+  assert.deepEqual(kept.map((e) => e.skill), ["portable_pick_and_place", "wave_check"], `episodes: ${JSON.stringify(kept)}`);
+  for (const e of kept) {
+    assert(e.ok && e.phase === "executed" && e.backend === "WasmRobot", JSON.stringify(e));
+    assert(e.ticks > 10 && e.width === e.names && e.instruction === "put the red block in the tray", JSON.stringify(e));
+  }
   const red = result.after.red_block.position as number[];
   const tray = result.tray as number[];
   assert(Math.abs(red[0] - tray[0]) < 0.085 && Math.abs(red[1] - tray[1]) < 0.085 && red[2] > tray[2], `red ended at ${red}, tray at ${tray}`);
-  console.log(JSON.stringify({ passed: `portable pick-and-place on ${platform} in the WASM runtime`, platform: result.platform, catalog: result.catalog, kinematicBodies: result.bodies, arms: result.arms, motionFrames: result.motionFrames, output: result.output }, null, 2));
+  console.log(JSON.stringify({ passed: `portable pick-and-place on ${platform} in the WASM runtime`, platform: result.platform, catalog: result.catalog, kinematicBodies: result.bodies, arms: result.arms, motionFrames: result.motionFrames, episodes: result.episodes, output: result.output }, null, 2));
 } finally {
   await browser.close();
 }

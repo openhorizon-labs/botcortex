@@ -120,6 +120,9 @@ export type BrowserSimOptions = {
   /** What the robot is rehearsing right now, in words, while a tool call is
    *  still computing and nothing has moved yet. */
   onWorking?: (label: string, step: number) => void;
+  /** A run kept as training data, as the runtime's recorder said it: an
+   *  episode, a tag, or a repair link. Already parsed. */
+  onEpisode?: (event: unknown) => void;
 };
 
 export class BrowserSim {
@@ -128,6 +131,7 @@ export class BrowserSim {
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private onProgress: SimProgress = () => {};
   private onWorking: NonNullable<BrowserSimOptions["onWorking"]> = () => {};
+  private onEpisode: NonNullable<BrowserSimOptions["onEpisode"]> = () => {};
   /** Shared with the worker: 1 while STOP is pressed. Null when the page is not
    *  cross-origin isolated — see `stop()`. */
   private stopFlag: Int32Array | null = null;
@@ -182,6 +186,7 @@ export class BrowserSim {
     options.signal?.throwIfAborted();
     this.onProgress = onProgress;
     this.onWorking = options.onWorking ?? (() => {});
+    this.onEpisode = options.onEpisode ?? (() => {});
     this.onDead = options.onDead ?? (() => {});
     // A URL, not new URL(..., import.meta.url): letting the app bundler emit
     // the worker produces a CLASSIC one even when asked for a module, and
@@ -200,6 +205,13 @@ export class BrowserSim {
         if (message.type === "working") {
           for (const beat of this.alive) beat();
           if (message.label) this.onWorking(message.label, message.step ?? 0);
+        } else if (message.type === "episode") {
+          // Keeping data must never be what breaks a run.
+          try {
+            this.onEpisode(JSON.parse(message.event));
+          } catch {
+            /* a malformed event is dropped */
+          }
         } else {
           this.onProgress(message.stage);
         }
@@ -393,8 +405,8 @@ export class BrowserSim {
   }
 
   /** Start a task with no claims about it. See `verify`. */
-  async beginTask(): Promise<void> {
-    await this.ask({ type: "beginTask" });
+  async beginTask(task?: string): Promise<void> {
+    await this.ask({ type: "beginTask", task });
   }
 
   /**
