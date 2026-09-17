@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Settings -> Model key: teach on your own OpenAI or Anthropic account.
+ * Settings -> Model key: teach on your own OpenAI account.
  *
- * One field. Which provider the key is for is read off the key, and which
- * model to use is ours to choose well — asking for either was asking the owner
- * to do our job. The panel says where the key goes before it is typed, because
+ * One field: the key. OpenAI keys only, for now, and nothing is guessed from
+ * what a key looks like — it is shown to OpenAI, and OpenAI says whether it is
+ * theirs. The model is whatever the composer's picker says. The panel says where the key goes before it is typed, because
  * a field that takes a secret owes the person typing it that much.
  */
 import { useEffect, useState } from "react";
@@ -14,8 +14,6 @@ import { Check, KeyRound, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  ANTHROPIC_MODEL_LABEL,
-  PROVIDER_LABEL,
   forgetLegacyKey,
   removeModelKey,
   saveModelKey,
@@ -43,8 +41,8 @@ export function ModelKeyPanel() {
     setValue("");
     setNote({
       text: outcome.verified
-        ? `${PROVIDER_LABEL[outcome.key.provider]} accepted the key. Teaching now uses it.`
-        : `Saved. ${PROVIDER_LABEL[outcome.key.provider]} could not be reached to check it, so the first teach will tell.`,
+        ? "OpenAI accepted the key. Teaching now uses it."
+        : "Saved. OpenAI could not be reached to check it, so the first teach will tell.",
       bad: false,
     });
   }
@@ -62,8 +60,8 @@ export function ModelKeyPanel() {
       <div>
         <h3 className="text-sm font-medium">Model key</h3>
         <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-          Teach on your own OpenAI or Anthropic account instead of BotCortex credit. Your provider bills you
-          directly, and your BotCortex balance is never touched or checked.
+          Teach on your own OpenAI account instead of BotCortex credit. OpenAI bills you directly, and your
+          BotCortex balance is never touched or checked.
         </p>
       </div>
 
@@ -74,12 +72,10 @@ export function ModelKeyPanel() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">
-              {PROVIDER_LABEL[saved.provider]} key <span className="font-mono text-muted-foreground">…{saved.last4}</span>
+              OpenAI key <span className="font-mono text-muted-foreground">…{saved.last4}</span>
             </p>
             <p className="break-words text-xs leading-relaxed text-muted-foreground">
-              {saved.provider === "anthropic"
-                ? `Teaching runs on ${ANTHROPIC_MODEL_LABEL}.`
-                : "Teaching runs on the model you pick in the composer."}
+              Teaching runs on the model you pick in the composer.
             </p>
           </div>
           <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1.5" disabled={busy !== null} onClick={() => void remove()}>
@@ -100,7 +96,7 @@ export function ModelKeyPanel() {
           onChange={(e) => { setValue(e.target.value); setNote(null); }}
           type="password"
           aria-label="API key"
-          placeholder={saved ? "Paste a different key to replace it" : "Paste your OpenAI or Anthropic API key"}
+          placeholder={saved ? "Paste a different key to replace it" : "Paste your OpenAI API key"}
           autoComplete="off"
           spellCheck={false}
           disabled={!loaded}
@@ -114,8 +110,7 @@ export function ModelKeyPanel() {
 
       <p className="break-words text-xs leading-relaxed text-muted-foreground">
         The key is sent to BotCortex once, encrypted, and used only to make your teaching calls. It is never sent
-        back to this or any browser: after saving, all anyone can see here is the provider and the last four
-        characters. Remove it at any time and it is deleted.
+        back to this or any browser: after saving, all anyone can see here is its last four characters. Remove it at any time and it is deleted.
       </p>
       {hadLegacy && (
         <p className="break-words text-xs leading-relaxed text-muted-foreground">

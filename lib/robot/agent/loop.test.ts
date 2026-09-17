@@ -563,27 +563,3 @@ test("STOP during verification cannot emit a success claim", async () => {
   expect(result).toMatchObject({ outcome: "fail", error: "aborted" });
   expect(events.some((event) => event.type === "chat" && event.text === "Done!")).toBe(false);
 });
-
-test("Claude's own content blocks are sent back next turn exactly as they came", async () => {
-  // With the owner's Anthropic key the api answers in this loop's shape and
-  // also hands over the provider's raw blocks. A thinking block has to be
-  // replayed byte for byte, so the loop's whole job is not to touch it.
-  const blocks = [
-    { type: "thinking", thinking: "", signature: "sig-1" },
-    { type: "tool_use", id: "toolu_1", name: "move_to", input: { arm: "right" } },
-  ];
-  const requests: any[] = [];
-  stubModel(
-    [
-      { content: null, tool_calls: [{ id: "toolu_1", type: "function", function: { name: "move_to", arguments: "{\"arm\":\"right\"}" } }], anthropic_content: blocks },
-      { content: "Done." },
-    ],
-    (body) => requests.push(body),
-  );
-  await teach({ contract: CONTRACT, model: "gpt-5.6-luna", prompt: "move", dispatch: async () => "moved", emit: () => {} });
-
-  const replayed = requests[1].messages.find((m: any) => m.role === "assistant");
-  expect(replayed.anthropic_content).toEqual(blocks);
-  // And a model that sends none is sent none: nothing is invented.
-  expect(requests[1].messages.every((m: any) => m.role !== "user" || m.anthropic_content === undefined)).toBe(true);
-});

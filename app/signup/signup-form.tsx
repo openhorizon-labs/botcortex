@@ -96,7 +96,7 @@ export function SignUpForm() {
       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
         You get a simulated robot in the browser straight away, no hardware
         needed, and $2.00 of credit to teach it with. Or bring your own OpenAI
-        or Anthropic key.
+        key.
       </p>
       {/* Said before the account exists, not discovered after: a skill that
           runs successfully is published, and its page names who taught it. */}

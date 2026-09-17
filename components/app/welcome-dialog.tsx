@@ -42,7 +42,7 @@ export function WelcomeDialog() {
         <ul className="flex flex-col gap-2 text-sm leading-relaxed text-muted-foreground">
           <li>Running a skill your robot already knows is free, always.</li>
           <li>The balance is in the sidebar. Nothing is charged to you when it runs out.</li>
-          <li>Prefer your own OpenAI or Anthropic key? Add it in Settings and teaching never touches this.</li>
+          <li>Prefer your own OpenAI key? Add it in Settings and teaching never touches this.</li>
         </ul>
         <DialogFooter>
           <Button onClick={acknowledgeWelcome} className="h-10 rounded-lg">

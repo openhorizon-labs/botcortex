@@ -1,6 +1,6 @@
 /**
- * The owner's own model key, as the APP knows it: which provider, and the last
- * four characters. That is all the app ever knows.
+ * The owner's own OpenAI key, as the APP knows it: the last four characters.
+ * That is all the app ever knows. (OpenAI only, for now.)
  *
  * The key itself is typed once, sent to the api over the owner's session, and
  * kept there encrypted; teaching goes through the api, which uses it. It is not
@@ -10,12 +10,7 @@
  */
 import { useEffect, useSyncExternalStore } from "react";
 
-export type ModelKey = { provider: "openai" | "anthropic"; last4: string; addedAt: number };
-
-export const PROVIDER_LABEL: Record<ModelKey["provider"], string> = { openai: "OpenAI", anthropic: "Anthropic" };
-/** What runs when the key is Anthropic's. Chosen by the api, named here so the
- *  composer can say it; an OpenAI key runs whatever the picker says. */
-export const ANTHROPIC_MODEL_LABEL = "Claude Opus 5";
+export type ModelKey = { provider: "openai"; last4: string; addedAt: number };
 
 /** Where the first version left keys. Removed on sight: a secret nobody is
  *  using any more should not sit readable in a browser. */

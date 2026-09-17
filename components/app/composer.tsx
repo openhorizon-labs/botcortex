@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ModelPicker } from "@/components/app/model-picker";
-import { ANTHROPIC_MODEL_LABEL, useModelKey } from "@/lib/robot/model-key";
+import { useModelKey } from "@/lib/robot/model-key";
 import { useRobot } from "@/components/app/robot-provider";
 import {
   Tooltip,
@@ -80,31 +80,18 @@ export function Composer({
       />
       <div className="flex items-center justify-between px-2.5 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          {/* An Anthropic key makes the picker a lie: it lists GPT models, and
-              Claude is what will run, so it says so instead. An OpenAI key
-              keeps the picker — the model chosen there IS what runs — with a
-              mark that the owner's key, not the balance, is paying. Only for
-              the in-tab robot; a real one teaches from its own environment. */}
-          {ownKey?.provider === "anthropic" && host === "this browser" ? (
+          <ModelPicker value={model} onChange={onModelChange} />
+          {/* With the owner's own OpenAI key the picker is still true — what it
+              says is what runs — so it stays, with a mark that their key and
+              not the balance is paying. Only for the in-tab robot; a real one
+              teaches from its own environment. */}
+          {ownKey && host === "this browser" && (
             <span
-              className="flex h-7 min-w-0 items-center gap-1.5 rounded-lg border border-border px-2 text-xs text-muted-foreground"
-              title="Teaching uses your own Anthropic key. Change it in Settings, under Model key."
+              className="flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-xs text-muted-foreground"
+              title="Teaching uses your own OpenAI key, not BotCortex credit. Change it in Settings, under Model key."
             >
-              <KeyRound className="size-3.5 shrink-0" />
-              <span className="truncate">Your key · {ANTHROPIC_MODEL_LABEL}</span>
+              <KeyRound className="size-3.5" /> Your key
             </span>
-          ) : (
-            <>
-              <ModelPicker value={model} onChange={onModelChange} />
-              {ownKey && host === "this browser" && (
-                <span
-                  className="flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-xs text-muted-foreground"
-                  title="Teaching uses your own OpenAI key, not BotCortex credit. Change it in Settings, under Model key."
-                >
-                  <KeyRound className="size-3.5" /> Your key
-                </span>
-              )}
-            </>
           )}
           {/* A STATE, not a switch.
               This was a Dry run / Execute toggle whose tooltip promised that
