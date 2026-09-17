@@ -457,3 +457,35 @@ test("interrupt stops a running task without latching the e-stop", async () => {
     expect(transport.interrupt()).toBe(false);
   } finally { transport.close(); }
 });
+
+test("before a recall the host asks the api which skills MEAN the same, and says nothing when it cannot", async () => {
+  const candidates = [
+    { name: "put_block_in_tray", text: "put block in tray: Put a block in a tray." },
+    { name: "wave", text: "wave: Wave." },
+  ];
+  const sim = { callTool: mock(async () => JSON.stringify(candidates)) } as unknown as BrowserSim;
+  const transport = new BrowserSimTransport(() => {});
+  const asked: { url: string; body: any }[] = [];
+  let answer: Response | Error = Response.json({ ranked: [{ name: "put_block_in_tray", score: 0.9 }, { name: "wave", score: 0.1 }] });
+  (transport as any).request = async (url: string, init: RequestInit) => {
+    asked.push({ url, body: JSON.parse(String(init.body)) });
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  const rank = (query: string) => (transport as any).rankedSkills(sim, query) as Promise<string[] | null>;
+
+  expect(await rank("tidy the bench")).toEqual(["put_block_in_tray", "wave"]);
+  // Names and what each skill says it does. Never its code.
+  expect(asked[0]).toEqual({ url: "/api/similar", body: { query: "tidy the bench", candidates } });
+
+  answer = Response.json({ ranked: null }); // no credit, no key, provider down
+  expect(await rank("tidy the bench")).toBeNull();
+  answer = new Error("offline");
+  expect(await rank("tidy the bench")).toBeNull();
+
+  // One working skill, or none, needs no ranking and costs no call.
+  const calls = asked.length;
+  (sim.callTool as any).mockResolvedValue(JSON.stringify(candidates.slice(0, 1)));
+  expect(await rank("tidy the bench")).toBeNull();
+  expect(asked.length).toBe(calls);
+});

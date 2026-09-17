@@ -222,6 +222,25 @@ export class BrowserSimTransport {
   }
 
   /** Boot the sim and send the same hello a runtime would. */
+  /** Names of this robot's working skills, most like `query` first — or null
+   *  when the api cannot say (no credit, no key, offline, nothing to rank). */
+  private async rankedSkills(sim: BrowserSim, query: string): Promise<string[] | null> {
+    try {
+      const candidates = JSON.parse(await sim.callTool("skill_candidates", {}, () => {})) as unknown[];
+      if (!query.trim() || !Array.isArray(candidates) || candidates.length < 2) return null; // one skill needs no ranking
+      const res = await this.request("/api/similar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, candidates }),
+      });
+      if (!res.ok) return null;
+      const { ranked } = (await res.json()) as { ranked?: { name: string }[] | null };
+      return Array.isArray(ranked) ? ranked.map((row) => row.name) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async open(onProgress: (stage: string) => void = () => {}) {
     if (this.closed || this.opening || this.sim) throw new Error("Simulator already opened or closed.");
     this.opening = true;
@@ -562,6 +581,12 @@ export class BrowserSimTransport {
       verify: () => sim.verify(),
       dispatch: async (name, args) => {
         const unprovenBefore = sim.unproven;
+        // "Which working skills are most like this task" is better answered by
+        // meaning than by shared words, and the runtime cannot reach the
+        // network from inside a synchronous Python call — so the host asks the
+        // api first and hands the order in. Best effort: without an answer the
+        // runtime counts words, as it would with no network at all.
+        if (name === "recall_episodes") args = { ...args, ranked_json: JSON.stringify(await this.rankedSkills(sim, String(args.query ?? ""))) };
         const reply = await sim.runTool(name, args, (arms) =>
           this.emit({ type: "state", arms, objects: sim.scene.objects }),
         );

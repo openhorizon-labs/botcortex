@@ -43,6 +43,8 @@ const nextConfig: NextConfig = {
       // acknowledgement 404'd here and the dialog came back on every login.
       { source: "/api/credits/:path*", destination: `${api}/api/credits/:path*` },
       { source: "/api/models", destination: `${api}/api/models` },
+      // Ranks an owner's working skills by meaning, for the agent's examples.
+      { source: "/api/similar", destination: `${api}/api/similar` },
       // The owner's own model key: sent up once, never sent back.
       { source: "/api/model-key", destination: `${api}/api/model-key` },
       { source: "/api/robots", destination: `${api}/api/robots` },
