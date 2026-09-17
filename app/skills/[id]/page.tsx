@@ -6,7 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { Nav } from "@/components/site/nav";
 import { SkillAuthor } from "@/components/site/skill-author";
 import { SkillPlayer } from "@/components/site/skill-player";
-import { fetchSkill } from "@/lib/registry";
+import { fetchSkill, isAuthorCard } from "@/lib/registry";
 import { KIND_LABELS, MESH_CREDITS, bodyFor, shortBodyName } from "@/lib/robot/bodies";
 
 /**
@@ -34,9 +34,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: heading,
       description: `${skill.description} Run it in your browser.`,
       url: `/skills/${skill.id}`,
-      images: [{ url: `/robots/cards/${skill.platform}.png`, width: 640, height: 480, alt: `${body} in the simulation` }],
+      // The image is this route's opengraph-image.tsx: the skill's own card.
     },
-    twitter: { card: "summary_large_image", title: heading, description: skill.description, images: [`/robots/cards/${skill.platform}.png`] },
+    twitter: { card: "summary_large_image", title: heading, description: skill.description },
   };
 }
 
@@ -78,7 +78,7 @@ export default async function Page({ params, searchParams }: Props) {
             <p className="mt-4 text-base leading-relaxed text-muted-foreground">{skill.description}</p>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               {/* An api that predates authors still gets a true sentence. */}
-              {skill.author ? <SkillAuthor author={skill.author} /> : "Someone"} taught their robot this by
+              {isAuthorCard(skill.author) ? <SkillAuthor author={skill.author} /> : "Someone"} taught their robot this by
               typing a sentence. It ran successfully, so it was
               published. What you see is the same program running against the same physics.
             </p>

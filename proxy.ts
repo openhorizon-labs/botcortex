@@ -27,7 +27,7 @@ const APP_ROOT = "/app";
 /** Marketing routes a signed-in owner may still read. Everything else on
  *  the site bounces a signed-in visitor into the app, which is right for
  *  the landing page and wrong for a reference page like the registry. */
-const PUBLIC_WHEN_SIGNED_IN = ["/skills"];
+const PUBLIC_WHEN_SIGNED_IN = ["/skills", "/u"];
 const API_URL = process.env.API_URL ?? "http://localhost:8787";
 
 /** Better Auth's cookie, plain and __Secure- prefixed (production). */

@@ -9,11 +9,21 @@ import type { PublishedSkill } from "@/lib/registry";
 /** One published skill: the name as the robot knows it, what it does, when
  *  it was last proven, and the program behind a fold. Grayscale, hairlines,
  *  the same card grammar as the rest of the site. */
-export function SkillCard({ skill, runnable = false }: { skill: PublishedSkill; runnable?: boolean }) {
+export function SkillCard({
+  skill,
+  runnable = false,
+  showAuthor = true,
+}: {
+  skill: PublishedSkill;
+  runnable?: boolean;
+  /** Off on an author's own page, where every card would say the same name. */
+  showAuthor?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const when = new Date(skill.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   const lines = skill.code.split("\n").length;
+  const runs = skill.runs ?? 0;
 
   return (
     <article className="min-w-0 rounded-2xl border border-border bg-background transition-colors duration-150 ease-standard hover:border-border-strong">
@@ -37,6 +47,9 @@ export function SkillCard({ skill, runnable = false }: { skill: PublishedSkill; 
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{skill.description}</p>
           <p className="mt-2 font-mono text-xs text-muted-foreground">
             {lines} lines · proven {when}
+            {/* Only once someone else has run it: "0 runs" on every new skill
+                reads as a verdict, and it is just a skill nobody has found yet. */}
+            {runs > 0 && ` · run by ${runs} ${runs === 1 ? "other person" : "other people"}`}
           </p>
         </div>
         <ChevronDown
@@ -62,6 +75,14 @@ export function SkillCard({ skill, runnable = false }: { skill: PublishedSkill; 
         <Link href={`/skills/${skill.id}`} className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
           Open its page
         </Link>
+        {showAuthor && skill.author && (
+          <Link
+            href={`/u/${skill.author.handle}`}
+            className="ml-auto min-w-0 truncate text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            @{skill.author.handle}
+          </Link>
+        )}
       </div>
       {open && (
         <div className="border-t border-border">

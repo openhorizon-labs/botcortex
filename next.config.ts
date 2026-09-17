@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
       { source: "/api/keys", destination: `${api}/api/keys` },
       { source: "/api/keys/:id", destination: `${api}/api/keys/:id` },
       { source: "/api/credits", destination: `${api}/api/credits` },
+      // POST /api/credits/welcome/seen. Without this the welcome dialog's
+      // acknowledgement 404'd here and the dialog came back on every login.
+      { source: "/api/credits/:path*", destination: `${api}/api/credits/:path*` },
       { source: "/api/models", destination: `${api}/api/models` },
       { source: "/api/robots", destination: `${api}/api/robots` },
       { source: "/api/robots/:id", destination: `${api}/api/robots/:id` },
@@ -36,6 +39,12 @@ const nextConfig: NextConfig = {
       { source: "/api/skills/:path*", destination: `${api}/api/skills/:path*` },
       // The public registry, for the app's publish menu to read back.
       { source: "/api/registry", destination: `${api}/api/registry` },
+      // One skill, an author's page, and "someone ran this" from the public
+      // player — same-origin, so a signed-in author's own runs are recognised
+      // by their cookie and not counted as votes.
+      { source: "/api/registry/:path*", destination: `${api}/api/registry/:path*` },
+      // The handle skills are published under (Settings -> Account).
+      { source: "/api/profile", destination: `${api}/api/profile` },
     ];
   },
 };

@@ -35,6 +35,16 @@ const CONTROL_HZ = 20;
  * the deadline, and the worker is terminated — there is no interrupting a
  * synchronous Pyodide call from outside, so a fresh worker is the recovery.
  */
+/**
+ * How long a tool call may go without a sign of life before the worker is
+ * declared hung. The flat ten minutes below was the only bound, so a skill
+ * that really had hung took ten minutes to fail. The runtime now pulses twice
+ * a second while it computes motion (WasmRobot.on_alive) and names each step
+ * it rehearses, so silence means something: a minute and a half of it is a
+ * hang, and a long skill that keeps pulsing is left alone up to the ceiling.
+ */
+export const LIVENESS = { quietMs: 90_000 };
+
 export const DEADLINES_MS: Record<WorkerRequest["type"], number> = {
   boot: 240_000,
   // 0.0.2 took 59–70 s for one measured transfer. Since 0.0.16 the pose
@@ -107,6 +117,9 @@ export type BrowserSimOptions = {
   /** Called once if the worker dies or hangs past a deadline, after every
    *  pending call has been rejected. The transport reports it upward. */
   onDead?: (reason: string) => void;
+  /** What the robot is rehearsing right now, in words, while a tool call is
+   *  still computing and nothing has moved yet. */
+  onWorking?: (label: string, step: number) => void;
 };
 
 export class BrowserSim {
@@ -114,6 +127,9 @@ export class BrowserSim {
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private onProgress: SimProgress = () => {};
+  private onWorking: NonNullable<BrowserSimOptions["onWorking"]> = () => {};
+  /** Restarts the quiet timer of every tool call in flight. */
+  private alive = new Set<() => void>();
   /** Cuts playback short when STOP lands. */
   private aborted = false;
   private closed = false;
@@ -160,6 +176,7 @@ export class BrowserSim {
   private async init(onProgress: SimProgress, options: BrowserSimOptions) {
     options.signal?.throwIfAborted();
     this.onProgress = onProgress;
+    this.onWorking = options.onWorking ?? (() => {});
     this.onDead = options.onDead ?? (() => {});
     // A URL, not new URL(..., import.meta.url): letting the app bundler emit
     // the worker produces a CLASSIC one even when asked for a module, and
@@ -175,7 +192,12 @@ export class BrowserSim {
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const message = event.data;
       if ("type" in message) {
-        this.onProgress(message.stage);
+        if (message.type === "working") {
+          for (const beat of this.alive) beat();
+          if (message.label) this.onWorking(message.label, message.step ?? 0);
+        } else {
+          this.onProgress(message.stage);
+        }
         return;
       }
       const waiter = this.pending.get(message.id);
@@ -223,15 +245,37 @@ export class BrowserSim {
     const id = this.nextId++;
     const deadline = DEADLINES_MS[request.type];
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const hung = (why: string) => {
         if (!this.pending.has(id)) return;
         // Everything else in flight dies with the worker, with the same
         // explanation — one hung call is one hung thread.
-        this.die(`the in-browser robot did not answer "${request.type}" within ${Math.round(deadline / 1000)} s and was shut down`);
-      }, deadline);
+        this.die(why);
+      };
+      const timer = setTimeout(
+        () => hung(`the in-browser robot did not answer "${request.type}" within ${Math.round(deadline / 1000)} s and was shut down`),
+        deadline,
+      );
+      // Tool calls also have to keep showing signs of life (see LIVENESS).
+      let quiet: ReturnType<typeof setTimeout> | undefined;
+      const beat = () => {
+        clearTimeout(quiet);
+        quiet = setTimeout(
+          () => hung(`the in-browser robot went silent for ${Math.round(LIVENESS.quietMs / 1000)} s in the middle of "${request.type}" and was shut down`),
+          LIVENESS.quietMs,
+        );
+      };
+      if (request.type === "callTool") {
+        this.alive.add(beat);
+        beat();
+      }
+      const settle = () => {
+        clearTimeout(timer);
+        clearTimeout(quiet);
+        this.alive.delete(beat);
+      };
       this.pending.set(id, {
-        resolve: (value) => { clearTimeout(timer); resolve(value); },
-        reject: (error) => { clearTimeout(timer); reject(error); },
+        resolve: (value) => { settle(); resolve(value); },
+        reject: (error) => { settle(); reject(error); },
       });
       this.worker.postMessage({ ...request, id } as WorkerRequest);
     });

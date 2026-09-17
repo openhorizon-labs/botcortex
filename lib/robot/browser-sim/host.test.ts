@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, test } from "bun:test";
-import { BrowserSim, DEADLINES_MS } from "./host";
+import { BrowserSim, DEADLINES_MS, LIVENESS } from "./host";
 
 const originalWorker = globalThis.Worker;
 afterEach(() => { globalThis.Worker = originalWorker; });
@@ -101,4 +101,42 @@ test("cancellation during boot terminates a worker immediately", async () => {
   abort.abort();
   await expect(booting).rejects.toThrow("disconnected");
   expect(terminated).toHaveBeenCalled();
+});
+
+test("a tool call that goes silent is shut down long before the ten-minute ceiling", async () => {
+  const { terminated } = workerFixture(false, { hang: new Set(["callTool"]) });
+  const deaths: string[] = [];
+  const sim = await BrowserSim.boot(() => {}, { onDead: (reason) => deaths.push(reason) });
+  const original = LIVENESS.quietMs;
+  LIVENESS.quietMs = 20;
+  try {
+    await expect(sim.callTool("run_skill", {}, () => {})).rejects.toThrow("went silent");
+  } finally {
+    LIVENESS.quietMs = original;
+  }
+  expect(terminated).toHaveBeenCalledTimes(1);
+  expect(deaths).toHaveLength(1);
+});
+
+test("a tool call that keeps pulsing is left alone, and says what it is rehearsing", async () => {
+  const { requests } = workerFixture(false, { hang: new Set(["callTool"]) });
+  const heard: string[] = [];
+  const sim = await BrowserSim.boot(() => {}, { onWorking: (label, step) => heard.push(`${step}: ${label}`) });
+  const worker = (sim as unknown as { worker: { onmessage: (e: { data: unknown }) => void } }).worker;
+  const original = LIVENESS.quietMs;
+  LIVENESS.quietMs = 40;
+  try {
+    const call = sim.callTool("run_skill", {}, () => {});
+    // Well past the quiet limit in total, never silent for as long as it.
+    for (let i = 1; i <= 6; i += 1) {
+      await new Promise((r) => setTimeout(r, 15));
+      worker.onmessage({ data: i === 3 ? { type: "working", label: "moving the arm", step: 2 } : { type: "working" } });
+    }
+    const id = requests.find((r) => r.type === "callTool")!.id;
+    worker.onmessage({ data: { id, ok: true, result: { ...snapshot, output: "ok", plain: "ok", motion: [] } } });
+    await expect(call).resolves.toBe("ok");
+  } finally {
+    LIVENESS.quietMs = original;
+  }
+  expect(heard).toEqual(["2: moving the arm"]);
 });

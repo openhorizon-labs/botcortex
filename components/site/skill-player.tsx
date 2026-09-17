@@ -73,6 +73,9 @@ export function SkillPlayer({
         sim = await BrowserSim.boot(setStage, {
           namespace: null,
           platform: skill.platform,
+          // While the run is being checked the robot has not moved yet; say
+          // what is happening so a still robot does not read as a hung page.
+          onWorking: (label, step) => setStage(`Checking step ${step}: ${label}`),
           onDead: (reason) => {
             simRef.current = null;
             setPhase("failed");
@@ -126,6 +129,10 @@ export function SkillPlayer({
       // The runtime's report is evidence for an owner — joints, ticks,
       // coordinates. A visitor gets what happened to the block.
       const summary = visitorSummary(reply.plain);
+      // Counted for ranking only when it worked, once per visitor per day, and
+      // never for the author (the api decides both). Best effort: a robot that
+      // moved is the point, a counter that did not tick is not an error.
+      if (summary.ok) void fetch(`/api/registry/skills/${skill.id}/ran`, { method: "POST" }).catch(() => {});
       setSaid(summary.text);
       setPhase(summary.ok ? "done" : "failed");
     } catch (error) {

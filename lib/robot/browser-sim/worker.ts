@@ -119,7 +119,10 @@ export type WorkerRequest =
 export type WorkerResponse =
   | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: string }
-  | { type: "progress"; stage: string };
+  | { type: "progress"; stage: string }
+  /** The robot is still computing. `label` names the step being rehearsed when
+   *  there is one; without it this is only a pulse. See host.ts LIVENESS. */
+  | { type: "working"; label?: string; step?: number };
 
 let py: any;
 let mj: any;
@@ -135,7 +138,78 @@ const STOP_PATH = "/run/STOP";
 /** Whether `/data` is backed by IndexedDB. */
 let durable = false;
 
+/**
+ * A whole grid of pose-search probes in one call.
+ *
+ * A pose search asks "where would the hand be at these joint angles?" 58,564
+ * times, and from Python each ask is several crossings into MuJoCo: measured,
+ * 1.2 s per search, twenty searches in a two-block skill, and that — not
+ * physics — was the still robot an owner watched before anything moved.
+ *
+ * This is NOT a second definition of the robot. The runtime still decides
+ * every number that means something: which address each joint lives at and
+ * what its angle is in MuJoCo's units, where the jaws close in the hand frame,
+ * which way is down (botcortex/posesearch.py, _probe_many). What is left is
+ * enumerating the product, first axis outermost — the order kinematics._grid
+ * uses — and one expression, written to match Python bit for bit:
+ * tests/test_posesearch.py in the runtime holds a line-for-line twin of this
+ * function and proves it finds exactly what the one-at-a-time search finds, on
+ * every body.
+ */
+function probeBatch(mujoco: any, model: any, data: any) {
+  const list = (value: any): number[] => (value?.toJs ? value.toJs() : value);
+  /** sum() of floats as CPython 3.12+ computes it: Neumaier compensated. A
+   *  plain a+b+c was one unit in the last place out on the RoArm. */
+  const pythonSum = (a: number, b: number, c: number) => {
+    let total = 0;
+    let carry = 0;
+    for (const x of [a, b, c]) {
+      const t = total + x;
+      carry += Math.abs(total) >= Math.abs(x) ? total - t + x : x - t + total;
+      total = t;
+    }
+    return carry !== 0 && Number.isFinite(carry) ? total + carry : total;
+  };
+  return (
+    heldAdr: any, heldVal: any, axisAdr: any, axisVal: any, axisLen: any,
+    hand: number, offsetIn: any, downIndex: number, sign: number,
+  ) => {
+    const [hAdr, hVal, aAdr, aVal, aLen, offset] = [heldAdr, heldVal, axisAdr, axisVal, axisLen, offsetIn].map(list);
+    // Views onto the WASM heap: a fresh one per property access, so taken once.
+    const qpos = data.qpos as Float64Array;
+    hAdr.forEach((adr, i) => { qpos[adr] = hVal[i]; });
+    const starts = aLen.map((_, j) => aLen.slice(0, j).reduce((sum, n) => sum + n, 0));
+    const total = aLen.reduce((product, n) => product * n, 1);
+    const out = new Float64Array(total * 4);
+    const index = new Array<number>(aLen.length).fill(0);
+    const base = hand * 3;
+    const rotBase = hand * 9;
+    for (let n = 0; n < total; n += 1) {
+      for (let j = 0; j < aLen.length; j += 1) qpos[aAdr[j]] = aVal[starts[j] + index[j]];
+      mujoco.mj_kinematics(model, data);
+      const xpos = data.xpos as Float64Array;
+      const xmat = data.xmat as Float64Array;
+      for (let r = 0; r < 3; r += 1) {
+        const row = rotBase + r * 3;
+        out[n * 4 + r] = xpos[base + r] + pythonSum(xmat[row] * offset[0], xmat[row + 1] * offset[1], xmat[row + 2] * offset[2]);
+      }
+      out[n * 4 + 3] = sign * xmat[rotBase + downIndex];
+      // Odometer, last axis fastest: kinematics._grid's order.
+      for (let j = aLen.length - 1; j >= 0; j -= 1) {
+        index[j] += 1;
+        if (index[j] < aLen[j]) break;
+        index[j] = 0;
+      }
+    }
+    return out;
+  };
+}
+
 const progress = (stage: string) => self.postMessage({ type: "progress", stage } as WorkerResponse);
+/** Posted from INSIDE a synchronous Python call — a worker's postMessage does
+ *  not wait for the call to return, which is the whole reason this works. */
+const working = (label?: string, step?: number) =>
+  self.postMessage({ type: "working", label, step } as WorkerResponse);
 
 /** Flush IDBFS → IndexedDB, or MEMFS → nothing. Returns why it failed. */
 async function flush(): Promise<{ flushed: boolean; error?: string }> {
@@ -331,7 +405,9 @@ json.dumps([str(p) for p in pathlib.Path("${modelDir}").rglob("*") if p.is_file(
   progress("Waking the robot");
   py.globals.set("js_mujoco", mj);
   py.globals.set("js_model", model);
-  py.globals.set("js_data", new mj.MjData(model));
+  const data = new mj.MjData(model);
+  py.globals.set("js_data", data);
+  py.globals.set("js_probe_batch", probeBatch(mj, model, data));
   py.globals.set("data_dir", dataDir);
   py.globals.set("stop_path", STOP_PATH);
   py.runPython(`
@@ -352,6 +428,18 @@ session = RobotSession(
     store=SkillStore(_data / "skills"),
     memory=EpisodeMemory(_data / "episodes.jsonl"),
 )
+`);
+  // The runtime says what it is rehearsing and that it is still alive (wheel
+  // 0.0.17+). An older wheel has neither attribute's caller, so this is inert.
+  py.globals.set("js_working", (label?: string, step?: number) => working(label ?? undefined, step ?? undefined));
+  py.runPython(`
+def _forward(event):
+    if event.get("type") == "working":
+        js_working(event.get("label"), event.get("step"))
+session.emit = _forward
+session.robot.on_alive = lambda: js_working(None, None)
+# Wheel 0.0.18+: the pose search hands its whole grid over in one call.
+session.robot.probe_batch = js_probe_batch
 `);
   session = py.globals.get("session");
 

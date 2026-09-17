@@ -17,6 +17,8 @@ export type SkillAuthor = {
   joinedAt: number;
   skills: number;
   platforms: string[];
+  /** Times someone other than them has run one of their skills. */
+  runs: number;
 };
 
 export type PublishedSkill = {
@@ -28,9 +30,15 @@ export type PublishedSkill = {
   platform: string;
   /** Milliseconds since the epoch. */
   updatedAt: number;
-  /** Only on a single skill's page; the list carries no authors. */
-  author?: SkillAuthor;
+  /** Times someone other than the author has run it. The registry is ranked
+   *  by this, so the order the api sends is the order to show. */
+  runs?: number;
+  /** A handle in a list; the whole card on the skill's own page. */
+  author?: { handle: string } | SkillAuthor;
 };
+
+export const isAuthorCard = (author: PublishedSkill["author"]): author is SkillAuthor =>
+  Boolean(author && "name" in author);
 
 export type Registry = {
   platforms: { name: string; skills: PublishedSkill[] }[];
@@ -59,6 +67,19 @@ export async function fetchSkill(id: string): Promise<PublishedSkill | null> {
     if (!res.ok) return null;
     const body = (await res.json()) as { skill?: PublishedSkill };
     return body.skill && typeof body.skill.code === "string" ? body.skill : null;
+  } catch {
+    return null;
+  }
+}
+
+/** An author's public page: who they are and what they have published. Null
+ *  for an unknown handle, and for someone who has published nothing. */
+export async function fetchAuthor(handle: string): Promise<{ author: SkillAuthor; skills: PublishedSkill[] } | null> {
+  try {
+    const res = await fetch(`${API}/api/registry/authors/${encodeURIComponent(handle)}`, { next: { revalidate: 60 } });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { author?: SkillAuthor; skills?: PublishedSkill[] };
+    return body.author && Array.isArray(body.skills) ? { author: body.author, skills: body.skills } : null;
   } catch {
     return null;
   }
