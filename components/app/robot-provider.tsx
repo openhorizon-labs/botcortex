@@ -283,6 +283,8 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stopState, setStopState] = useState<StopState>("clear");
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  /** Tasks this tab has already asked the api to title. */
+  const titledRef = useRef<Set<string>>(new Set());
   const [credit, setCredit] = useState<Credit | null>(null);
   const [pairing, setPairing] = useState<RobotContextValue["pairing"]>(null);
   /** The model the last teach actually ran on, as the robot reported it. */
@@ -440,6 +442,17 @@ export function RobotProvider({ children, accountId = null }: { children: React.
       text: msg.text,
     });
     if (saved) void refreshConversationsRef.current();
+    // A long opening message makes a poor sidebar row, so the api is asked to
+    // shorten it — after the message is safely stored, never in its way, and
+    // once per task. The api decides whether there is anything to do (a short
+    // message is its own title) and the list is re-read only if it changed.
+    if (saved && msg.from === "you" && msg.text.trim().length > 40 && !titledRef.current.has(id)) {
+      titledRef.current.add(id);
+      void fetch(`/api/conversations/${encodeURIComponent(id)}/title`, { method: "POST" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body: { changed?: boolean } | null) => { if (body?.changed) void refreshConversationsRef.current(); })
+        .catch(() => {});
+    }
   }, []);
 
   /** Store a finished tool call alongside the conversation, so reopening a

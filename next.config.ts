@@ -50,6 +50,8 @@ const nextConfig: NextConfig = {
       { source: "/api/messages", destination: `${api}/api/messages` },
       { source: "/api/conversations", destination: `${api}/api/conversations` },
       { source: "/api/conversations/:id", destination: `${api}/api/conversations/:id` },
+      // Shortens a long first message into a task title, after it is stored.
+      { source: "/api/conversations/:id/title", destination: `${api}/api/conversations/:id/title` },
       { source: "/api/device/pending", destination: `${api}/api/device/pending` },
       // The browser sim's agent loop runs in the page, so its inference goes
       // through here too — same meter, same balance gate, and the browser
