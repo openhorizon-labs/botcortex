@@ -112,7 +112,7 @@ export function SkillPlayer({
         // would open every GIF with ten seconds of a still robot.
         if (!recording) {
           setStage(null);
-          recording = recordCanvas(() => stageRef.current?.querySelector("canvas") ?? null);
+          recording = recordCanvas();
         }
         jointStateRef.current = state;
         objectsRef.current = live.scene.objects;

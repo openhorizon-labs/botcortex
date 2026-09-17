@@ -14,6 +14,15 @@
  * a fixed set of colours — the bench, three blocks, the arm — so a palette per
  * frame buys nothing, costs a quantisation per frame, and makes flat greys
  * shimmer as neighbouring frames round them differently.
+ *
+ * Frames are PUSHED by the viewer, from inside its own render call (see
+ * `tapFrames`), not pulled by a timer here. A WebGL canvas only holds its
+ * picture until the browser composites it, so a timer reading it later needs
+ * `preserveDrawingBuffer` — which makes the browser copy a full retina buffer
+ * on every frame instead of swapping it, and a read that lands between frames
+ * stalls the GPU. On the public player that showed up as the scene flickering
+ * and vanishing while a skill ran. Copying in the same call that drew the
+ * frame needs neither.
  */
 import { GIFEncoder, applyPalette, quantize, type Palette } from "gifenc";
 
@@ -27,6 +36,16 @@ export type GifOptions = {
    *  transparent where nothing was drawn, and GIF has no partial alpha. */
   background?: string;
 };
+
+/** The one live viewer's frame hook. There is only ever one 3D viewer on a
+ *  page, so this is a slot, not a registry. */
+let tap: ((canvas: HTMLCanvasElement) => void) | null = null;
+
+/** Called by the viewer right after it renders a frame. Costs one null check
+ *  when nothing is recording. */
+export function tapFrames(canvas: HTMLCanvasElement) {
+  tap?.(canvas);
+}
 
 export type GifRecording = {
   /** Stops capturing and returns the clip, or null if no frame was captured. */
@@ -42,7 +61,7 @@ export function gifSize(sourceWidth: number, sourceHeight: number, width: number
   return [w, h];
 }
 
-export function recordCanvas(getCanvas: () => HTMLCanvasElement | null, options: GifOptions = {}): GifRecording {
+export function recordCanvas(options: GifOptions = {}): GifRecording {
   const { width = 480, fps = 10, maxSeconds = 45, background = "#d9d9dd" } = options;
   const delay = Math.round(1000 / fps);
   const encoder = GIFEncoder();
@@ -51,10 +70,13 @@ export function recordCanvas(getCanvas: () => HTMLCanvasElement | null, options:
   let palette: Palette | null = null;
   let frames = 0;
   let stopped = false;
+  let due = 0;
 
-  const capture = () => {
-    const source = getCanvas();
-    if (stopped || !context || !source || source.width === 0) return;
+  const capture = (source: HTMLCanvasElement) => {
+    const now = performance.now();
+    // The viewer renders at the display's rate; the clip wants `fps`.
+    if (stopped || !context || source.width === 0 || now < due) return;
+    due = now + delay;
     if (frames === 0) [scratch.width, scratch.height] = gifSize(source.width, source.height, width);
     if (scratch.width === 0) return;
     context.fillStyle = background;
@@ -71,12 +93,11 @@ export function recordCanvas(getCanvas: () => HTMLCanvasElement | null, options:
     if (frames >= maxSeconds * fps) finish();
   };
 
-  const timer = setInterval(capture, delay);
   const finish = () => {
     stopped = true;
-    clearInterval(timer);
+    if (tap === capture) tap = null;
   };
-  capture();
+  tap = capture;
 
   return {
     get frames() {

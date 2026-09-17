@@ -44,6 +44,7 @@ import URDFLoader, { type URDFRobot } from "urdf-loader";
 
 import type { JointState, Kinematics, RobotInfo, SceneBodies, SceneBody } from "@/lib/robot/protocol";
 import { bodyFor } from "@/lib/robot/bodies";
+import { tapFrames } from "@/lib/gif";
 import { useRobot } from "@/components/app/robot-provider";
 
 /**
@@ -654,6 +655,23 @@ function FrameOnLoad({
   );
 }
 
+/**
+ * Draws the frame, then hands the canvas to whoever is recording.
+ *
+ * A positive useFrame priority means "I render" in R3F, so this is the render
+ * call itself plus one line. The GIF recorder must copy the canvas in the same
+ * call that drew it: a WebGL canvas keeps its picture only until the browser
+ * composites it. The alternative, preserveDrawingBuffer, was what made the
+ * public player's scene flicker and disappear mid-run.
+ */
+function RenderAndTap() {
+  useFrame(({ gl, scene, camera }) => {
+    gl.render(scene, camera);
+    tapFrames(gl.domElement);
+  }, 1);
+  return null;
+}
+
 /** What the viewport draws from. The refs are read per frame; `robot` decides
  *  which drawing to use and how to frame it. */
 export type SimSource = {
@@ -717,9 +735,7 @@ export function SimViewport({ jointStateRef, objectsRef, fixturesRef, robot }: S
         // x 0.12..0.42 in front of the robot, so a camera tight on the torso
         // saw furniture rather than work.
           camera={{ position: [0.95, 0.85, 1.15], fov: 42 }}
-        // preserveDrawingBuffer: the GIF recorder reads this canvas between
-        // frames, and without it a WebGL canvas reads back blank.
-        gl={{ antialias: true, alpha: true, preserveDrawingBuffer: true }}
+        gl={{ antialias: true, alpha: true }}
       >
         {/* A studio backdrop, several shades darker than the page, so the
             robot's near-white covers actually have something to read against.
@@ -756,6 +772,7 @@ export function SimViewport({ jointStateRef, objectsRef, fixturesRef, robot }: S
           fadeDistance={4.5}
           infiniteGrid
         />
+        <RenderAndTap />
         <FrameOnLoad
           fixturesRef={fixturesRef}
           frameKey={robot ? `${robot.platform}:${robot.name}` : "none"}

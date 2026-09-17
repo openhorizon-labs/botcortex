@@ -8,6 +8,17 @@
  * page must not 500 because a backend blinked.
  */
 
+/** Who taught a skill, as the registry publishes them: the name they signed up
+ *  with and what they have done in public. Never an email or an account id. */
+export type SkillAuthor = {
+  handle: string;
+  name: string;
+  /** Milliseconds since the epoch. */
+  joinedAt: number;
+  skills: number;
+  platforms: string[];
+};
+
 export type PublishedSkill = {
   /** The skill's own public id — what a share link addresses. */
   id: string;
@@ -17,6 +28,8 @@ export type PublishedSkill = {
   platform: string;
   /** Milliseconds since the epoch. */
   updatedAt: number;
+  /** Only on a single skill's page; the list carries no authors. */
+  author?: SkillAuthor;
 };
 
 export type Registry = {

@@ -87,7 +87,7 @@ export function ShareCard() {
         sawBusy ||= busy;
         // Start on the first frame of MOTION, so the clip does not open with
         // the planning pause before it.
-        if (!clip && JSON.stringify(jointStateRef.current) !== still) clip = recordCanvas(canvas);
+        if (!clip && JSON.stringify(jointStateRef.current) !== still) clip = recordCanvas();
         if (sawBusy && !busy) break;
       }
       await sleep(400);

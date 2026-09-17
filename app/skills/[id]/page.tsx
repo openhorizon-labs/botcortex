@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { Nav } from "@/components/site/nav";
+import { SkillAuthor } from "@/components/site/skill-author";
 import { SkillPlayer } from "@/components/site/skill-player";
 import { fetchSkill } from "@/lib/registry";
 import { KIND_LABELS, MESH_CREDITS, bodyFor, shortBodyName } from "@/lib/robot/bodies";
@@ -76,7 +77,9 @@ export default async function Page({ params, searchParams }: Props) {
             </h1>
             <p className="mt-4 text-base leading-relaxed text-muted-foreground">{skill.description}</p>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Someone taught their robot this by typing a sentence. It ran successfully, so it was
+              {/* An api that predates authors still gets a true sentence. */}
+              {skill.author ? <SkillAuthor author={skill.author} /> : "Someone"} taught their robot this by
+              typing a sentence. It ran successfully, so it was
               published. What you see is the same program running against the same physics.
             </p>
             {credit && (

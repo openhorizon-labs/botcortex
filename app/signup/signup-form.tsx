@@ -103,6 +103,11 @@ export function SignUpForm() {
         needed, and $2.00 of credit to teach it with. Or bring your own OpenAI
         or Anthropic key.
       </p>
+      {/* Said before the account exists, not discovered after: a skill that
+          runs successfully is published, and its page names who taught it. */}
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Skills that work are published to the public registry with your name on them. Your email is never shown.
+      </p>
     </form>
   );
 }
