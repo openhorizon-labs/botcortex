@@ -38,10 +38,12 @@ export function SimPanel({
   onClose: () => void;
 }) {
   const { robot, activity, status, simBooting, cameraFeed } = useRobot();
-  // A real arm with a camera shows both: the twin the arm plans in, and what
-  // the camera sees. One is the picture, the other an inset; a click swaps
-  // them. The sim and the mock have no camera, and no inset.
-  const [cameraLarge, setCameraLarge] = useState(false);
+  // A real arm with a camera shows both: what the camera sees, large, and
+  // the twin the arm plans in as an inset; a click swaps them. The camera is
+  // the picture because it is the truth of the bench; the twin's objects are
+  // the model's until the camera corrects them, and its arm is the live pose
+  // plus every rehearsal. The sim and the mock have no camera, and no inset.
+  const [cameraLarge, setCameraLarge] = useState(true);
   if (!open) return null;
   const twin = <SimView />;
   const camera = cameraFeed ? (
