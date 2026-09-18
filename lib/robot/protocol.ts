@@ -63,6 +63,10 @@ export type Kinematics = {
   /** The bytes those offsets index. Transferred from the worker, so it is
    *  owned by whoever received the hello. */
   meshBuffer?: ArrayBuffer;
+  /** Where a RUNTIME serves those bytes (GET, octet-stream), relative to
+   *  its http address: a JSON hello cannot carry binary, and base64 would be
+   *  a third bigger. The provider fetches it once and fills meshBuffer. */
+  meshUrl?: string;
 };
 
 export type PlanStep = {
@@ -254,7 +258,8 @@ export function parseRobotMessage(raw: string): RobotMessage | null {
         (msg.robot.catalog === undefined || (Array.isArray(msg.robot.catalog) &&
           msg.robot.catalog.every((entry: unknown) => record(entry) && text(entry.name) && text(entry.displayName)))) &&
         (msg.robot.kinematics === undefined || msg.robot.kinematics === null ||
-          (record(msg.robot.kinematics) && Array.isArray(msg.robot.kinematics.bodies) && record(msg.robot.kinematics.drive))) &&
+          (record(msg.robot.kinematics) && Array.isArray(msg.robot.kinematics.bodies) && record(msg.robot.kinematics.drive) &&
+            (msg.robot.kinematics.meshUrl === undefined || text(msg.robot.kinematics.meshUrl)))) &&
         strings(msg.skills) && optional("unproven", strings) && optional("fixtures", scene) &&
         ["stopped", "resettable", "paired", "halfPaired"].every((key) => optional(key, bool));
       break;

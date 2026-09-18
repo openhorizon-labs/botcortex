@@ -177,6 +177,9 @@ test("a hello may carry the sim's body catalog and a kinematic tree, and they ar
   // a catalog entry without a display name, or a tree without bodies, is refused
   expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, catalog: [{ name: "x" }] } }))).toBeNull();
   expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, kinematics: { drive: {} } } }))).toBeNull();
+  // A runtime names where its mesh bytes are instead of carrying them.
+  expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, kinematics: { ...tree, meshUrl: "/model/meshes.bin" } } }))).not.toBeNull();
+  expect(parseRobotMessage(JSON.stringify({ ...hello, robot: { ...hello.robot, kinematics: { ...tree, meshUrl: 7 } } }))).toBeNull();
 });
 
 test("a hello may name the body's arms, and rejects a malformed list", () => {

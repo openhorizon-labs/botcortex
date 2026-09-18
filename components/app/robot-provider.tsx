@@ -1108,6 +1108,25 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         // so a robot reached over ws:// is watched over http://, and the
         // same mixed-content rule that let the socket through lets this.
         setCameraFeed(msg.camera ? `${httpUrl(endpoint)}/camera.mjpg` : null);
+        // A runtime's meshes come over http, once, after the hello: the
+        // viewer draws the tree without them first (nothing for a mesh geom
+        // yet), then again with them the moment they land.
+        const meshUrl = msg.robot.kinematics?.meshUrl;
+        if (meshUrl && !msg.robot.kinematics?.meshBuffer) {
+          void fetch(`${httpUrl(endpoint)}${meshUrl}`)
+            .then((res) => (res.ok ? res.arrayBuffer() : null))
+            .then((meshBuffer) => {
+              if (!meshBuffer || wsRef.current !== ws) return;
+              setRobot((current) =>
+                current?.kinematics?.meshUrl === meshUrl
+                  ? { ...current, kinematics: { ...current.kinematics, meshBuffer } }
+                  : current,
+              );
+            })
+            .catch(() => {
+              /* the tree still draws its primitives; a robot the viewer cannot dress is shown, not hidden */
+            });
+        }
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ host: endpoint.host, secure: endpoint.secure, explicitScheme: endpoint.explicitScheme })); } catch { /* optional */ }
         // Liveness from here on: see the constants at the top.
         stopHeartbeat();
