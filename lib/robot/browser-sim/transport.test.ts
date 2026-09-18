@@ -513,3 +513,41 @@ test("an account's runs are posted as training data; a signed-out visitor's are 
     } finally { transport.close(); boot.mockRestore(); }
   }
 });
+
+test("proof granted at the verdict reaches the registry: the gate letting a task stand is what marks its skill ran", async () => {
+  // Wheel 0.0.24: a skill the AGENT ran is proven when its report(done=True)
+  // survives the gate, not when the run completes. So the flip from unproven
+  // to proven happens inside verify(), and the registry must hear it from there.
+  useLocks();
+  const ran: string[] = [];
+  let turn = 0;
+  apiStub(async (url, init) => {
+    if (url === "/api/me") return Response.json({ user: { id: "acct-7" } });
+    if (url.startsWith("/api/skills?")) return Response.json({ skills: [] });
+    if (url === "/api/skills/nod/ran") { ran.push(JSON.parse(String(init?.body)).platform); return Response.json({ ok: true }); }
+    if (url === "/api/skills" && init?.method === "POST") return Response.json({ ok: true });
+    return Response.json({ choices: [{ message: turn++ === 0
+      ? { tool_calls: [{ id: "run", function: { name: "run_skill", arguments: JSON.stringify({ name: "nod", params_json: "{}" }) } }] }
+      : { content: "Nodded." } }] });
+  });
+  const sim = Object.assign(fakeSim(), {
+    contract: { version: "test", system_prompt: "test", max_iterations: 2, tools: [{ name: "run_skill", description: "run", parameters: { type: "object", properties: {} } }] },
+    callTool: async () => "[]", beginTask: async () => {}, logEpisode: async () => ({ flushed: true }),
+    verify: async () => { sim.unproven = []; return null; },
+  });
+  sim.skills = ["nod"];
+  sim.unproven = ["nod"];
+  // The run itself proves nothing now: the store still lists nod as unproven.
+  sim.runTool.mockResolvedValue({ output: "Rehearsed clean, then nod ran (1 primitive calls).", plain: "It ran.", memory: null });
+  spyOn(BrowserSim, "boot").mockResolvedValue(sim as unknown as BrowserSim);
+  const events: RobotMessage[] = [];
+  const transport = new BrowserSimTransport((event) => events.push(event), { accountId: "acct-7" });
+  try {
+    await transport.open();
+    await transport.send({ type: "chat", text: "nod", dryRun: true, runId: "run" }, "test");
+    await settle();
+    expect(ran).toEqual(["openarm_v1"]);
+    const skillsEvents = events.filter((event) => event.type === "skills") as { unproven?: string[] }[];
+    expect(skillsEvents.at(-1)?.unproven).toEqual([]);
+  } finally { transport.close(); }
+});

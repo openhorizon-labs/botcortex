@@ -858,8 +858,19 @@ json.dumps(_report)
         // The runtime's own gate, asked across the worker boundary rather
         // than re-decided here — a browser that judged "done" by its own
         // rules would be a differently strict robot wearing the same name.
+        // A gate that lets the task stand is also the moment the skills the
+        // agent ran in it become proven (wheel 0.0.24), so the answer carries
+        // the skill list the way a tool reply does: the host mirrors proof to
+        // the registry from the difference.
         result = JSON.parse(
-          py.runPython(`import json; json.dumps(session.unverified())`),
+          py.runPython(`
+import json
+json.dumps({
+    "pushback": session.unverified(),
+    "skills": session.store.names(),
+    "unproven": session.store.unproven(),
+})
+`),
         );
         break;
       case "stop":

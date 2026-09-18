@@ -418,7 +418,15 @@ export class BrowserSim {
    * wearing the same name.
    */
   async verify(): Promise<Pushback | null> {
-    return (await this.ask({ type: "verify" })) ?? null;
+    const reply = (await this.ask({ type: "verify" })) as
+      | { pushback: Pushback | null; skills: string[]; unproven: string[] }
+      | null;
+    if (!reply) return null;
+    // Proof is granted at the verdict, not at the run (see the runtime's
+    // RobotSession._settle), so this is where the skill list can change.
+    this.skills = reply.skills;
+    this.unproven = reply.unproven;
+    return reply.pushback ?? null;
   }
 
   /** Record what this attempt taught, so the next teach can recall it.

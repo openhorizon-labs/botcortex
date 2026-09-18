@@ -597,7 +597,16 @@ export class BrowserSimTransport {
       fetcher: this.request,
       emit: this.emit,
       // The gate on saying "done" — the runtime's, not a second copy of it.
-      verify: () => sim.verify(),
+      // Since wheel 0.0.24 a verdict that stands is what PROVES the skills the
+      // agent ran in this task (a run completing only shows nothing crashed),
+      // so the registry hears about proof from here, not from run_skill.
+      verify: async () => {
+        const unprovenBefore = sim.unproven;
+        const pushback = await sim.verify();
+        this.markProven(sim, unprovenBefore);
+        this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
+        return pushback;
+      },
       dispatch: async (name, args) => {
         const unprovenBefore = sim.unproven;
         // "Which working skills are most like this task" is better answered by
