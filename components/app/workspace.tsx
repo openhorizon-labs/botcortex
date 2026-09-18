@@ -214,7 +214,7 @@ function AppInner() {
   const toggleSim = () => setSimOpen((open) => !open);
 
   const {
-    status, robot, skills, unproven, activity, messages, sendChat, runSkill, connect, host, fixturesRef,
+    status, robot, skills, unproven, activity, messages, sendChat, runSkill, deleteSkill, connect, host, fixturesRef,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
     connectBrowserSim,
     credit,
@@ -635,6 +635,7 @@ function AppInner() {
                         busy={busy}
                         unproven={unprovenSet.has(s)}
                         onRun={() => handleRunSkill(s)}
+                        onDelete={() => deleteSkill(s)}
                       />
                     </SidebarMenuItem>
                   ))

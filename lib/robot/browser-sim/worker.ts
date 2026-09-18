@@ -116,6 +116,8 @@ export type WorkerRequest =
    *  Rebuilds the local store from it (see `importSkills`). */
   | { id: number; type: "importSkills"; skills: RegistrySkill[] }
   | { id: number; type: "verify" }
+  /** The owner deleting a draft from the sidebar (see protocol delete_skill). */
+  | { id: number; type: "deleteSkill"; name: string }
   | { id: number; type: "stop" }
   | { id: number; type: "resetStop" };
 
@@ -873,6 +875,18 @@ json.dumps({
 `),
         );
         break;
+      case "deleteSkill": {
+        // The runtime's rule, not a second copy: only a skill never seen to
+        // work can go, and it says why otherwise. Flushed before the reply so
+        // "Deleted" on screen means gone from IndexedDB too.
+        py.globals.set("skill_name", request.name);
+        const [done, plain] = JSON.parse(
+          py.runPython(`import json; json.dumps(list(session.forget_skill(skill_name)))`),
+        ) as [boolean, string];
+        const memory = done ? await flush() : null;
+        result = { done, plain, memory, ...snapshot() };
+        break;
+      }
       case "stop":
         py.runPython(`STOP_FILE.touch()`);
         result = true;

@@ -120,6 +120,22 @@ async function fetchRegistrySkills(request: ReturnType<typeof accountFetcher>, p
   }
 }
 
+/** Drop the registry's copy of a deleted draft. The api applies the same
+ *  rule the runtime just did (a proven skill answers 409), so a refusal here
+ *  can only mean the two disagree — reported, never hidden. */
+async function forgetRemote(name: string, request: ReturnType<typeof accountFetcher>, platform: string): Promise<boolean> {
+  try {
+    const response = await request(`/api/skills/${encodeURIComponent(name)}?platform=${encodeURIComponent(platform)}`, {
+      method: "DELETE",
+    });
+    // 404: the registry never had it (a sync that failed), which is the
+    // outcome asked for.
+    return response.ok || response.status === 404;
+  } catch {
+    return false;
+  }
+}
+
 /** Tell the registry a skill it holds has now been seen to run. */
 async function persistProof(name: string, request: ReturnType<typeof accountFetcher>, platform: string): Promise<boolean> {
   try {
@@ -450,6 +466,16 @@ export class BrowserSimTransport {
         await this.run(() => this.runSkill(sim, message.name), message.runId);
         return;
 
+      case "delete_skill":
+        // Never mid-teach: the gate may be about to ask the agent to run the
+        // very skill being deleted. Same refusal as the runtime's.
+        if (this.busy) {
+          this.emit({ type: "chat", text: "The robot is still working on the last task. Wait for it to finish, or press STOP." });
+          return;
+        }
+        await this.run(() => this.deleteSkill(sim, message.name));
+        return;
+
       case "sync_skill": {
         const skill = this.saved.get(message.name);
         if (!skill) {
@@ -651,6 +677,21 @@ export class BrowserSimTransport {
     // fails — especially then, since a failed attempt is what carries a lesson
     // worth recalling.
     this.reportFlush(sim, await sim.logEpisode(text, saved, result.outcome, result.error));
+  }
+
+  private async deleteSkill(sim: BrowserSim, name: string) {
+    const reply = await sim.deleteSkill(name);
+    this.reportFlush(sim, reply.memory);
+    if (reply.done) {
+      this.saved.delete(name);
+      if (!(await forgetRemote(name, this.request, sim.platform))) {
+        this.emit({ type: "chat", text: `${reply.plain} The account registry still holds a copy; it will be cleared next time.` });
+        this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
+        return;
+      }
+    }
+    this.emit({ type: "chat", text: reply.plain });
+    this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
   }
 
   private async runSkill(sim: BrowserSim, name: string) {

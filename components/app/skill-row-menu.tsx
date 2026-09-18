@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Globe, Loader2, MoreHorizontal, Play } from "lucide-react";
+import { Check, Globe, Loader2, MoreHorizontal, Play, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,15 +14,22 @@ import { SidebarMenuAction } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
 /**
- * The hover menu on a skill row: run it, and see where it stands on the
- * public registry.
+ * The hover menu on a skill row: run it, see where it stands on the public
+ * registry, and delete it while it is still a draft.
  *
  * Publishing is automatic and not reversible here. A skill joins the registry
- * the first time it runs, and taking one down is a paid capability, so the
- * control is shown disabled rather than hidden: an owner should be able to
- * see that the choice exists and is not theirs yet, which a missing menu item
- * cannot say. The api refuses the same thing with the same reason, so this is
- * not a lock that a curl gets past.
+ * the first time it is proven, and taking one down is a paid capability, so
+ * the control is shown disabled rather than hidden: an owner should be able
+ * to see that the choice exists and is not theirs yet, which a missing menu
+ * item cannot say. The api refuses the same thing with the same reason, so
+ * this is not a lock that a curl gets past.
+ *
+ * Delete follows the same line. A skill that has never been seen to work is
+ * the owner's to throw away — it is what a failed teach leaves behind. A
+ * proven one is published, and deleting it would be the withdrawal the
+ * publish menu refuses, under another name. The robot decides (the rule is
+ * the runtime's) and answers in chat; the item is disabled here only so the
+ * button does not lie about what will happen.
  *
  * State is read when the menu opens rather than kept in the provider: it is
  * one small request per open, and the sidebar never has to track a flag that
@@ -34,12 +41,14 @@ export function SkillRowMenu({
   busy,
   unproven,
   onRun,
+  onDelete,
 }: {
   name: string;
   platform: string | undefined;
   busy: boolean;
   unproven: boolean;
   onRun: () => void;
+  onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [published, setPublished] = useState<boolean | null>(null);
@@ -86,6 +95,10 @@ export function SkillRowMenu({
     }
   }
 
+  // Only a draft can go. Busy is refused by the robot too; disabling here
+  // just keeps the item honest about what pressing it would do.
+  const deletable = unproven && !busy;
+
   return (
     <DropdownMenu
       open={open}
@@ -122,15 +135,20 @@ export function SkillRowMenu({
           {working ? <Loader2 className="animate-spin" /> : <Globe />}
           {published ? "Remove from public registry" : "Put back on public registry"}
         </DropdownMenuItem>
+        {/* Not styled as destructive: red is STOP's, and this is a draft
+            going in the bin, not an arm being halted. */}
+        <DropdownMenuItem disabled={!deletable} onSelect={onDelete}>
+          <Trash2 /> {busy ? "Robot busy" : "Delete"}
+        </DropdownMenuItem>
         <p className={cn("px-2 pt-1 pb-1.5 text-xs leading-relaxed text-muted-foreground", note && "text-foreground")}>
           {note
             ? note
             : unproven
-              ? "Run it successfully first — it joins the public registry on its own once it has."
+              ? "Never seen to work, so it can be deleted. Run it successfully and it joins the public registry on its own — and stays."
               : published === null
                 ? "Checking the registry…"
                 : published
-                  ? "Listed on the public registry at /skills, as every successful skill is. Taking one down comes with a paid plan."
+                  ? "Listed on the public registry at /skills, as every proven skill is. Taking one down, or deleting it, comes with a paid plan."
                   : "Unlisted until this version runs. Run it, or put it back now."}
         </p>
         {note?.startsWith("Listed") && <Check className="sr-only" />}

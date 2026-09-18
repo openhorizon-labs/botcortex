@@ -88,6 +88,11 @@ export type ClientMessage =
   /** Retry copying a saved skill to the account registry. Honoured by the
    *  browser sim, which holds the code; a runtime syncs on its own. */
   | { type: "sync_skill"; name: string }
+  /** The sidebar's Delete. Honoured only for a skill that has never been seen
+   *  to work — a proven one is on the public registry, and taking it down is
+   *  the paid capability. The rule is the runtime's (RobotSession.forget_skill),
+   *  so every backend answers the same way, in a chat message. */
+  | { type: "delete_skill"; name: string }
   /** Sent once per page load so a refresh gives a clean scene. The runtime
    *  ignores it while busy, and backends with a physical arm never honour it. */
   | { type: "reset_sim" }

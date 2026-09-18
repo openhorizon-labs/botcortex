@@ -120,6 +120,9 @@ type RobotContextValue = {
   disconnect: () => void;
   sendChat: (text: string, dryRun: boolean, model?: string | null) => boolean;
   runSkill: (name: string, dryRun: boolean) => boolean;
+  /** Delete a skill that never ran successfully. The robot decides and
+   *  answers in chat; a proven skill is refused because it is published. */
+  deleteSkill: (name: string) => boolean;
   /** Stop the agent mid-task WITHOUT latching the e-stop — "not that task",
    *  not "the arm is about to hit something". False when nothing was running,
    *  or when this robot cannot be interrupted (a real runtime authors on the
@@ -1356,6 +1359,8 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   }, []);
   const interruptible = Boolean(simRef.current) && activity !== "idle";
 
+  const deleteSkill = useCallback((name: string) => send({ type: "delete_skill", name }), [send]);
+
   /** Ask the browser sim to copy a saved skill to the registry again. */
   const retrySync = useCallback((name: string) => send({ type: "sync_skill", name }), [send]);
 
@@ -1522,6 +1527,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         disconnect,
         sendChat,
         runSkill,
+        deleteSkill,
         stop,
         stopped: stopState === "latched" || stopState === "unknown",
         stopState,

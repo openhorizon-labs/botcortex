@@ -551,3 +551,45 @@ test("proof granted at the verdict reaches the registry: the gate letting a task
     expect(skillsEvents.at(-1)?.unproven).toEqual([]);
   } finally { transport.close(); }
 });
+
+test("deleting a draft removes it from the robot and the registry; a proven skill is refused by the robot and never reaches the registry", async () => {
+  useLocks();
+  const deleted: string[] = [];
+  apiStub(async (url, init) => {
+    if (url === "/api/me") return Response.json({ user: { id: "acct-7" } });
+    if (url.startsWith("/api/skills?")) return Response.json({ skills: [] });
+    if (url.startsWith("/api/skills/") && init?.method === "DELETE") { deleted.push(url); return Response.json({ ok: true }); }
+    if (url === "/api/skills" && init?.method === "POST") return Response.json({ ok: true });
+    return new Response(null, { status: 404 });
+  });
+  const sim = Object.assign(fakeSim(), {
+    deleteSkill: mock(async (name: string) => {
+      if (name === "draft") {
+        sim.skills = ["works"];
+        sim.unproven = [];
+        return { done: true, plain: "Deleted draft. It was never seen to work, so nothing else refers to it.", memory: null };
+      }
+      return { done: false, plain: `${name} has been seen to work, so it is on the public registry and cannot be deleted.`, memory: null };
+    }),
+  });
+  sim.skills = ["draft", "works"];
+  sim.unproven = ["draft"];
+  spyOn(BrowserSim, "boot").mockResolvedValue(sim as unknown as BrowserSim);
+  const events: RobotMessage[] = [];
+  const transport = new BrowserSimTransport((event) => events.push(event), { accountId: "acct-7" });
+  try {
+    await transport.open();
+    await transport.send({ type: "delete_skill", name: "draft" }, "test");
+    await settle();
+    const last = (type: RobotMessage["type"]) => events.filter((event) => event.type === type).at(-1);
+    expect(deleted).toEqual(["/api/skills/draft?platform=openarm_v1"]);
+    expect(last("chat")).toMatchObject({ text: expect.stringMatching(/^Deleted draft/) });
+    expect(last("skills")).toEqual({ type: "skills", skills: ["works"], unproven: [] });
+
+    await transport.send({ type: "delete_skill", name: "works" }, "test");
+    await settle();
+    expect(deleted).toHaveLength(1);
+    expect(last("chat")).toMatchObject({ text: expect.stringContaining("cannot be deleted") });
+    expect(last("skills")).toEqual({ type: "skills", skills: ["works"], unproven: [] });
+  } finally { transport.close(); }
+});

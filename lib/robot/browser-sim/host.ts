@@ -60,6 +60,7 @@ export const DEADLINES_MS: Record<WorkerRequest["type"], number> = {
   // skills is still seconds, not minutes.
   importSkills: 60_000,
   verify: 15_000,
+  deleteSkill: 15_000,
   stop: 15_000,
   resetStop: 15_000,
 };
@@ -407,6 +408,21 @@ export class BrowserSim {
   /** Start a task with no claims about it. See `verify`. */
   async beginTask(task?: string): Promise<void> {
     await this.ask({ type: "beginTask", task });
+  }
+
+  /** Delete a skill the owner never saw work. The runtime decides (a proven
+   *  skill is refused with the reason); `plain` is what to tell the owner. */
+  async deleteSkill(name: string): Promise<{ done: boolean; plain: string; memory: FlushReport | null }> {
+    const reply = (await this.ask({ type: "deleteSkill", name })) as {
+      done: boolean;
+      plain: string;
+      memory: FlushReport | null;
+      skills: string[];
+      unproven: string[];
+    };
+    this.skills = reply.skills;
+    this.unproven = reply.unproven;
+    return { done: reply.done, plain: reply.plain, memory: reply.memory };
   }
 
   /**
