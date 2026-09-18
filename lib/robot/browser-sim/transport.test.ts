@@ -583,13 +583,16 @@ test("deleting a draft removes it from the robot and the registry; a proven skil
     await settle();
     const last = (type: RobotMessage["type"]) => events.filter((event) => event.type === type).at(-1);
     expect(deleted).toEqual(["/api/skills/draft?platform=openarm_v1"]);
-    expect(last("chat")).toMatchObject({ text: expect.stringMatching(/^Deleted draft/) });
+    // Its own event, never chat: a chat line with no run is filed as a new task.
+    expect(events.some((event) => event.type === "chat")).toBe(false);
+    expect(last("forgotten")).toEqual({ type: "forgotten", skill: "draft", ok: true, text: expect.stringMatching(/^Deleted draft/) });
     expect(last("skills")).toEqual({ type: "skills", skills: ["works"], unproven: [] });
 
     await transport.send({ type: "delete_skill", name: "works" }, "test");
     await settle();
     expect(deleted).toHaveLength(1);
-    expect(last("chat")).toMatchObject({ text: expect.stringContaining("cannot be deleted") });
+    expect(last("forgotten")).toEqual({ type: "forgotten", skill: "works", ok: false, text: expect.stringContaining("cannot be deleted") });
     expect(last("skills")).toEqual({ type: "skills", skills: ["works"], unproven: [] });
+    expect(events.some((event) => event.type === "chat")).toBe(false);
   } finally { transport.close(); }
 });

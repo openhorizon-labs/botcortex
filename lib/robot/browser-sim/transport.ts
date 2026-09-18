@@ -470,7 +470,7 @@ export class BrowserSimTransport {
         // Never mid-teach: the gate may be about to ask the agent to run the
         // very skill being deleted. Same refusal as the runtime's.
         if (this.busy) {
-          this.emit({ type: "chat", text: "The robot is still working on the last task. Wait for it to finish, or press STOP." });
+          this.emit({ type: "forgotten", skill: message.name, ok: false, text: "The robot is still working on the last task. Wait for it to finish, or press STOP." });
           return;
         }
         await this.run(() => this.deleteSkill(sim, message.name));
@@ -682,15 +682,15 @@ export class BrowserSimTransport {
   private async deleteSkill(sim: BrowserSim, name: string) {
     const reply = await sim.deleteSkill(name);
     this.reportFlush(sim, reply.memory);
+    let text = reply.plain;
     if (reply.done) {
       this.saved.delete(name);
       if (!(await forgetRemote(name, this.request, sim.platform))) {
-        this.emit({ type: "chat", text: `${reply.plain} The account registry still holds a copy; it will be cleared next time.` });
-        this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
-        return;
+        text += " The account registry still holds a copy; it will be cleared next time.";
       }
     }
-    this.emit({ type: "chat", text: reply.plain });
+    // Not a chat message: nothing here belongs to a task (see protocol).
+    this.emit({ type: "forgotten", skill: name, ok: reply.done, text });
     this.emit({ type: "skills", skills: sim.skills, unproven: sim.unproven });
   }
 

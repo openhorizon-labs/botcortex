@@ -189,6 +189,11 @@ export type RobotMessage =
    *  entirely — a cross-repo shape mismatch that typechecked only because
    *  nothing handled it. */
   | { type: "sync"; skill: string; ok: boolean }
+  /** The answer to delete_skill. Its own event, bound to no run, because a
+   *  chat message with no run to belong to is filed as a new task — and a
+   *  task whose whole transcript is "Deleted nod." is noise. `text` is what
+   *  the robot decided, in the owner's words: gone, or refused and why. */
+  | { type: "forgotten"; skill: string; ok: boolean; text: string }
   /** Whether the robot's skills and episodes outlive this session, and
    *  whether the latest change reached that storage. `durable: false` with
    *  `unsaved: true` is the state the owner must see: something was taught
@@ -263,6 +268,7 @@ export function parseRobotMessage(raw: string): RobotMessage | null {
         record(joints) && Object.values(joints).every(finite)) && optional("objects", scene);
       break;
     case "sync": valid = text(msg.skill) && bool(msg.ok); break;
+    case "forgotten": valid = text(msg.skill) && bool(msg.ok) && text(msg.text); break;
     case "memory": valid = bool(msg.durable) && bool(msg.unsaved) && optional("detail", text); break;
     case "plan":
       valid = Array.isArray(msg.steps) && msg.steps.every((step) => record(step) &&

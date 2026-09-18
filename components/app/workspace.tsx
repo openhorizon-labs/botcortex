@@ -214,7 +214,7 @@ function AppInner() {
   const toggleSim = () => setSimOpen((open) => !open);
 
   const {
-    status, robot, skills, unproven, activity, messages, sendChat, runSkill, deleteSkill, connect, host, fixturesRef,
+    status, robot, skills, unproven, activity, messages, sendChat, runSkill, deleteSkill, forgotten, connect, host, fixturesRef,
     conversations, conversationId, newConversation, openConversation, deleteConversation,
     connectBrowserSim,
     credit,
@@ -585,6 +585,20 @@ function AppInner() {
               <TooltipContent>Teach a new skill</TooltipContent>
             </Tooltip>
             <SidebarGroupContent>
+              {/* The robot's answer to Delete, here rather than in the chat:
+                  it belongs to no task, and a task made of "Deleted nod." is
+                  noise. Clears itself. */}
+              {forgotten && (
+                <p
+                  role="status"
+                  className={cn(
+                    "px-2 pb-1.5 text-xs leading-relaxed group-data-[collapsible=icon]:hidden",
+                    forgotten.ok ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {forgotten.text}
+                </p>
+              )}
               <SidebarMenu>
                 {skillList.length === 0 ? (
                   <p className="px-2 py-1.5 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">

@@ -185,6 +185,9 @@ type RobotContextValue = {
   /** Skills saved on the robot whose copy did not reach the registry. */
   syncFailures: string[];
   retrySync: (name: string) => boolean;
+  /** The robot's answer to the last Delete, shown by the skill list and
+   *  cleared on its own. Not a chat message: it belongs to no task. */
+  forgotten: { skill: string; ok: boolean; text: string } | null;
   /** Socket open, nothing heard for a while: the arm on screen is old news. */
   telemetryStale: boolean;
 
@@ -294,6 +297,8 @@ export function RobotProvider({ children, accountId = null }: { children: React.
   const [ranModel, setRanModel] = useState<string | null>(null);
   const [memory, setMemory] = useState<MemoryState | null>(null);
   const [syncFailures, setSyncFailures] = useState<string[]>([]);
+  const [forgotten, setForgotten] = useState<{ skill: string; ok: boolean; text: string } | null>(null);
+  const forgottenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [telemetryStale, setTelemetryStale] = useState(false);
   const [historyTruncated, setHistoryTruncated] = useState(false);
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
@@ -987,6 +992,14 @@ export function RobotProvider({ children, accountId = null }: { children: React.
             msg.ok ? prev.filter((name) => name !== msg.skill)
               : prev.includes(msg.skill) ? prev : [...prev, msg.skill]);
           break;
+        case "forgotten":
+          // Shown beside the skill list for a moment, then gone — the row
+          // itself disappearing is the real confirmation; the words matter
+          // when the robot refused.
+          setForgotten({ skill: msg.skill, ok: msg.ok, text: msg.text });
+          if (forgottenTimerRef.current) clearTimeout(forgottenTimerRef.current);
+          forgottenTimerRef.current = setTimeout(() => setForgotten(null), msg.ok ? 6_000 : 12_000);
+          break;
         case "memory":
           setMemory({ durable: msg.durable, unsaved: msg.unsaved, detail: msg.detail ?? null });
           break;
@@ -1551,6 +1564,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         memory,
         syncFailures,
         retrySync,
+        forgotten,
         telemetryStale,
         simOpen,
         setSimOpen,
