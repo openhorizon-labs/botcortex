@@ -142,6 +142,9 @@ export type RobotMessage =
       stopped?: boolean;
       /** Whether this backend can be snapped home (sim/mock, never hardware). */
       resettable?: boolean;
+      /** Whether GET /camera.mjpg on the robot's http address shows what its
+       *  camera sees. A real arm with a camera; the sim and mock have none. */
+      camera?: boolean;
       /** Whether this robot holds a key, so teaching spends BotCortex credit
        *  rather than the owner's own model provider. */
       paired?: boolean;
@@ -241,7 +244,7 @@ export function parseRobotMessage(raw: string): RobotMessage | null {
   let valid = false;
   switch (msg.type) {
     case "hello":
-      valid = record(msg.robot) && text(msg.robot.name) && text(msg.robot.platform) &&
+      valid = record(msg.robot) && text(msg.robot.name) && text(msg.robot.platform) && optional("camera", bool) &&
         (msg.robot.version === undefined || text(msg.robot.version)) &&
         (msg.robot.gripper === undefined || (record(msg.robot.gripper) &&
           finite(msg.robot.gripper.minDeg) && finite(msg.robot.gripper.maxDeg) &&

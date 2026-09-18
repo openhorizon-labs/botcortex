@@ -188,6 +188,9 @@ type RobotContextValue = {
   /** The robot's answer to the last Delete, shown by the skill list and
    *  cleared on its own. Not a chat message: it belongs to no task. */
   forgotten: { skill: string; ok: boolean; text: string } | null;
+  /** Where the connected robot's camera can be watched (motion JPEG), or
+   *  null: no robot, or one with no camera. */
+  cameraFeed: string | null;
   /** Socket open, nothing heard for a while: the arm on screen is old news. */
   telemetryStale: boolean;
 
@@ -282,6 +285,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
    *  news, and offering to share forty skills on connect would be noise. */
   const unprovenRef = useRef<string[] | null>(null);
   const [host, setHost] = useState<string | null>(null);
+  const [cameraFeed, setCameraFeed] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState("idle");
   const [working, setWorking] = useState<string | null>(null);
@@ -1100,6 +1104,10 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         retriesRef.current = 0;
         setStatus("connected");
         setHost(endpoint.host);
+        // The feed is plain http next to the socket, on the same address —
+        // so a robot reached over ws:// is watched over http://, and the
+        // same mixed-content rule that let the socket through lets this.
+        setCameraFeed(msg.camera ? `${httpUrl(endpoint)}/camera.mjpg` : null);
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ host: endpoint.host, secure: endpoint.secure, explicitScheme: endpoint.explicitScheme })); } catch { /* optional */ }
         // Liveness from here on: see the constants at the top.
         stopHeartbeat();
@@ -1186,6 +1194,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
       setRobot(null);
       setSkills(null);
       setHost(null);
+      setCameraFeed(null);
       setStopState("clear");
       setActivity("idle");
       setPairing(null);
@@ -1238,6 +1247,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
     setError(null);
     setStatus("connecting");
     setHost(null);
+    setCameraFeed(null);
     setRobot(null);
     setSkills(null);
     setStopState("clear");
@@ -1565,6 +1575,7 @@ export function RobotProvider({ children, accountId = null }: { children: React.
         syncFailures,
         retrySync,
         forgotten,
+        cameraFeed,
         telemetryStale,
         simOpen,
         setSimOpen,

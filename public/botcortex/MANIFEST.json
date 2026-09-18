@@ -1,11 +1,11 @@
 {
-  "wheel": "botcortex-0.0.26-py3-none-any.whl",
-  "sha256": "e8c4b79a62aabc2096cb89f3cb746d173ff87cc607f76c4da872dc2c0549ecc5",
-  "contractVersion": "0.0.26",
+  "wheel": "botcortex-0.0.27-py3-none-any.whl",
+  "sha256": "18a1816752117263b264661412e943c28c1e3709a0bfe3c86af9cb1c17c9fdfe",
+  "contractVersion": "0.0.27",
   "platform": "openarm_v1",
-  "runtimeCommit": "8debedccc390d8d14860753852f9a43f0c4dd24c",
+  "runtimeCommit": "3b2eebdea7e5d023ec8bcc025d25b5ec5ba67e8d",
   "runtimeRepo": "openhorizon-labs/botcortex-runtime",
-  "recordedAt": "2026-09-18T04:52:00Z",
+  "recordedAt": "2026-09-18T08:05:27Z",
   "catalog": [
     {
       "name": "openarm_v1",

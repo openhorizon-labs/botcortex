@@ -8,6 +8,7 @@
  */
 
 import dynamic from "next/dynamic";
+import { useState } from "react";
 import { PanelRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -36,8 +37,17 @@ export function SimPanel({
   open: boolean;
   onClose: () => void;
 }) {
-  const { robot, activity, status, simBooting } = useRobot();
+  const { robot, activity, status, simBooting, cameraFeed } = useRobot();
+  // A real arm with a camera shows both: the twin the arm plans in, and what
+  // the camera sees. One is the picture, the other an inset; a click swaps
+  // them. The sim and the mock have no camera, and no inset.
+  const [cameraLarge, setCameraLarge] = useState(false);
   if (!open) return null;
+  const twin = <SimView />;
+  const camera = cameraFeed ? (
+    // eslint-disable-next-line @next/next/no-img-element -- a motion-JPEG stream, not an asset
+    <img src={cameraFeed} alt="What the robot's camera sees" className="size-full object-contain" />
+  ) : null;
 
   return (
     <div data-sim-panel className="relative z-10 flex h-full w-1/2 min-w-0 flex-col overflow-hidden border-l border-border bg-background">
@@ -68,7 +78,21 @@ export function SimPanel({
         )}
       </header>
       <div className="relative min-h-0 flex-1 overflow-hidden bg-surface-2">
-        <SimView />
+        {camera && cameraLarge ? camera : twin}
+        {camera && (
+          <button
+            type="button"
+            onClick={() => setCameraLarge((large) => !large)}
+            aria-label={cameraLarge ? "Show the simulation large" : "Show the camera large"}
+            title={cameraLarge ? "Simulation — click to swap" : "Camera — click to swap"}
+            className="absolute right-3 bottom-3 aspect-[4/3] w-2/5 cursor-pointer overflow-hidden rounded-md border border-border bg-background shadow-sm"
+          >
+            {cameraLarge ? twin : camera}
+            <span className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <LiveDot /> {cameraLarge ? "twin" : "camera"}
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );
