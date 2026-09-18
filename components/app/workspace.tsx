@@ -242,7 +242,16 @@ function AppInner() {
     setSuggestedFrom(0);
   }, [suggested]);
   // Named `deck`, not `window`: that identifier is the DOM's.
-  const deck = order.length ? order : suggested.map((_, i) => i);
+  //
+  // For one render after a different body says hello, `order` is still the
+  // LAST body's — the effect above has not run yet — and a one-armed robot
+  // with two fixtures has fewer ideas than a two-armed one with three. An
+  // index past the end of the new list crashed the page on switching from
+  // the browser sim to a RoArm. A stale order is replaced by the plain one
+  // until the redraw lands.
+  const deck = order.length && order.every((i) => i < suggested.length)
+    ? order
+    : suggested.map((_, i) => i);
   const shuffleSuggestions = () => {
     const next = suggestedFrom + SUGGESTED_SHOWN;
     if (next + SUGGESTED_SHOWN <= deck.length) {
