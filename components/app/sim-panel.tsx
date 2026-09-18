@@ -46,7 +46,12 @@ export function SimPanel({
   const twin = <SimView />;
   const camera = cameraFeed ? (
     // eslint-disable-next-line @next/next/no-img-element -- a motion-JPEG stream, not an asset
-    <img src={cameraFeed} alt="What the robot's camera sees" className="size-full object-contain" />
+    //
+    // crossOrigin: /app is served with Cross-Origin-Embedder-Policy
+    // require-corp (the STOP flag's SharedArrayBuffer needs it), which blocks
+    // a plain cross-origin image. Requested with CORS instead, which the
+    // runtime allows from any origin, the stream is let through.
+    <img src={cameraFeed} crossOrigin="anonymous" alt="What the robot's camera sees" className="size-full object-contain" />
   ) : null;
 
   return (
